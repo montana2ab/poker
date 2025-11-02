@@ -2,6 +2,25 @@
 
 import cv2
 import numpy as np
+import os
+import numpy as np
+import cv2
+from PIL import Image
+
+def _load_refs_from_paths(profile):
+    # reference_image: path -> ndarray (BGR)
+    if isinstance(getattr(profile, "reference_image", None), str) and os.path.exists(profile.reference_image):
+        img = cv2.imread(profile.reference_image)
+        if img is None:
+            img = cv2.cvtColor(np.array(Image.open(profile.reference_image).convert("RGB")), cv2.COLOR_RGB2BGR)
+        profile.reference_image = img
+
+    # descriptors: path -> ndarray
+    desc_path = getattr(profile, "descriptors", None)
+    if isinstance(desc_path, str) and os.path.exists(desc_path):
+        z = np.load(desc_path)
+        profile.descriptors = z["des"] if "des" in z else next(iter(z.values()))
+# --- END PATCH --
 from typing import Optional, Tuple
 from holdem.vision.calibrate import TableProfile
 from holdem.utils.logging import get_logger
