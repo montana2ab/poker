@@ -103,7 +103,11 @@ def main():
                 x, y, w, h = profile.screen_region
                 screenshot = screen_capture.capture_region(x, y, w, h)
             else:
-                screenshot = screen_capture.capture_window(profile.window_title)
+                screenshot = screen_capture.capture_window(
+                    profile.window_title,
+                    owner_name=profile.owner_name,
+                    screen_region=profile.screen_region
+                )
             
             if screenshot is None:
                 time.sleep(1.0)
