@@ -12,7 +12,9 @@ logger = setup_logger("profile_wizard")
 def main():
     parser = argparse.ArgumentParser(description="Table calibration wizard")
     parser.add_argument("--window-title", type=str,
-                       help="Window title to capture")
+                       help="Window title to capture (partial match, case-insensitive)")
+    parser.add_argument("--owner-name", type=str,
+                       help="Application owner name (e.g., 'PokerStars') for fallback detection on macOS")
     parser.add_argument("--region", type=int, nargs=4, metavar=("X", "Y", "W", "H"),
                        help="Screen region (x y width height)")
     parser.add_argument("--out", type=Path, required=True,
@@ -28,8 +30,10 @@ def main():
     
     if args.window_title:
         logger.info(f"Capturing window: {args.window_title}")
-        screenshot = screen_capture.capture_window(args.window_title)
-        window_region = screen_capture.find_window_region(args.window_title)
+        if args.owner_name:
+            logger.info(f"Using owner name for fallback: {args.owner_name}")
+        screenshot = screen_capture.capture_window(args.window_title, owner_name=args.owner_name)
+        window_region = screen_capture.find_window_region(args.window_title, owner_name=args.owner_name)
     elif args.region:
         x, y, w, h = args.region
         logger.info(f"Capturing region: ({x}, {y}, {w}, {h})")
@@ -54,6 +58,11 @@ def main():
     
     profile.screen_region = window_region
     
+    # Set owner_name if provided (helps with window detection on macOS)
+    if args.owner_name:
+        profile.owner_name = args.owner_name
+        logger.info(f"Set owner_name to: {args.owner_name}")
+    
     # Save profile
     profile.save(args.out)
     
@@ -65,6 +74,12 @@ def main():
     logger.info("1. Build abstraction buckets")
     logger.info("2. Train blueprint strategy")
     logger.info("3. Run dry-run mode to test")
+    logger.info("")
+    logger.info("📖 For detailed calibration instructions, see: CALIBRATION_GUIDE.md")
+    logger.info("⚠️  For PokerStars on macOS:")
+    logger.info("   - Grant Screen Recording permission in System Preferences")
+    logger.info("   - Use --owner-name 'PokerStars' for better window detection")
+    logger.info("   - See CALIBRATION_GUIDE.md for platform-specific tips")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,117 @@
+{
+  "window_title": "Hold'em",
+  "owner_name": "PokerStars",
+  "screen_region": null,
+  "reference_image": null,
+  "descriptors": null,
+  "card_regions": [
+    {
+      "x": 400,
+      "y": 320,
+      "width": 400,
+      "height": 120
+    }
+  ],
+  "player_regions": [
+    {
+      "position": 0,
+      "name": "Seat 1 (Bottom Left)",
+      "name_region": {"x": 150, "y": 650, "width": 120, "height": 25},
+      "stack_region": {"x": 150, "y": 675, "width": 120, "height": 25},
+      "card_region": {"x": 130, "y": 700, "width": 100, "height": 80}
+    },
+    {
+      "position": 1,
+      "name": "Seat 2 (Left)",
+      "name_region": {"x": 80, "y": 480, "width": 120, "height": 25},
+      "stack_region": {"x": 80, "y": 505, "width": 120, "height": 25},
+      "card_region": {"x": 60, "y": 530, "width": 100, "height": 80}
+    },
+    {
+      "position": 2,
+      "name": "Seat 3 (Top Left)",
+      "name_region": {"x": 150, "y": 310, "width": 120, "height": 25},
+      "stack_region": {"x": 150, "y": 335, "width": 120, "height": 25},
+      "card_region": {"x": 130, "y": 360, "width": 100, "height": 80}
+    },
+    {
+      "position": 3,
+      "name": "Seat 4 (Top)",
+      "name_region": {"x": 320, "y": 200, "width": 120, "height": 25},
+      "stack_region": {"x": 320, "y": 225, "width": 120, "height": 25},
+      "card_region": {"x": 300, "y": 250, "width": 100, "height": 80}
+    },
+    {
+      "position": 4,
+      "name": "Seat 5 (Top Center)",
+      "name_region": {"x": 490, "y": 150, "width": 120, "height": 25},
+      "stack_region": {"x": 490, "y": 175, "width": 120, "height": 25},
+      "card_region": {"x": 470, "y": 200, "width": 100, "height": 80}
+    },
+    {
+      "position": 5,
+      "name": "Seat 6 (Top Right)",
+      "name_region": {"x": 660, "y": 200, "width": 120, "height": 25},
+      "stack_region": {"x": 660, "y": 225, "width": 120, "height": 25},
+      "card_region": {"x": 640, "y": 250, "width": 100, "height": 80}
+    },
+    {
+      "position": 6,
+      "name": "Seat 7 (Right Top)",
+      "name_region": {"x": 830, "y": 310, "width": 120, "height": 25},
+      "stack_region": {"x": 830, "y": 335, "width": 120, "height": 25},
+      "card_region": {"x": 810, "y": 360, "width": 100, "height": 80}
+    },
+    {
+      "position": 7,
+      "name": "Seat 8 (Right)",
+      "name_region": {"x": 900, "y": 480, "width": 120, "height": 25},
+      "stack_region": {"x": 900, "y": 505, "width": 120, "height": 25},
+      "card_region": {"x": 880, "y": 530, "width": 100, "height": 80}
+    },
+    {
+      "position": 8,
+      "name": "Seat 9 (Bottom Right)",
+      "name_region": {"x": 830, "y": 650, "width": 120, "height": 25},
+      "stack_region": {"x": 830, "y": 675, "width": 120, "height": 25},
+      "card_region": {"x": 810, "y": 700, "width": 100, "height": 80}
+    }
+  ],
+  "pot_region": {
+    "x": 450,
+    "y": 380,
+    "width": 200,
+    "height": 80
+  },
+  "bet_regions": [],
+  "button_regions": {
+    "fold": {"x": 250, "y": 820, "width": 140, "height": 50},
+    "check": {"x": 420, "y": 820, "width": 140, "height": 50},
+    "call": {"x": 420, "y": 820, "width": 140, "height": 50},
+    "bet": {"x": 590, "y": 820, "width": 140, "height": 50},
+    "raise": {"x": 590, "y": 820, "width": 140, "height": 50},
+    "allin": {"x": 760, "y": 820, "width": 140, "height": 50}
+  },
+  "_comments": {
+    "description": "PokerStars No Limit Hold'em 9-player table profile template",
+    "usage": [
+      "This template is designed for PokerStars 9-max tables on macOS",
+      "To use:",
+      "1. Copy this file to a new profile name",
+      "2. Run profile_wizard with --window-title 'Hold'em' to capture reference image",
+      "3. Adjust regions if needed based on your screen resolution",
+      "4. The 'owner_name' field helps detect PokerStars windows even if title changes"
+    ],
+    "player_positions": "Positions 0-8 arranged clockwise starting from bottom-left",
+    "macOS_tips": [
+      "Grant Screen Recording permission in System Preferences",
+      "Use owner_name='PokerStars' for reliable window detection",
+      "Window titles change per table, so partial matching is recommended"
+    ],
+    "typical_resolutions": {
+      "1080p": "Coordinates are based on 1920x1080 standard table size",
+      "4k": "May need to scale coordinates by 2x for 4K displays",
+      "retina": "macOS Retina displays use logical resolution, not physical"
+    }
+  }
+}
