@@ -9,6 +9,7 @@ from holdem.abstraction.features import extract_features, extract_simple_feature
 from holdem.utils.rng import get_rng
 from holdem.utils.serialization import save_pickle, load_pickle
 from holdem.utils.logging import get_logger
+from holdem.utils.arrays import prepare_for_sklearn
 
 logger = get_logger("abstraction.bucketing")
 
@@ -41,7 +42,8 @@ class HandBucketing:
                 features = extract_simple_features(hole_cards, board)
                 features_list.append(features)
             
-            X = np.array(features_list)
+            # Prepare data for sklearn (ensures float64 and C-contiguous)
+            X = prepare_for_sklearn(np.array(features_list))
             
             # Fit k-means
             kmeans = KMeans(n_clusters=k, random_state=self.config.seed, n_init=10)
@@ -96,7 +98,9 @@ class HandBucketing:
             raise ValueError(f"No model for street {street}")
         
         features = extract_simple_features(hole_cards, board)
-        bucket = self.models[street].predict([features])[0]
+        # Ensure features are properly prepared for sklearn
+        features = prepare_for_sklearn(features.reshape(1, -1))
+        bucket = self.models[street].predict(features)[0]
         return int(bucket)
     
     def save(self, path: Path):

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Setup script to initialize the poker AI system."""
+"""
+Asset setup script to initialize directories and vision assets.
+This is NOT the package setup - use 'pip install -e .' for that.
+"""
 
 import sys
 from pathlib import Path

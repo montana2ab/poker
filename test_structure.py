@@ -113,7 +113,7 @@ required_files = [
     "LICENSE",
     "requirements.txt",
     "pyproject.toml",
-    "setup.py",
+    "setup_assets.py",
     "verify_structure.py",
     "install.sh",
     "activate.sh",
@@ -179,7 +179,7 @@ else:
     if not all_scripts_ok:
         print("  - Check wrapper scripts in bin/")
     if not all_dirs_ok:
-        print("  - Run: python setup.py")
+        print("  - Run: python setup_assets.py")
     if not all_files_ok:
         print("  - Some required files are missing")
 

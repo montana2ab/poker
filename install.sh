@@ -32,7 +32,7 @@ pip install -e . || {
 
 echo ""
 echo "Step 2: Running setup script..."
-python3 setup.py
+python3 setup_assets.py
 
 echo ""
 echo "Step 3: Verifying installation..."
