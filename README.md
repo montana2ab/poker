@@ -6,11 +6,18 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 ## Features
 
-- **Vision System**: Screen capture (mss), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
+- **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
 - **Abstraction**: 7-action bucket {Fold, Check/Call, 0.25×pot, 0.5×pot, 1.0×pot, 2.0×pot, All-in} + k-means clustering per street based on equity, position, SPR, draws
 - **Blueprint Training**: MCCFR/CFR+ with outcome sampling, exports average policy to JSON/PyTorch format
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with KL regularization toward blueprint, time-budgeted (e.g., 80ms), fallback to blueprint on timeout
 - **Control**: Dry-run mode by default; optional auto-click with confirmations, minimum delays, hotkeys (pause/stop), requires `--i-understand-the-tos` flag
+
+## Platform Support
+
+This project supports **Windows**, **macOS**, and **Linux**:
+- **Windows**: Uses `pywinauto` for native window management via Win32 API
+- **macOS**: Uses `pyobjc-framework-Quartz` for native Quartz window management, with `pygetwindow` as fallback
+- **Linux**: Uses `pygetwindow` for X11 window management
 
 ## Requirements
 
@@ -265,6 +272,14 @@ Individual test modules:
   ```
 
 ### macOS Specific Issues
+
+**Problem: Window detection not working on macOS**
+- Cause: macOS requires the `pyobjc-framework-Quartz` package for native window management
+- Solution: The package is automatically installed on macOS via platform-specific dependencies. If you encounter issues:
+  ```bash
+  pip install pyobjc-framework-Quartz
+  ```
+  If Quartz is not available, the system will automatically fall back to `pygetwindow`.
 
 **Problem: AppleScript/Accessibility Error -10003**
 - Cause: macOS requires explicit permissions for screen recording and accessibility
