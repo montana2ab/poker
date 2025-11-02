@@ -145,6 +145,11 @@ class TableDetector:
             bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
             matches = bf.knnMatch(self.profile.descriptors, des2, k=2)
             
+            # Check if matches is valid
+            if matches is None or len(matches) == 0:
+                logger.warning("No matches found")
+                return screenshot
+            
             # Apply ratio test (Lowe's test)
             good_matches = []
             for m_n in matches:
@@ -192,6 +197,11 @@ class TableDetector:
         try:
             bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
             matches = bf.knnMatch(self.profile.descriptors, des2, k=2)
+            
+            # Check if matches is valid
+            if matches is None or len(matches) == 0:
+                logger.warning("No matches found in get_transform")
+                return None
             
             good_matches = []
             for m_n in matches:
