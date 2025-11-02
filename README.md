@@ -224,6 +224,13 @@ Individual test modules:
 - Always verify compliance with platform Terms of Service before using auto-play
 - The developers assume no liability for misuse
 
+## Documentation
+
+- **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
+- **[Quick Reference](QUICKSTART.md)** - Quick command reference
+- **[Implementation Details](IMPLEMENTATION.md)** - Technical architecture
+- **[Bin Directory](bin/README.md)** - CLI wrapper scripts guide
+
 ## License
 
 MIT License - see LICENSE file for details
