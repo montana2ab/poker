@@ -47,7 +47,7 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
             deck.shuffle()
             
             # Deal community cards and track them
-            needed_board_cards = 5 - len(board_eval7)
+            needed_board_cards = max(0, 5 - len(board_eval7))
             dealt_board_cards = [deck.deal() for _ in range(needed_board_cards)]
             sim_board = board_eval7 + dealt_board_cards
             
