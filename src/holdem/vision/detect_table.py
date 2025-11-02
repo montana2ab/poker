@@ -125,6 +125,11 @@ class TableDetector:
             gray = cv2.cvtColor(profile.reference_image, cv2.COLOR_BGR2GRAY)
             profile.keypoints, profile.descriptors = self.detector.detectAndCompute(gray, None)
             logger.info("Computed reference descriptors from reference image")
+        elif profile.reference_image is not None and profile.descriptors is not None and not profile.keypoints:
+            # Descriptors loaded from file but keypoints missing - recompute keypoints
+            gray = cv2.cvtColor(profile.reference_image, cv2.COLOR_BGR2GRAY)
+            profile.keypoints, _ = self.detector.detectAndCompute(gray, None)
+            logger.info("Computed keypoints from reference image (descriptors loaded from file)")
     
     def detect(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
         """Detect table and return warped image."""
