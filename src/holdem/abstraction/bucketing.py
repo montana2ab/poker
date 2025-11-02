@@ -98,9 +98,9 @@ class HandBucketing:
             raise ValueError(f"No model for street {street}")
         
         features = extract_simple_features(hole_cards, board)
-        # Ensure features are properly prepared for sklearn
-        features = prepare_for_sklearn(features.reshape(1, -1))
-        bucket = self.models[street].predict(features)[0]
+        # KMeans.predict expects 2D array (n_samples, n_features)
+        features_2d = prepare_for_sklearn(features[np.newaxis, :])
+        bucket = self.models[street].predict(features_2d)[0]
         return int(bucket)
     
     def save(self, path: Path):

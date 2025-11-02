@@ -125,7 +125,7 @@ def test_sklearn_compatibility():
     X = prepare_for_sklearn(data_list)
     
     # This should work without warnings
-    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+    kmeans = KMeans(n_clusters=2, random_state=42)
     kmeans.fit(X)
     
     # Test prediction
