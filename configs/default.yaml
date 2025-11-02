@@ -1,0 +1,6 @@
+k_flop: 60
+k_preflop: 12
+k_river: 24
+k_turn: 40
+num_samples: 500000
+seed: 42

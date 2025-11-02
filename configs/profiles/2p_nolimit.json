@@ -1,0 +1,11 @@
+{
+  "name": "Two Player No-Limit Test",
+  "game": "holdem",
+  "num_players": 2,
+  "stack_size": 20000,
+  "small_blind": 50,
+  "big_blind": 100,
+  "limit_type": "no_limit",
+  "num_hands": 1000,
+  "max_raise": 20000
+}
