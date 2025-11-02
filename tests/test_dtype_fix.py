@@ -1,8 +1,17 @@
 """Test that features are returned in the correct dtype for scikit-learn."""
 
 import numpy as np
-from holdem.types import Card, Street
-from holdem.abstraction.features import extract_features, extract_simple_features
+
+try:
+    from holdem.types import Card, Street
+    from holdem.abstraction.features import extract_features, extract_simple_features
+except ImportError:
+    import sys
+    import os
+    # Add src to path if running from tests directory
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+    from holdem.types import Card, Street
+    from holdem.abstraction.features import extract_features, extract_simple_features
 
 
 def test_extract_features_returns_float64():

@@ -1,8 +1,5 @@
 """Test that the equity calculation bug fix works correctly."""
 
-import sys
-sys.path.insert(0, '/home/runner/work/poker/poker/src')
-
 # This test documents the deck card management bug that was fixed
 # The bug was that dealt cards were not properly returned to the deck,
 # causing the deck to gradually deplete over Monte Carlo iterations.

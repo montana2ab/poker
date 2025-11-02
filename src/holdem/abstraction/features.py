@@ -30,6 +30,11 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
         hand = [card_to_eval7(c) for c in hole_cards]
         board_eval7 = [card_to_eval7(c) for c in board] if board else []
         
+        # Validate board size
+        if len(board_eval7) > 5:
+            logger.warning(f"Invalid board size: {len(board_eval7)} cards (max 5)")
+            return 0.5
+        
         # Create deck
         deck = eval7.Deck()
         for card in hand + board_eval7:
