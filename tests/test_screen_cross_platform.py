@@ -142,13 +142,22 @@ def test_screen_capture_class_methods():
     try:
         # Import without actually instantiating (which would require mss)
         import sys
-        sys.path.insert(0, '/home/runner/work/poker/poker/src')
+        import os
+        from pathlib import Path
+        
+        # Get the repository root dynamically
+        test_dir = Path(__file__).parent
+        repo_root = test_dir.parent
+        src_dir = repo_root / "src"
+        
+        sys.path.insert(0, str(src_dir))
         
         # Just verify the module structure
         import importlib.util
+        screen_path = src_dir / "holdem" / "vision" / "screen.py"
         spec = importlib.util.spec_from_file_location(
             "screen",
-            "/home/runner/work/poker/poker/src/holdem/vision/screen.py"
+            str(screen_path)
         )
         # We can't actually load it without dependencies, but we verified syntax earlier
         
