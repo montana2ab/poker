@@ -28,7 +28,14 @@ def normalize_title(title: str) -> str:
     normalized = unicodedata.normalize('NFC', title)
     
     # Replace various quote characters with standard apostrophe
-    quote_chars = [''', ''', '`', '´', ''']
+    # Using Unicode codepoints to avoid syntax issues
+    quote_chars = [
+        '\u2018',  # Left single quotation mark '
+        '\u2019',  # Right single quotation mark '
+        '`',       # Grave accent
+        '\u00b4',  # Acute accent ´
+        '\u02bc',  # Modifier letter apostrophe ʼ
+    ]
     for char in quote_chars:
         normalized = normalized.replace(char, "'")
     
