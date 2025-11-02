@@ -60,8 +60,8 @@ class TestReferenceLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             
-            # Create dummy descriptors
-            descriptors = np.random.randn(100, 32).astype(np.uint8)
+            # Create dummy descriptors with proper uint8 values
+            descriptors = np.random.randint(0, 256, size=(100, 32), dtype=np.uint8)
             desc_path = tmpdir / "descriptors.npy"
             np.save(desc_path, descriptors)
             
@@ -81,8 +81,8 @@ class TestReferenceLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             
-            # Create dummy descriptors in npz format
-            descriptors = np.random.randn(50, 64).astype(np.uint8)
+            # Create dummy descriptors in npz format with proper uint8 values
+            descriptors = np.random.randint(0, 256, size=(50, 64), dtype=np.uint8)
             desc_path = tmpdir / "descriptors.npz"
             np.savez(desc_path, des=descriptors)
             
@@ -102,8 +102,8 @@ class TestReferenceLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             
-            # Create dummy descriptors with alternative key
-            descriptors = np.random.randn(30, 128).astype(np.uint8)
+            # Create dummy descriptors with alternative key and proper uint8 values
+            descriptors = np.random.randint(0, 256, size=(30, 128), dtype=np.uint8)
             desc_path = tmpdir / "descriptors.npz"
             np.savez(desc_path, descriptors=descriptors)
             
@@ -134,7 +134,7 @@ class TestReferenceLoading:
         """Test that already-loaded ndarrays are not processed."""
         profile = TableProfile()
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        descriptors = np.random.randn(50, 32).astype(np.uint8)
+        descriptors = np.random.randint(0, 256, size=(50, 32), dtype=np.uint8)
         
         profile.reference_image = img
         profile.descriptors = descriptors
@@ -154,12 +154,12 @@ class TestTableDetectorWithReferences:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             
-            # Create dummy reference image and descriptors
+            # Create dummy reference image and descriptors with proper uint8 values
             img = np.zeros((100, 100, 3), dtype=np.uint8)
             img_path = tmpdir / "ref.png"
             cv2.imwrite(str(img_path), img)
             
-            descriptors = np.random.randn(50, 32).astype(np.uint8)
+            descriptors = np.random.randint(0, 256, size=(50, 32), dtype=np.uint8)
             desc_path = tmpdir / "desc.npz"
             np.savez(desc_path, des=descriptors)
             

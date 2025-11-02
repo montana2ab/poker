@@ -84,8 +84,7 @@ class MCCFRSolver:
                     avg_utility = sum(utility_history[-1000:]) / 1000
                     self.writer.add_scalar('Training/UtilityMovingAvg', avg_utility, i + 1)
                 
-                # Log iteration number and exploration epsilon
-                self.writer.add_scalar('Training/Iteration', i + 1, i + 1)
+                # Log exploration epsilon
                 self.writer.add_scalar('Training/Epsilon', self.config.exploration_epsilon, i + 1)
             
             # Console logging

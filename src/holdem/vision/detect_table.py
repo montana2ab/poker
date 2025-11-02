@@ -70,14 +70,18 @@ def _load_refs_from_paths(profile: TableProfile, profile_path: Optional[Path] = 
                 
                 # Handle .npz files (dictionary-like)
                 if isinstance(z, np.lib.npyio.NpzFile):
-                    # Try common keys
+                    # Try common keys in order of preference
                     if "des" in z:
                         profile.descriptors = z["des"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'des')")
                     elif "descriptors" in z:
                         profile.descriptors = z["descriptors"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'descriptors')")
                     else:
                         # Use first array in file
-                        profile.descriptors = next(iter(z.values()))
+                        first_key = list(z.keys())[0]
+                        profile.descriptors = z[first_key]
+                        logger.warning(f"Using first array from {desc_path} (key: '{first_key}')")
                 else:
                     # .npy file (direct array)
                     profile.descriptors = z
