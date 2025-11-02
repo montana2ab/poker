@@ -2,6 +2,8 @@
 
 A complete poker AI system combining Monte Carlo Counterfactual Regret Minimization (MCCFR) with real-time search capabilities, inspired by Pluribus. Features include computer vision for table state detection, action abstraction, blueprint strategy training, and real-time subgame solving.
 
+> **🚀 New to the project?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a quick setup guide!
+
 ## Features
 
 - **Vision System**: Screen capture (mss), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
