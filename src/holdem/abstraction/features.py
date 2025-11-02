@@ -135,7 +135,7 @@ def extract_features(
         draw_potential = 0.0
     features.append(draw_potential)
     
-    return np.array(features, dtype=np.float32)
+    return np.array(features, dtype=np.float64)
 
 
 def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.ndarray:
@@ -143,7 +143,7 @@ def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.nda
     features = []
     
     if not hole_cards or len(hole_cards) != 2:
-        return np.zeros(5, dtype=np.float32)
+        return np.zeros(5, dtype=np.float64)
     
     rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
                   '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
@@ -169,4 +169,4 @@ def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.nda
              rank_values.get(hole_cards[1].rank, 0))
     features.append(min(gap, 12) / 12.0)
     
-    return np.array(features, dtype=np.float32)
+    return np.array(features, dtype=np.float64)
