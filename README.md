@@ -218,6 +218,113 @@ Individual test modules:
 - `test_realtime_budget.py`: Validate time budget adherence and fallback
 - `test_vision_offline.py`: Verify card/OCR accuracy ≥97-98% on samples
 
+## Troubleshooting
+
+### Installation Issues
+
+**Problem: `ModuleNotFoundError: holdem`**
+- Solution: The package needs to be properly installed. Run:
+  ```bash
+  pip install -e .
+  ```
+  Or set PYTHONPATH:
+  ```bash
+  export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+  ```
+
+**Problem: `Multiple .egg-info directories found`**
+- Solution: This has been fixed by renaming `setup.py` to `setup_assets.py`. If you still encounter this, run:
+  ```bash
+  make clean
+  find . -name "*.egg-info" -type d -exec rm -rf {} +
+  pip install -e .
+  ```
+
+**Problem: CLI commands not found (e.g., `holdem-build-buckets: command not found`)**
+- Solution: Install the package with pip to get entry points:
+  ```bash
+  pip install -e .
+  ```
+  Or use the wrapper scripts directly:
+  ```bash
+  ./bin/holdem-build-buckets --help
+  ```
+
+### Dependency Issues
+
+**Problem: `ModuleNotFoundError: cv2` (opencv-python)**
+- Solution: Install opencv-python:
+  ```bash
+  pip install opencv-python
+  ```
+
+**Problem: Version conflicts or instability**
+- Solution: All dependencies now have pinned version ranges. Use:
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+### macOS Specific Issues
+
+**Problem: AppleScript/Accessibility Error -10003**
+- Cause: macOS requires explicit permissions for screen recording and accessibility
+- Solution:
+  1. Open System Preferences → Security & Privacy → Privacy
+  2. Add your terminal/IDE to "Screen Recording" permissions
+  3. Add your terminal/IDE to "Accessibility" permissions
+  4. Restart the terminal/IDE after granting permissions
+
+**Problem: Auto-play not clicking**
+- Cause: macOS Automation permissions required
+- Solution:
+  1. Open System Preferences → Security & Privacy → Privacy → Automation
+  2. Enable permissions for Python/Terminal to control System Events
+  3. Restart and try again
+
+### Missing Assets
+
+**Problem: `FileNotFoundError: avg_policy.json`**
+- Cause: Blueprint policy needs to be trained first
+- Solution: Train the blueprint before using it:
+  ```bash
+  holdem-build-buckets --out assets/abstraction/precomputed_buckets.pkl
+  holdem-train-blueprint --buckets assets/abstraction/precomputed_buckets.pkl --logdir runs/blueprint
+  ```
+  The training will create `runs/blueprint/avg_policy.json`
+
+**Problem: Missing card templates**
+- Cause: Vision assets not created
+- Solution: Run the asset setup:
+  ```bash
+  python setup_assets.py
+  ```
+
+**Problem: `FileNotFoundError: table profile`**
+- Cause: Table profile needs to be created
+- Solution: Run the profile wizard:
+  ```bash
+  holdem-profile-wizard --window-title "YourPokerTable" --out assets/table_profiles/my_profile.json
+  ```
+
+### Runtime Issues
+
+**Problem: dtype mismatch or KMeans.predict crashes**
+- Status: FIXED - This issue has been resolved by:
+  - Ensuring all features return float64 arrays
+  - Adding `utils/arrays.py` with dtype/contiguity utilities
+  - Using `prepare_for_sklearn()` in bucketing code
+
+**Problem: IndentationError in bucketing code**
+- Status: VERIFIED - No indentation errors found in current codebase
+
+**Problem: Tests fail with `ModuleNotFoundError`**
+- Solution: Ensure package is installed or PYTHONPATH is set:
+  ```bash
+  pip install -e .
+  # OR
+  PYTHONPATH=$(pwd)/src pytest tests/
+  ```
+
 ## Safety & Legal
 
 ⚠️ **IMPORTANT**: 
