@@ -37,7 +37,7 @@ setup:
 
 verify:
 	@echo "Verifying installation..."
-	python3 verify_structure.py
+	python3 test_structure.py
 
 test:
 	@echo "Running test suite..."

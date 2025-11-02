@@ -36,7 +36,7 @@ python3 setup.py
 
 echo ""
 echo "Step 3: Verifying installation..."
-python3 verify_structure.py
+python3 test_structure.py
 
 echo ""
 echo "======================================================================"
