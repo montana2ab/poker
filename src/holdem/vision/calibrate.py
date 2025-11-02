@@ -15,6 +15,7 @@ class TableProfile:
     
     def __init__(self):
         self.window_title: str = ""
+        self.owner_name: Optional[str] = None  # Application owner (e.g., "PokerStars")
         self.screen_region: Optional[Tuple[int, int, int, int]] = None
         self.card_regions: List[Dict[str, int]] = []  # Regions where cards appear
         self.player_regions: List[Dict[str, any]] = []  # Player info regions
@@ -30,6 +31,7 @@ class TableProfile:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "window_title": self.window_title,
+            "owner_name": self.owner_name,
             "screen_region": self.screen_region,
             "card_regions": self.card_regions,
             "player_regions": self.player_regions,
@@ -58,6 +60,7 @@ class TableProfile:
         
         profile = cls()
         profile.window_title = data.get("window_title", "")
+        profile.owner_name = data.get("owner_name")
         profile.screen_region = tuple(data["screen_region"]) if data.get("screen_region") else None
         profile.card_regions = data.get("card_regions", [])
         profile.player_regions = data.get("player_regions", [])
@@ -65,14 +68,39 @@ class TableProfile:
         profile.bet_regions = data.get("bet_regions", [])
         profile.button_regions = data.get("button_regions", {})
         
-        # Load reference image and features
-        ref_path = path.parent / f"{path.stem}_reference.npy"
-        if ref_path.exists():
-            profile.reference_image = np.load(ref_path)
+        # Handle reference_image - can be path or loaded from .npy file
+        ref_image_data = data.get("reference_image")
+        if ref_image_data:
+            if isinstance(ref_image_data, str):
+                # It's a path - store it, will be loaded by TableDetector
+                profile.reference_image = ref_image_data
+            else:
+                # Try loading from default .npy file
+                ref_path = path.parent / f"{path.stem}_reference.npy"
+                if ref_path.exists():
+                    profile.reference_image = np.load(ref_path)
+        else:
+            # No reference_image in JSON, try default .npy file
+            ref_path = path.parent / f"{path.stem}_reference.npy"
+            if ref_path.exists():
+                profile.reference_image = np.load(ref_path)
         
-        desc_path = path.parent / f"{path.stem}_descriptors.npy"
-        if desc_path.exists():
-            profile.descriptors = np.load(desc_path)
+        # Handle descriptors - can be path or loaded from .npy/.npz file
+        desc_data = data.get("descriptors") or data.get("reference_descriptors")
+        if desc_data:
+            if isinstance(desc_data, str):
+                # It's a path - store it, will be loaded by TableDetector
+                profile.descriptors = desc_data
+            else:
+                # Try loading from default .npy file
+                desc_path = path.parent / f"{path.stem}_descriptors.npy"
+                if desc_path.exists():
+                    profile.descriptors = np.load(desc_path)
+        else:
+            # No descriptors in JSON, try default .npy file
+            desc_path = path.parent / f"{path.stem}_descriptors.npy"
+            if desc_path.exists():
+                profile.descriptors = np.load(desc_path)
         
         logger.info(f"Loaded table profile from {path}")
         return profile

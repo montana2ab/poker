@@ -24,6 +24,10 @@ def main():
                        help="Number of players")
     parser.add_argument("--epsilon", type=float, default=0.6,
                        help="Exploration epsilon for outcome sampling")
+    parser.add_argument("--tensorboard", action="store_true", default=True,
+                       help="Enable TensorBoard logging (default: True)")
+    parser.add_argument("--no-tensorboard", action="store_false", dest="tensorboard",
+                       help="Disable TensorBoard logging")
     
     args = parser.parse_args()
     
@@ -48,7 +52,10 @@ def main():
     
     # Train
     logger.info(f"Training blueprint for {args.iters} iterations...")
-    solver.train(logdir=args.logdir)
+    if args.tensorboard:
+        logger.info(f"TensorBoard logs will be saved to {args.logdir / 'tensorboard'}")
+        logger.info(f"Monitor training with: tensorboard --logdir {args.logdir / 'tensorboard'}")
+    solver.train(logdir=args.logdir, use_tensorboard=args.tensorboard)
     
     logger.info("Training complete!")
 

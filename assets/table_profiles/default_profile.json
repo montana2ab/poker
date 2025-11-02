@@ -1,6 +1,9 @@
 {
   "window_title": "Default Poker Table",
+  "owner_name": null,
   "screen_region": null,
+  "reference_image": "assets/ref/table_ref.png",
+  "descriptors": "assets/ref/table_ref_orb.npz",
   "card_regions": [
     {
       "x": 350,

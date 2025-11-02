@@ -3,24 +3,8 @@
 import cv2
 import numpy as np
 import os
-import numpy as np
-import cv2
+from pathlib import Path
 from PIL import Image
-
-def _load_refs_from_paths(profile):
-    # reference_image: path -> ndarray (BGR)
-    if isinstance(getattr(profile, "reference_image", None), str) and os.path.exists(profile.reference_image):
-        img = cv2.imread(profile.reference_image)
-        if img is None:
-            img = cv2.cvtColor(np.array(Image.open(profile.reference_image).convert("RGB")), cv2.COLOR_RGB2BGR)
-        profile.reference_image = img
-
-    # descriptors: path -> ndarray
-    desc_path = getattr(profile, "descriptors", None)
-    if isinstance(desc_path, str) and os.path.exists(desc_path):
-        z = np.load(desc_path)
-        profile.descriptors = z["des"] if "des" in z else next(iter(z.values()))
-# --- END PATCH --
 from typing import Optional, Tuple
 from holdem.vision.calibrate import TableProfile
 from holdem.utils.logging import get_logger
@@ -28,12 +12,106 @@ from holdem.utils.logging import get_logger
 logger = get_logger("vision.detect_table")
 
 
+def _load_refs_from_paths(profile: TableProfile, profile_path: Optional[Path] = None):
+    """
+    Load reference image and descriptors from file paths.
+    
+    Handles:
+    - reference_image as path (str) → loads as ndarray (BGR)
+    - descriptors as path (str) → loads from .npy or .npz file
+    - Converts relative paths to absolute using profile_path as base
+    
+    Args:
+        profile: TableProfile to update
+        profile_path: Optional path to the profile JSON file (for resolving relative paths)
+    """
+    # Determine base directory for resolving relative paths
+    base_dir = profile_path.parent if profile_path else Path.cwd()
+    
+    # Load reference_image if it's a path
+    ref_img = getattr(profile, "reference_image", None)
+    if isinstance(ref_img, str):
+        # Convert to absolute path if relative
+        ref_path = Path(ref_img)
+        if not ref_path.is_absolute():
+            ref_path = base_dir / ref_path
+        
+        if ref_path.exists():
+            try:
+                # Try cv2 first (handles more formats)
+                img = cv2.imread(str(ref_path))
+                if img is None:
+                    # Fallback to PIL
+                    img = cv2.cvtColor(
+                        np.array(Image.open(ref_path).convert("RGB")), 
+                        cv2.COLOR_RGB2BGR
+                    )
+                profile.reference_image = img
+                logger.info(f"Loaded reference image from {ref_path}")
+            except Exception as e:
+                logger.error(f"Failed to load reference image from {ref_path}: {e}")
+                profile.reference_image = None
+        else:
+            logger.warning(f"Reference image path does not exist: {ref_path}")
+            profile.reference_image = None
+    
+    # Load descriptors if it's a path
+    desc_path_attr = getattr(profile, "descriptors", None)
+    if isinstance(desc_path_attr, str):
+        # Convert to absolute path if relative
+        desc_path = Path(desc_path_attr)
+        if not desc_path.is_absolute():
+            desc_path = base_dir / desc_path
+        
+        if desc_path.exists():
+            try:
+                # Load .npz or .npy file
+                z = np.load(str(desc_path))
+                
+                # Handle .npz files (dictionary-like)
+                if isinstance(z, np.lib.npyio.NpzFile):
+                    # Try common keys in order of preference
+                    if "des" in z:
+                        profile.descriptors = z["des"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'des')")
+                    elif "descriptors" in z:
+                        profile.descriptors = z["descriptors"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'descriptors')")
+                    else:
+                        # Use first array in file
+                        first_key = list(z.keys())[0]
+                        profile.descriptors = z[first_key]
+                        logger.warning(f"Using first array from {desc_path} (key: '{first_key}')")
+                else:
+                    # .npy file (direct array)
+                    profile.descriptors = z
+                
+                logger.info(f"Loaded descriptors from {desc_path}")
+            except Exception as e:
+                logger.error(f"Failed to load descriptors from {desc_path}: {e}")
+                profile.descriptors = None
+        else:
+            logger.warning(f"Descriptors path does not exist: {desc_path}")
+            profile.descriptors = None
+
+
 class TableDetector:
     """Detects and warps poker table using feature matching."""
     
-    def __init__(self, profile: TableProfile, method: str = "orb"):
+    def __init__(self, profile: TableProfile, method: str = "orb", profile_path: Optional[Path] = None):
+        """
+        Initialize table detector.
+        
+        Args:
+            profile: TableProfile with reference image and descriptors
+            method: Feature detection method ("orb" or "akaze")
+            profile_path: Optional path to profile JSON (for resolving relative paths in references)
+        """
         self.profile = profile
         self.method = method.lower()
+        
+        # Load references from paths if they are strings
+        _load_refs_from_paths(profile, profile_path)
         
         if self.method == "orb":
             self.detector = cv2.ORB_create(nfeatures=1000)
@@ -46,6 +124,7 @@ class TableDetector:
         if profile.reference_image is not None and profile.descriptors is None:
             gray = cv2.cvtColor(profile.reference_image, cv2.COLOR_BGR2GRAY)
             profile.keypoints, profile.descriptors = self.detector.detectAndCompute(gray, None)
+            logger.info("Computed reference descriptors from reference image")
     
     def detect(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
         """Detect table and return warped image."""
