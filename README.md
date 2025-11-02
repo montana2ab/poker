@@ -17,8 +17,46 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 ## Installation
 
+### Quick Install (Recommended)
+
 ```bash
-pip install -r requirements.txt
+# Clone the repository (if not already done)
+git clone https://github.com/montana2ab/poker.git
+cd poker
+
+# Run the installation script
+./install.sh
+```
+
+### Manual Installation
+
+```bash
+# Option 1: Install as a package (requires pip access to PyPI)
+pip install -e .
+
+# Option 2: Use PYTHONPATH (if pip install fails)
+export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+
+# Option 3: Source the activation script
+source activate.sh
+```
+
+### Using the CLI Commands
+
+After installation, you can use the CLI commands in three ways:
+
+```bash
+# Method 1: Using wrapper scripts (easiest)
+./bin/holdem-build-buckets --help
+./bin/holdem-train-blueprint --help
+
+# Method 2: Using Python module syntax (requires proper installation or PYTHONPATH)
+python -m holdem.cli.build_buckets --help
+python -m holdem.cli.train_blueprint --help
+
+# Method 3: Add bin/ to your PATH
+export PATH=$(pwd)/bin:$PATH
+holdem-build-buckets --help
 ```
 
 ## Quick Start
