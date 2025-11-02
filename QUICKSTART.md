@@ -12,7 +12,7 @@ cd poker
 
 # Or manual setup
 pip install -r requirements.txt  # Install dependencies
-python setup.py                   # Create directory structure
+python setup_assets.py                   # Create directory structure
 
 # Verify installation
 python verify_structure.py

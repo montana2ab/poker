@@ -33,7 +33,7 @@ install:
 
 setup:
 	@echo "Running setup script..."
-	python3 setup.py
+	python3 setup_assets.py
 
 verify:
 	@echo "Verifying installation..."
