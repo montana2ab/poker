@@ -41,19 +41,24 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
         for _ in range(num_samples):
             deck.shuffle()
             
-            # Deal community cards
+            # Deal community cards and track them
             needed_board_cards = 5 - len(board_eval7)
-            sim_board = board_eval7 + [deck.deal() for _ in range(needed_board_cards)]
+            dealt_board_cards = [deck.deal() for _ in range(needed_board_cards)]
+            sim_board = board_eval7 + dealt_board_cards
             
             # Evaluate our hand
             our_hand_value = eval7.evaluate(hand + sim_board)
             
-            # Simulate opponents
+            # Simulate opponents and track dealt cards
             opponent_better = False
             opponent_tie = False
+            dealt_opp_cards = []
             
             for _ in range(num_opponents):
-                opp_hand = [deck.deal(), deck.deal()]
+                opp_card1 = deck.deal()
+                opp_card2 = deck.deal()
+                opp_hand = [opp_card1, opp_card2]
+                dealt_opp_cards.extend([opp_card1, opp_card2])
                 opp_value = eval7.evaluate(opp_hand + sim_board)
                 
                 if opp_value > our_hand_value:
@@ -68,9 +73,9 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
                 else:
                     wins += 1
             
-            # Return cards to deck
-            for _ in range(needed_board_cards + num_opponents * 2):
-                deck.cards.append(deck.deal())
+            # Return dealt cards to deck
+            for card in dealt_board_cards + dealt_opp_cards:
+                deck.cards.append(card)
         
         equity = (wins + ties * 0.5) / num_samples
         return equity
