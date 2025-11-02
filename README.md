@@ -79,6 +79,15 @@ python -m holdem.cli.profile_wizard --window-title "MyPokerTable" \
   --out assets/table_profiles/default_profile.json
 ```
 
+**For PokerStars on macOS (9-player tables):**
+```bash
+python -m holdem.cli.profile_wizard --window-title "Hold'em" \
+  --owner-name "PokerStars" \
+  --out assets/table_profiles/pokerstars_nlhe_9max.json
+```
+
+📖 **See [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) for detailed calibration instructions, troubleshooting, and platform-specific tips.**
+
 ### 2. Build Abstraction Buckets
 
 Generate hand clusters for abstraction:
@@ -281,6 +290,16 @@ Individual test modules:
   ```
   If Quartz is not available, the system will automatically fall back to `pygetwindow`.
 
+**Problem: PokerStars table not detected on macOS**
+- Solution: Use the `--owner-name` flag for better detection:
+  ```bash
+  holdem-profile-wizard --window-title "Hold'em" \
+    --owner-name "PokerStars" \
+    --out assets/table_profiles/pokerstars.json
+  ```
+  Or use the pre-configured template: `assets/table_profiles/pokerstars_nlhe_9max_template.json`
+- See [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) for complete PokerStars setup instructions
+
 **Problem: AppleScript/Accessibility Error -10003**
 - Cause: macOS requires explicit permissions for screen recording and accessibility
 - Solution:
@@ -350,6 +369,7 @@ Individual test modules:
 
 ## Documentation
 
+- **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)
 - **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
 - **[Quick Reference](QUICKSTART.md)** - Quick command reference
 - **[Implementation Details](IMPLEMENTATION.md)** - Technical architecture
