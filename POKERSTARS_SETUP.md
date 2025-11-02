@@ -72,6 +72,25 @@ python -m holdem.cli.profile_wizard \
 
 ## Troubleshooting
 
+### Find Available Windows
+
+If you're not sure what window title to use, run the helper script:
+
+```bash
+# List all available windows on macOS
+python list_windows.py
+
+# Filter to show only PokerStars windows
+python list_windows.py --filter "stars"
+```
+
+This will show you:
+- Exact window titles
+- Owner/application names
+- Window coordinates and sizes
+
+Use this information with the `--window-title` and `--owner-name` flags.
+
 ### "Window not found"
 
 **Solution 1:** Grant Screen Recording permission
@@ -171,6 +190,25 @@ python -m holdem.cli.profile_wizard \
 ```
 
 ## Dépannage
+
+### Trouver les Fenêtres Disponibles
+
+Si vous n'êtes pas sûr du titre de fenêtre à utiliser, exécutez le script d'aide :
+
+```bash
+# Lister toutes les fenêtres disponibles sur macOS
+python list_windows.py
+
+# Filtrer pour afficher uniquement les fenêtres PokerStars
+python list_windows.py --filter "stars"
+```
+
+Cela vous montrera :
+- Titres exacts des fenêtres
+- Noms des propriétaires/applications
+- Coordonnées et tailles des fenêtres
+
+Utilisez ces informations avec les drapeaux `--window-title` et `--owner-name`.
 
 ### "Window not found" (Fenêtre non trouvée)
 

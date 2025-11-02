@@ -94,6 +94,18 @@ Where the numbers are: `X Y Width Height`
 - On Windows: Use Snipping Tool or built-in tools
 - On Linux: Use GNOME Screenshot or similar tools
 
+**Helper Script for macOS:**
+Use the included helper script to list all available windows:
+```bash
+# List all windows
+python list_windows.py
+
+# Filter by poker-related windows only
+python list_windows.py --filter "poker"
+python list_windows.py --filter "stars"
+```
+This will show you exact window titles and owner names to use with the profile wizard.
+
 ### Step 3: Verify Profile Creation
 
 After running the wizard, you should see:
@@ -493,6 +505,18 @@ Où les nombres sont : `X Y Largeur Hauteur`
 - Sur macOS : Utilisez Screenshot.app (Cmd+Shift+4) - affiche les coordonnées
 - Sur Windows : Utilisez l'Outil Capture d'écran ou outils intégrés
 - Sur Linux : Utilisez Capture d'écran GNOME ou outils similaires
+
+**Script d'Aide pour macOS :**
+Utilisez le script d'aide inclus pour lister toutes les fenêtres disponibles :
+```bash
+# Lister toutes les fenêtres
+python list_windows.py
+
+# Filtrer par fenêtres liées au poker seulement
+python list_windows.py --filter "poker"
+python list_windows.py --filter "stars"
+```
+Cela vous montrera les titres exacts des fenêtres et les noms des propriétaires à utiliser avec l'assistant de profil.
 
 ### Étape 3 : Vérifier la Création du Profil
 
