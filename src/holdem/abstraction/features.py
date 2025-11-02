@@ -30,6 +30,11 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
         hand = [card_to_eval7(c) for c in hole_cards]
         board_eval7 = [card_to_eval7(c) for c in board] if board else []
         
+        # Validate board size
+        if len(board_eval7) > 5:
+            logger.warning(f"Invalid board size: {len(board_eval7)} cards (max 5)")
+            return 0.5
+        
         # Create deck
         deck = eval7.Deck()
         for card in hand + board_eval7:
@@ -41,19 +46,24 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
         for _ in range(num_samples):
             deck.shuffle()
             
-            # Deal community cards
-            needed_board_cards = 5 - len(board_eval7)
-            sim_board = board_eval7 + [deck.deal() for _ in range(needed_board_cards)]
+            # Deal community cards and track them
+            needed_board_cards = max(0, 5 - len(board_eval7))
+            dealt_board_cards = [deck.deal() for _ in range(needed_board_cards)]
+            sim_board = board_eval7 + dealt_board_cards
             
             # Evaluate our hand
             our_hand_value = eval7.evaluate(hand + sim_board)
             
-            # Simulate opponents
+            # Simulate opponents and track dealt cards
             opponent_better = False
             opponent_tie = False
+            dealt_opp_cards = []
             
             for _ in range(num_opponents):
-                opp_hand = [deck.deal(), deck.deal()]
+                opp_card1 = deck.deal()
+                opp_card2 = deck.deal()
+                opp_hand = [opp_card1, opp_card2]
+                dealt_opp_cards.extend([opp_card1, opp_card2])
                 opp_value = eval7.evaluate(opp_hand + sim_board)
                 
                 if opp_value > our_hand_value:
@@ -68,9 +78,9 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
                 else:
                     wins += 1
             
-            # Return cards to deck
-            for _ in range(needed_board_cards + num_opponents * 2):
-                deck.cards.append(deck.deal())
+            # Return dealt cards to deck
+            for card in dealt_board_cards + dealt_opp_cards:
+                deck.cards.append(card)
         
         equity = (wins + ties * 0.5) / num_samples
         return equity
@@ -135,7 +145,7 @@ def extract_features(
         draw_potential = 0.0
     features.append(draw_potential)
     
-    return np.array(features, dtype=np.float32)
+    return np.array(features, dtype=np.float64)
 
 
 def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.ndarray:
@@ -143,7 +153,7 @@ def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.nda
     features = []
     
     if not hole_cards or len(hole_cards) != 2:
-        return np.zeros(5, dtype=np.float32)
+        return np.zeros(5, dtype=np.float64)
     
     rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
                   '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
@@ -169,4 +179,4 @@ def extract_simple_features(hole_cards: List[Card], board: List[Card]) -> np.nda
              rank_values.get(hole_cards[1].rank, 0))
     features.append(min(gap, 12) / 12.0)
     
-    return np.array(features, dtype=np.float32)
+    return np.array(features, dtype=np.float64)
