@@ -7,45 +7,64 @@
 git clone https://github.com/montana2ab/poker.git
 cd poker
 
-# Install dependencies
-pip install -r requirements.txt
+# Quick install (recommended)
+./install.sh
 
-# Run setup
-python setup.py
+# Or manual setup
+pip install -r requirements.txt  # Install dependencies
+python setup.py                   # Create directory structure
 
 # Verify installation
 python verify_structure.py
 ```
 
-## Quick Start Commands
+## Environment Setup
+
+If the installation fails or you prefer not to install the package globally:
 
 ```bash
-# 1. Calibrate table
-python -m holdem.cli.profile_wizard \
+# Method 1: Source the activation script
+source activate.sh
+
+# Method 2: Set PYTHONPATH manually
+export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+
+# Method 3: Add bin/ to PATH for easier access
+export PATH=$(pwd)/bin:$PATH
+```
+
+## Quick Start Commands
+
+You can use the commands in multiple ways:
+
+```bash
+# Using wrapper scripts (easiest, no setup needed)
+./bin/holdem-profile-wizard \
   --window-title "MyPokerTable" \
   --out assets/table_profiles/my_table.json
 
-# 2. Build buckets (10-30 minutes)
-python -m holdem.cli.build_buckets \
+./bin/holdem-build-buckets \
   --hands 500000 \
   --k-preflop 12 --k-flop 60 --k-turn 40 --k-river 24 \
   --out assets/abstraction/precomputed_buckets.pkl
 
-# 3. Train blueprint (hours to days)
-python -m holdem.cli.train_blueprint \
+./bin/holdem-train-blueprint \
   --iters 2500000 \
   --buckets assets/abstraction/precomputed_buckets.pkl \
   --logdir runs/blueprint
 
-# 4. Evaluate strategy
-python -m holdem.cli.eval_blueprint \
+./bin/holdem-eval-blueprint \
   --policy runs/blueprint/avg_policy.json \
   --episodes 200000
 
-# 5. Test in dry-run mode
-python -m holdem.cli.run_dry_run \
+./bin/holdem-dry-run \
   --profile assets/table_profiles/my_table.json \
   --policy runs/blueprint/avg_policy.json
+
+# OR using Python module syntax (requires PYTHONPATH or installation)
+python -m holdem.cli.profile_wizard --help
+python -m holdem.cli.build_buckets --help
+# etc...
 ```
 
 ## Testing

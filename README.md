@@ -2,6 +2,8 @@
 
 A complete poker AI system combining Monte Carlo Counterfactual Regret Minimization (MCCFR) with real-time search capabilities, inspired by Pluribus. Features include computer vision for table state detection, action abstraction, blueprint strategy training, and real-time subgame solving.
 
+> **🚀 New to the project?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a quick setup guide!
+
 ## Features
 
 - **Vision System**: Screen capture (mss), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
@@ -17,8 +19,46 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 ## Installation
 
+### Quick Install (Recommended)
+
 ```bash
-pip install -r requirements.txt
+# Clone the repository (if not already done)
+git clone https://github.com/montana2ab/poker.git
+cd poker
+
+# Run the installation script
+./install.sh
+```
+
+### Manual Installation
+
+```bash
+# Option 1: Install as a package (requires pip access to PyPI)
+pip install -e .
+
+# Option 2: Use PYTHONPATH (if pip install fails)
+export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+
+# Option 3: Source the activation script
+source activate.sh
+```
+
+### Using the CLI Commands
+
+After installation, you can use the CLI commands in three ways:
+
+```bash
+# Method 1: Using wrapper scripts (easiest)
+./bin/holdem-build-buckets --help
+./bin/holdem-train-blueprint --help
+
+# Method 2: Using Python module syntax (requires proper installation or PYTHONPATH)
+python -m holdem.cli.build_buckets --help
+python -m holdem.cli.train_blueprint --help
+
+# Method 3: Add bin/ to your PATH
+export PATH=$(pwd)/bin:$PATH
+holdem-build-buckets --help
 ```
 
 ## Quick Start
@@ -185,6 +225,13 @@ Individual test modules:
 - Auto-play features are disabled by default and require explicit confirmation
 - Always verify compliance with platform Terms of Service before using auto-play
 - The developers assume no liability for misuse
+
+## Documentation
+
+- **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
+- **[Quick Reference](QUICKSTART.md)** - Quick command reference
+- **[Implementation Details](IMPLEMENTATION.md)** - Technical architecture
+- **[Bin Directory](bin/README.md)** - CLI wrapper scripts guide
 
 ## License
 
