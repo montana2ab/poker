@@ -108,6 +108,15 @@ def main():
             if state:
                 logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
                 
+                # Log hero's hole cards if detected
+                if profile.hero_position is not None and profile.hero_position < len(state.players):
+                    hero = state.players[profile.hero_position]
+                    if hero.hole_cards:
+                        cards_str = ", ".join([str(c) for c in hero.hole_cards])
+                        logger.info(f"Hero cards: {cards_str}")
+                    else:
+                        logger.debug("Hero cards not detected")
+                
                 # Demonstrate what action we would take (if we had our cards)
                 logger.info("[DRY RUN] Would analyze and suggest action here")
             else:

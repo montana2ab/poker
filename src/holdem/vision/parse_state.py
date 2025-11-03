@@ -127,14 +127,38 @@ class StateParser:
                 if parsed_name:
                     name = parsed_name
             
+            # Extract hole cards for hero player
+            hole_cards = None
+            if self.profile.hero_position is not None and i == self.profile.hero_position:
+                hole_cards = self._parse_player_cards(img, player_region)
+            
             player = PlayerState(
                 name=name,
                 stack=stack,
                 position=player_region.get('position', i),
                 bet_this_round=0.0,
                 folded=False,
-                all_in=False
+                all_in=False,
+                hole_cards=hole_cards
             )
             players.append(player)
         
         return players
+    
+    def _parse_player_cards(self, img: np.ndarray, player_region: dict) -> Optional[list]:
+        """Parse hole cards for a specific player."""
+        card_reg = player_region.get('card_region', {})
+        x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
+                    card_reg.get('width', 0), card_reg.get('height', 0)
+        
+        if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            card_region = img[y:y+h, x:x+w]
+            # Hole cards are 2 cards
+            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2)
+            # Filter out None values
+            valid_cards = [c for c in cards if c is not None]
+            if len(valid_cards) > 0:
+                logger.debug(f"Parsed {len(valid_cards)} hole cards")
+                return valid_cards
+        
+        return None
