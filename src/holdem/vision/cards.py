@@ -28,6 +28,8 @@ class CardRecognizer:
         """Load card templates from directory."""
         if not self.templates_dir or not self.templates_dir.exists():
             logger.warning(f"Templates directory not found: {self.templates_dir}")
+            logger.warning("Card recognition will not work without templates!")
+            logger.warning("Run: python setup_assets.py to create card templates")
             return
         
         for rank in self.RANKS:
@@ -39,7 +41,11 @@ class CardRecognizer:
                     if template is not None:
                         self.templates[card_name] = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
         
-        logger.info(f"Loaded {len(self.templates)} card templates")
+        if self.templates:
+            logger.info(f"Loaded {len(self.templates)} card templates")
+        else:
+            logger.error("No card templates found! Card recognition will fail.")
+            logger.error("Run: python setup_assets.py to create card templates")
     
     def recognize_card(self, img: np.ndarray, confidence_threshold: float = 0.7) -> Optional[Card]:
         """Recognize a single card from image."""
@@ -100,13 +106,23 @@ class CardRecognizer:
         # Assume cards are horizontally aligned
         card_width = width // num_cards
         
+        logger.debug(f"Attempting to recognize {num_cards} cards from image of size {img.shape}")
+        
         for i in range(num_cards):
             x1 = i * card_width
             x2 = (i + 1) * card_width
             card_img = img[:, x1:x2]
             
+            if card_img.size == 0:
+                logger.warning(f"Card {i}: Empty image region")
+                cards.append(None)
+                continue
+            
             card = self.recognize_card(card_img)
             cards.append(card)
+            
+            if card is None:
+                logger.debug(f"Card {i}: No match found")
         
         return cards
 

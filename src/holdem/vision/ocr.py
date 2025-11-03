@@ -21,21 +21,40 @@ class OCREngine:
             try:
                 from paddleocr import PaddleOCR
                 self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
-                logger.info("PaddleOCR initialized")
+                logger.info("PaddleOCR initialized successfully")
             except ImportError:
                 logger.warning("PaddleOCR not available, falling back to pytesseract")
+                logger.warning("Install PaddleOCR with: pip install paddleocr")
                 self.backend = "pytesseract"
         
         if self.backend == "pytesseract":
             try:
                 import pytesseract
-                self.tesseract_available = True
-                logger.info("Pytesseract initialized")
+                # Test if tesseract is actually available
+                try:
+                    pytesseract.get_tesseract_version()
+                    self.tesseract_available = True
+                    logger.info("Pytesseract initialized successfully")
+                except:
+                    logger.error("Tesseract is not installed or not in PATH")
+                    logger.error("Install tesseract: https://github.com/tesseract-ocr/tesseract")
+                    logger.error("  - macOS: brew install tesseract")
+                    logger.error("  - Ubuntu: sudo apt install tesseract-ocr")
+                    logger.error("  - Windows: Download from GitHub releases")
             except ImportError:
-                logger.error("Neither PaddleOCR nor pytesseract available")
+                logger.error("Pytesseract package not installed")
+                logger.error("Install with: pip install pytesseract")
+        
+        if not self.paddle_ocr and not self.tesseract_available:
+            logger.error("No OCR backend available! Text recognition will not work.")
+            logger.error("Install at least one of: paddleocr OR pytesseract+tesseract")
     
     def read_text(self, img: np.ndarray, preprocess: bool = True) -> str:
         """Read text from image."""
+        if img is None or img.size == 0:
+            logger.debug("Cannot read text from empty image")
+            return ""
+        
         if preprocess:
             img = self._preprocess(img)
         
@@ -44,7 +63,7 @@ class OCREngine:
         elif self.backend == "pytesseract" and self.tesseract_available:
             return self._read_tesseract(img)
         else:
-            logger.error("No OCR backend available")
+            logger.debug("No OCR backend available for text reading")
             return ""
     
     def _preprocess(self, img: np.ndarray) -> np.ndarray:

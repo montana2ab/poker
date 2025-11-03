@@ -71,6 +71,7 @@ class StateParser:
     def _parse_board(self, img: np.ndarray) -> list:
         """Parse community cards from image."""
         if not self.profile.card_regions:
+            logger.debug("No card regions defined in profile")
             return [None] * 5
         
         region = self.profile.card_regions[0]
@@ -79,13 +80,21 @@ class StateParser:
         if y + h <= img.shape[0] and x + w <= img.shape[1]:
             card_region = img[y:y+h, x:x+w]
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
+            
+            # Log detected cards
+            card_strs = [str(c) if c else "??" for c in cards]
+            logger.debug(f"Board cards detected: {' '.join(card_strs)}")
+            
             return cards
+        else:
+            logger.warning(f"Card region out of bounds: ({x},{y},{w},{h}) vs image {img.shape}")
         
         return [None] * 5
     
     def _parse_pot(self, img: np.ndarray) -> float:
         """Parse pot amount from image."""
         if not self.profile.pot_region:
+            logger.debug("No pot region defined in profile")
             return 0.0
         
         region = self.profile.pot_region
@@ -94,13 +103,25 @@ class StateParser:
         if y + h <= img.shape[0] and x + w <= img.shape[1]:
             pot_region = img[y:y+h, x:x+w]
             pot = self.ocr_engine.extract_number(pot_region)
+            
+            if pot is not None:
+                logger.debug(f"Pot detected: {pot}")
+            else:
+                logger.debug("Pot OCR failed - no number detected")
+            
             return pot if pot is not None else 0.0
+        else:
+            logger.warning(f"Pot region out of bounds: ({x},{y},{w},{h}) vs image {img.shape}")
         
         return 0.0
     
     def _parse_players(self, img: np.ndarray) -> list:
         """Parse player states from image."""
         players = []
+        
+        if not self.profile.player_regions:
+            logger.debug("No player regions defined in profile")
+            return players
         
         for i, player_region in enumerate(self.profile.player_regions):
             # Extract stack
@@ -109,11 +130,14 @@ class StateParser:
                         stack_reg.get('width', 0), stack_reg.get('height', 0)
             
             stack = 1000.0  # Default
-            if y + h <= img.shape[0] and x + w <= img.shape[1]:
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 stack_img = img[y:y+h, x:x+w]
                 parsed_stack = self.ocr_engine.extract_number(stack_img)
                 if parsed_stack is not None:
                     stack = parsed_stack
+                    logger.debug(f"Player {i} stack detected: {stack}")
+                else:
+                    logger.debug(f"Player {i} stack OCR failed")
             
             # Extract name
             name_reg = player_region.get('name_region', {})
@@ -121,11 +145,23 @@ class StateParser:
                         name_reg.get('width', 0), name_reg.get('height', 0)
             
             name = f"Player{i}"
-            if y + h <= img.shape[0] and x + w <= img.shape[1]:
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 name_img = img[y:y+h, x:x+w]
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
                     name = parsed_name
+                    logger.debug(f"Player {i} name detected: {name}")
+            
+            # Extract player cards if region exists
+            card_reg = player_region.get('card_region', {})
+            x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
+                        card_reg.get('width', 0), card_reg.get('height', 0)
+            
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                card_img = img[y:y+h, x:x+w]
+                cards = self.card_recognizer.recognize_cards(card_img, num_cards=2)
+                card_strs = [str(c) if c else "??" for c in cards]
+                logger.debug(f"Player {i} cards: {' '.join(card_strs)}")
             
             player = PlayerState(
                 name=name,

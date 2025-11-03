@@ -106,12 +106,34 @@ def main():
             state = state_parser.parse(warped)
             
             if state:
-                logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
+                # Display detailed state information
+                logger.info("=" * 60)
+                logger.info(f"Street: {state.street.name}")
+                logger.info(f"Pot: ${state.pot:.2f}")
+                
+                # Display board cards
+                if state.board:
+                    board_str = " ".join([str(c) for c in state.board])
+                    logger.info(f"Board: {board_str} ({len(state.board)} cards)")
+                else:
+                    logger.info("Board: (no cards detected)")
+                
+                # Display player information
+                logger.info(f"Players: {state.num_players} detected")
+                for player in state.players:
+                    logger.info(f"  - {player.name}: ${player.stack:.2f} (pos {player.position})")
+                
+                logger.info("=" * 60)
                 
                 # Demonstrate what action we would take (if we had our cards)
                 logger.info("[DRY RUN] Would analyze and suggest action here")
             else:
-                logger.warning("Failed to parse state")
+                logger.warning("Failed to parse state - check calibration and OCR")
+                logger.warning("Troubleshooting tips:")
+                logger.warning("  1. Verify table is visible and not obscured")
+                logger.warning("  2. Check that tesseract is installed for OCR")
+                logger.warning("  3. Ensure card templates exist in assets/templates")
+                logger.warning("  4. Review calibration regions in profile JSON")
             
             time.sleep(args.interval)
             
