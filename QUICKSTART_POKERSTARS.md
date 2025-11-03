@@ -20,6 +20,7 @@
    python -m holdem.cli.profile_wizard \
      --window-title "Hold'em" \
      --owner-name "PokerStars" \
+     --seats 9 \
      --out assets/table_profiles/pokerstars.json
    ```
 
@@ -62,6 +63,7 @@ Voir [README.md](README.md) pour:
    python -m holdem.cli.profile_wizard \
      --window-title "Hold'em" \
      --owner-name "PokerStars" \
+     --seats 9 \
      --out assets/table_profiles/pokerstars.json
    ```
 
