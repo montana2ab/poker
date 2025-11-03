@@ -342,6 +342,25 @@ Individual test modules:
 
 ### Runtime Issues
 
+**Problem: Bot stuck at PREFLOP, doesn't detect cards**
+- Cause: The `hero_position` field is not set in your table profile
+- Solution: Edit your table profile JSON and add the `hero_position` field:
+  ```json
+  {
+    "hero_position": 0,
+    "player_regions": [
+      {
+        "position": 0,
+        "card_region": {"x": 130, "y": 700, "width": 100, "height": 80}
+      },
+      ...
+    ]
+  }
+  ```
+  Set `hero_position` to the index (0-8 for 9-max) of your seat position in the `player_regions` array.
+- The system needs to know which player is you to detect your hole cards during PREFLOP
+- See [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) for detailed instructions on setting hero_position
+
 **Problem: dtype mismatch or KMeans.predict crashes**
 - Status: FIXED - This issue has been resolved by:
   - Ensuring all features return float64 arrays

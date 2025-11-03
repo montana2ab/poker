@@ -318,6 +318,7 @@ You can manually edit the JSON profile file to fine-tune regions:
   "window_title": "Hold'em",
   "owner_name": "PokerStars",
   "screen_region": [100, 100, 1200, 800],
+  "hero_position": 0,
   "card_regions": [
     {
       "x": 400,
@@ -345,6 +346,37 @@ You can manually edit the JSON profile file to fine-tune regions:
     "call": {"x": 450, "y": 700, "width": 120, "height": 50},
     "raise": {"x": 600, "y": 700, "width": 120, "height": 50}
   }
+}
+```
+
+#### Setting Hero Position
+
+The `hero_position` field tells the system which player is you (the "hero"). This is essential for the bot to detect your hole cards during PREFLOP play.
+
+**Important:** Set `hero_position` to the index of your seat in the `player_regions` array.
+
+For example:
+- If you're sitting in position 0 (usually bottom-left in 9-max layouts): `"hero_position": 0`
+- If you're in position 4 (usually top-center): `"hero_position": 4`
+- Position numbering typically goes clockwise from bottom-left (0, 1, 2, ..., 8 for 9-max)
+
+**Why is this needed?**
+- The system needs to see your hole cards to make decisions during PREFLOP
+- Only the hero's cards are visible on screen; opponent cards are face-down
+- Without setting `hero_position`, the bot won't detect your cards and will remain stuck at PREFLOP
+
+**Example for 9-max PokerStars:**
+```json
+{
+  "hero_position": 0,
+  "player_regions": [
+    {
+      "position": 0,
+      "name": "Seat 1 (Bottom Left - Your Seat)",
+      "card_region": {"x": 130, "y": 700, "width": 100, "height": 80}
+    },
+    ...
+  ]
 }
 ```
 
