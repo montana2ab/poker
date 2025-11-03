@@ -4,6 +4,7 @@
   "screen_region": null,
   "reference_image": null,
   "descriptors": null,
+  "hero_position": 0,
   "card_regions": [
     {
       "x": 400,
@@ -100,9 +101,11 @@
       "1. Copy this file to a new profile name",
       "2. Run profile_wizard with --window-title 'Hold'em' to capture reference image",
       "3. Adjust regions if needed based on your screen resolution",
-      "4. The 'owner_name' field helps detect PokerStars windows even if title changes"
+      "4. Set 'hero_position' to the index of your seat (0-8, where 0 is bottom-left)",
+      "5. The 'owner_name' field helps detect PokerStars windows even if title changes"
     ],
     "player_positions": "Positions 0-8 arranged clockwise starting from bottom-left",
+    "hero_position_note": "Set hero_position to the index of the player (0-8) whose hole cards you want to detect. This is typically your own seat position.",
     "macOS_tips": [
       "Grant Screen Recording permission in System Preferences",
       "Use owner_name='PokerStars' for reliable window detection",

@@ -126,6 +126,7 @@ holdem-train-blueprint \
 ## Next Steps
 
 - **Calibration Guide**: See [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) for detailed table setup (English & Français)
+  - **Important**: Don't forget to set `hero_position` in your profile to enable hole card detection!
 - **PokerStars Setup**: See [POKERSTARS_SETUP.md](POKERSTARS_SETUP.md) for quick PokerStars configuration
 - **Complete Guide**: Read [DEVELOPMENT.md](DEVELOPMENT.md) for the full workflow
 - **Quick Reference**: See [QUICKSTART.md](QUICKSTART.md) for command examples

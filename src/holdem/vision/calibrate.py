@@ -25,6 +25,7 @@ class TableProfile:
         self.reference_image: Optional[np.ndarray] = None
         self.keypoints: List = []
         self.descriptors: Optional[np.ndarray] = None
+        self.hero_position: Optional[int] = None  # Index of hero player in player_regions
     
     def save(self, path: Path):
         """Save profile to JSON."""
@@ -38,6 +39,7 @@ class TableProfile:
             "pot_region": self.pot_region,
             "bet_regions": self.bet_regions,
             "button_regions": self.button_regions,
+            "hero_position": self.hero_position,
         }
         with open(path, 'w') as f:
             json.dump(data, f, indent=2)
@@ -67,6 +69,7 @@ class TableProfile:
         profile.pot_region = data.get("pot_region")
         profile.bet_regions = data.get("bet_regions", [])
         profile.button_regions = data.get("button_regions", {})
+        profile.hero_position = data.get("hero_position")
         
         # Handle reference_image - can be path or loaded from .npy file
         ref_image_data = data.get("reference_image")
