@@ -159,9 +159,11 @@ class StateParser:
                     logger.debug(f"Player {i} name detected: {name}")
             
             # Extract player cards if region exists
-            # Note: Cards are logged for debugging but not stored in PlayerState
-            # as the current TableState design doesn't include player hole cards
-            # (those would be tracked separately by the bot for the hero only)
+            # Note: Cards are logged for debugging but not stored in PlayerState.
+            # The current TableState design doesn't include player hole cards in the
+            # general state (only visible cards like board/community cards are stored).
+            # For the hero's hole cards, those would be tracked separately by the bot
+            # in the control/executor modules when making decisions.
             card_reg = player_region.get('card_region', {})
             x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
                         card_reg.get('width', 0), card_reg.get('height', 0)
