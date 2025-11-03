@@ -109,8 +109,14 @@ class TableProfile:
         return profile
 
 
-def calibrate_interactive(screenshot: np.ndarray, window_title: str) -> TableProfile:
-    """Interactive calibration (simplified version for automation)."""
+def calibrate_interactive(screenshot: np.ndarray, window_title: str, seats: int = 9) -> TableProfile:
+    """Interactive calibration (simplified version for automation).
+    
+    Args:
+        screenshot: Screenshot of the poker table
+        window_title: Window title for identification
+        seats: Number of seats at the table (6 or 9, default: 9)
+    """
     profile = TableProfile()
     profile.window_title = window_title
     profile.reference_image = screenshot
@@ -133,9 +139,10 @@ def calibrate_interactive(screenshot: np.ndarray, window_title: str) -> TablePro
         "height": int(height * 0.15)
     }]
     
-    # Player regions (example for 6-max)
-    for i in range(6):
-        angle = i * 60
+    # Player regions - support both 6-max and 9-max tables
+    angle_step = 360 / seats
+    for i in range(seats):
+        angle = i * angle_step
         cx = width // 2 + int(width * 0.35 * np.cos(np.radians(angle)))
         cy = height // 2 + int(height * 0.35 * np.sin(np.radians(angle)))
         profile.player_regions.append({
@@ -164,5 +171,5 @@ def calibrate_interactive(screenshot: np.ndarray, window_title: str) -> TablePro
         "allin": {"x": int(width * 0.70), "y": button_y, "width": 100, "height": 40},
     }
     
-    logger.info("Calibration complete (automated regions)")
+    logger.info(f"Calibration complete (automated regions for {seats}-max table)")
     return profile

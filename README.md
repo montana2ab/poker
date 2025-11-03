@@ -76,6 +76,7 @@ Detect and calibrate your poker table window:
 
 ```bash
 python -m holdem.cli.profile_wizard --window-title "MyPokerTable" \
+  --seats 9 \
   --out assets/table_profiles/default_profile.json
 ```
 
@@ -83,7 +84,15 @@ python -m holdem.cli.profile_wizard --window-title "MyPokerTable" \
 ```bash
 python -m holdem.cli.profile_wizard --window-title "Hold'em" \
   --owner-name "PokerStars" \
+  --seats 9 \
   --out assets/table_profiles/pokerstars_nlhe_9max.json
+```
+
+**For 6-max tables:**
+```bash
+python -m holdem.cli.profile_wizard --window-title "MyPokerTable" \
+  --seats 6 \
+  --out assets/table_profiles/6max_profile.json
 ```
 
 📖 **See [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) for detailed calibration instructions, troubleshooting, and platform-specific tips.**

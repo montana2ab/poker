@@ -69,10 +69,12 @@ Calibration is the process of teaching the system to recognize and interact with
 ```bash
 python -m holdem.cli.profile_wizard \
   --window-title "No Limit Hold'em" \
+  --seats 9 \
   --out assets/table_profiles/pokerstars_nlhe_9max.json
 ```
 
 **Tips:**
+- Use `--seats 9` for 9-max tables (default) or `--seats 6` for 6-max tables
 - Use a partial window title that will match your tables
 - The system performs case-insensitive matching
 - Shorter partial titles work better (e.g., "Hold'em" instead of full title)
@@ -84,6 +86,7 @@ If window detection fails, you can specify the exact screen coordinates:
 ```bash
 python -m holdem.cli.profile_wizard \
   --region 100 100 1200 800 \
+  --seats 9 \
   --out assets/table_profiles/my_table.json
 ```
 
@@ -238,6 +241,8 @@ Then capture a reference screenshot:
 ```bash
 python -m holdem.cli.profile_wizard \
   --window-title "Hold'em" \
+  --owner-name "PokerStars" \
+  --seats 9 \
   --out assets/table_profiles/my_pokerstars.json
 ```
 
@@ -252,6 +257,7 @@ If window detection fails, manually specify the region:
 ```bash
 python -m holdem.cli.profile_wizard \
   --region X Y WIDTH HEIGHT \
+  --seats 9 \
   --out assets/table_profiles/pokerstars_manual.json
 ```
 
@@ -513,10 +519,12 @@ La calibration est le processus d'apprentissage du système pour reconnaître et
 ```bash
 python -m holdem.cli.profile_wizard \
   --window-title "No Limit Hold'em" \
+  --seats 9 \
   --out assets/table_profiles/pokerstars_nlhe_9max.json
 ```
 
 **Conseils :**
+- Utilisez `--seats 9` pour les tables 9-max (par défaut) ou `--seats 6` pour les tables 6-max
 - Utilisez un titre de fenêtre partiel qui correspondra à vos tables
 - Le système effectue une correspondance insensible à la casse
 - Les titres partiels plus courts fonctionnent mieux (ex: "Hold'em" au lieu du titre complet)
@@ -528,6 +536,7 @@ Si la détection de fenêtre échoue, vous pouvez spécifier les coordonnées ex
 ```bash
 python -m holdem.cli.profile_wizard \
   --region 100 100 1200 800 \
+  --seats 9 \
   --out assets/table_profiles/ma_table.json
 ```
 
@@ -662,6 +671,8 @@ Ensuite, capturez une capture d'écran de référence :
 ```bash
 python -m holdem.cli.profile_wizard \
   --window-title "Hold'em" \
+  --owner-name "PokerStars" \
+  --seats 9 \
   --out assets/table_profiles/mon_pokerstars.json
 ```
 
@@ -676,6 +687,7 @@ Si la détection de fenêtre échoue, spécifiez manuellement la région :
 ```bash
 python -m holdem.cli.profile_wizard \
   --region X Y LARGEUR HAUTEUR \
+  --seats 9 \
   --out assets/table_profiles/pokerstars_manuel.json
 ```
 
