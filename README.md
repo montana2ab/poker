@@ -359,6 +359,15 @@ Individual test modules:
   PYTHONPATH=$(pwd)/src pytest tests/
   ```
 
+**Problem: Cards/hands not displaying in dry-run mode**
+- Status: FIXED - Enhanced logging now shows:
+  - Detailed card detection (board cards and player cards)
+  - OCR results for pot, stacks, and names
+  - Clear error messages with troubleshooting tips
+  - Visual display of game state
+- See [LOGGING_IMPROVEMENTS.md](LOGGING_IMPROVEMENTS.md) for details
+- Run demo: `python demo_logging.py`
+
 ## Safety & Legal
 
 ⚠️ **IMPORTANT**: 

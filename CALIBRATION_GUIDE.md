@@ -135,6 +135,24 @@ python -m holdem.cli.run_dry_run \
 
 **Note:** You need to train a blueprint policy first. See the main README for training instructions.
 
+#### What You'll See
+
+The dry-run mode now provides detailed feedback:
+
+```
+============================================================
+Street: FLOP
+Pot: $125.50
+Board: Ah Kd Qs (3 cards)
+Players: 6 detected
+  - Player1: $1000.00 (pos 0)
+  - Player2: $1500.00 (pos 1)
+  ...
+============================================================
+```
+
+If cards aren't detected, you'll see helpful troubleshooting tips. For more details on the logging improvements, see [LOGGING_IMPROVEMENTS.md](LOGGING_IMPROVEMENTS.md).
+
 ## Platform-Specific Instructions
 
 ### macOS
