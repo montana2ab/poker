@@ -140,6 +140,9 @@ def calibrate_interactive(screenshot: np.ndarray, window_title: str, seats: int 
     }]
     
     # Player regions - support both 6-max and 9-max tables
+    # Arrange players in circular layout around the table
+    # For 9-max: positions 0-8 at 40° intervals (360°/9)
+    # For 6-max: positions 0-5 at 60° intervals (360°/6)
     angle_step = 360 / seats
     for i in range(seats):
         angle = i * angle_step

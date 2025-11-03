@@ -24,6 +24,11 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate seats parameter (defense in depth)
+    if args.seats not in [6, 9]:
+        logger.error(f"Invalid seats value: {args.seats}. Must be 6 or 9.")
+        return
+    
     logger.info("Table Profile Wizard")
     logger.info("=" * 50)
     logger.info(f"Table size: {args.seats}-max")
