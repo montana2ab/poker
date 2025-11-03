@@ -12,7 +12,14 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+try:
+    src_path = Path(__file__).parent / "src"
+    if src_path.exists():
+        sys.path.insert(0, str(src_path))
+except Exception as e:
+    print(f"Warning: Could not add src to path: {e}")
+    print("Some imports may fail if the package is not installed")
+    print()
 
 print("=" * 70)
 print("DEMONSTRATION: Enhanced Logging for Vision System")

@@ -26,7 +26,7 @@ class StateParser:
     
     def _is_valid_region(self, x: int, y: int, w: int, h: int, img_shape: tuple) -> bool:
         """Check if region is within image bounds and has valid dimensions."""
-        return (w > 0 and h > 0 and 
+        return (x >= 0 and y >= 0 and w > 0 and h > 0 and 
                 y + h <= img_shape[0] and 
                 x + w <= img_shape[1])
     
@@ -159,6 +159,9 @@ class StateParser:
                     logger.debug(f"Player {i} name detected: {name}")
             
             # Extract player cards if region exists
+            # Note: Cards are logged for debugging but not stored in PlayerState
+            # as the current TableState design doesn't include player hole cards
+            # (those would be tracked separately by the bot for the hero only)
             card_reg = player_region.get('card_region', {})
             x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
                         card_reg.get('width', 0), card_reg.get('height', 0)
