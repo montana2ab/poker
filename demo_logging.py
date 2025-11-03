@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Demonstration of enhanced logging for card recognition and OCR.
 

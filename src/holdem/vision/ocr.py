@@ -35,7 +35,7 @@ class OCREngine:
                     pytesseract.get_tesseract_version()
                     self.tesseract_available = True
                     logger.info("Pytesseract initialized successfully")
-                except:
+                except (OSError, RuntimeError) as e:
                     logger.error("Tesseract is not installed or not in PATH")
                     logger.error("Install tesseract: https://github.com/tesseract-ocr/tesseract")
                     logger.error("  - macOS: brew install tesseract")

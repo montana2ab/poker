@@ -24,6 +24,12 @@ class StateParser:
         self.card_recognizer = card_recognizer
         self.ocr_engine = ocr_engine
     
+    def _is_valid_region(self, x: int, y: int, w: int, h: int, img_shape: tuple) -> bool:
+        """Check if region is within image bounds and has valid dimensions."""
+        return (w > 0 and h > 0 and 
+                y + h <= img_shape[0] and 
+                x + w <= img_shape[1])
+    
     def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
         """Parse table state from screenshot."""
         try:
@@ -77,7 +83,7 @@ class StateParser:
         region = self.profile.card_regions[0]
         x, y, w, h = region['x'], region['y'], region['width'], region['height']
         
-        if y + h <= img.shape[0] and x + w <= img.shape[1]:
+        if self._is_valid_region(x, y, w, h, img.shape):
             card_region = img[y:y+h, x:x+w]
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
             
@@ -100,7 +106,7 @@ class StateParser:
         region = self.profile.pot_region
         x, y, w, h = region['x'], region['y'], region['width'], region['height']
         
-        if y + h <= img.shape[0] and x + w <= img.shape[1]:
+        if self._is_valid_region(x, y, w, h, img.shape):
             pot_region = img[y:y+h, x:x+w]
             pot = self.ocr_engine.extract_number(pot_region)
             
@@ -130,7 +136,7 @@ class StateParser:
                         stack_reg.get('width', 0), stack_reg.get('height', 0)
             
             stack = 1000.0  # Default
-            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            if self._is_valid_region(x, y, w, h, img.shape):
                 stack_img = img[y:y+h, x:x+w]
                 parsed_stack = self.ocr_engine.extract_number(stack_img)
                 if parsed_stack is not None:
@@ -145,7 +151,7 @@ class StateParser:
                         name_reg.get('width', 0), name_reg.get('height', 0)
             
             name = f"Player{i}"
-            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            if self._is_valid_region(x, y, w, h, img.shape):
                 name_img = img[y:y+h, x:x+w]
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
@@ -157,7 +163,7 @@ class StateParser:
             x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
                         card_reg.get('width', 0), card_reg.get('height', 0)
             
-            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            if self._is_valid_region(x, y, w, h, img.shape):
                 card_img = img[y:y+h, x:x+w]
                 cards = self.card_recognizer.recognize_cards(card_img, num_cards=2)
                 card_strs = [str(c) if c else "??" for c in cards]
