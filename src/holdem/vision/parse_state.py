@@ -1,7 +1,7 @@
 """Parse complete game state from vision."""
 
 import numpy as np
-from typing import Optional
+from typing import Optional, List
 from holdem.types import TableState, PlayerState, Street, Card
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.cards import CardRecognizer
@@ -145,7 +145,7 @@ class StateParser:
         
         return players
     
-    def _parse_player_cards(self, img: np.ndarray, player_region: dict) -> Optional[list]:
+    def _parse_player_cards(self, img: np.ndarray, player_region: dict) -> Optional[List[Card]]:
         """Parse hole cards for a specific player."""
         card_reg = player_region.get('card_region', {})
         x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
