@@ -119,10 +119,13 @@ def test_state_parser_with_hero_position(tmp_path):
         hero_card_region = profile.player_regions[0]["card_region"]
         x, y = hero_card_region["x"], hero_card_region["y"]
         
-        # Place Ah on the left
-        img[y:y+card_h, x:x+card_w] = ah_template
-        # Place Ks on the right
-        img[y:y+card_h, x+card_w:x+2*card_w] = ks_template
+        # Verify bounds before placing cards
+        if (y + card_h <= img.shape[0] and 
+            x + 2 * card_w <= img.shape[1]):
+            # Place Ah on the left
+            img[y:y+card_h, x:x+card_w] = ah_template
+            # Place Ks on the right
+            img[y:y+card_h, x+card_w:x+2*card_w] = ks_template
     
     # Create parser
     card_recognizer = CardRecognizer(templates_dir, method="template")
