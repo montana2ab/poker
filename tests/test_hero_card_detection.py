@@ -184,13 +184,17 @@ def test_state_parser_without_hero_position(tmp_path):
     assert player.hole_cards is None
 
 
-def test_parse_player_cards_out_of_bounds():
+def test_parse_player_cards_out_of_bounds(tmp_path):
     """Test that _parse_player_cards handles out-of-bounds regions safely."""
+    # Create mock templates
+    templates_dir = tmp_path / "templates"
+    create_mock_templates(templates_dir)
+    
     profile = TableProfile()
     profile.hero_position = 0
     
     # Create parser
-    card_recognizer = CardRecognizer(method="template")
+    card_recognizer = CardRecognizer(templates_dir, method="template")
     ocr_engine = OCREngine(backend="pytesseract")
     parser = StateParser(profile, card_recognizer, ocr_engine)
     
@@ -207,13 +211,17 @@ def test_parse_player_cards_out_of_bounds():
     assert result is None
 
 
-def test_parse_player_cards_zero_size_region():
+def test_parse_player_cards_zero_size_region(tmp_path):
     """Test that _parse_player_cards handles zero-size regions safely."""
+    # Create mock templates
+    templates_dir = tmp_path / "templates"
+    create_mock_templates(templates_dir)
+    
     profile = TableProfile()
     profile.hero_position = 0
     
     # Create parser
-    card_recognizer = CardRecognizer(method="template")
+    card_recognizer = CardRecognizer(templates_dir, method="template")
     ocr_engine = OCREngine(backend="pytesseract")
     parser = StateParser(profile, card_recognizer, ocr_engine)
     
