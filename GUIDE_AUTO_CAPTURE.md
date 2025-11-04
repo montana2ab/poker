@@ -168,6 +168,37 @@ python organize_captured_templates.py \
 - Les cartes sont visibles (pas d'animation)
 - L'intervalle n'est pas trop rapide
 
+### Mode spectateur : Le flop n'est pas détecté
+
+Si le mode dry-run affiche toujours "PREFLOP" même quand le flop est visible :
+
+**Solution 1 - Images de debug :**
+```bash
+python -m holdem.cli.run_dry_run \
+    --profile assets/table_profiles/votre_profil.json \
+    --policy runs/blueprint/avg_policy.json \
+    --debug-images /tmp/debug_cards
+```
+
+Les images seront sauvegardées dans `/tmp/debug_cards/board_region_XXXX.png`. Vérifiez :
+- Les coordonnées de la région sont correctes
+- Les cartes sont visibles et claires dans l'image extraite
+- Les cartes correspondent aux templates dans `assets/templates/`
+
+**Solution 2 - Vérifier les logs :**
+
+Cherchez dans les logs :
+- `Recognized X board card(s)` - Combien de cartes sont reconnues
+- `No board cards recognized` - Aucune carte reconnue
+- Les scores de confiance pour comprendre pourquoi la reconnaissance échoue
+
+**Solution 3 - Re-capturer les templates :**
+
+Si les templates ne correspondent pas aux cartes à l'écran :
+1. Supprimez `assets/templates/`
+2. Re-capturez les templates (voir Étape 1 ci-dessus)
+3. Ré-identifiez les cartes (voir Étape 2)
+
 ### Images floues ou de mauvaise qualité
 
 ➡️ Solutions :

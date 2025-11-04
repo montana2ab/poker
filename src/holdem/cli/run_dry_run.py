@@ -32,8 +32,15 @@ def main():
                        help="Minimum iterations for search")
     parser.add_argument("--interval", type=float, default=1.0,
                        help="Seconds between observations")
+    parser.add_argument("--debug-images", type=Path,
+                       help="Directory to save debug images (optional)")
     
     args = parser.parse_args()
+    
+    # Create debug directory if specified
+    if args.debug_images:
+        args.debug_images.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Debug images will be saved to {args.debug_images}")
     
     # Load profile
     logger.info(f"Loading table profile from {args.profile}")
@@ -73,7 +80,7 @@ def main():
         method="template"
     )
     ocr_engine = OCREngine(backend="paddleocr")
-    state_parser = StateParser(profile, card_recognizer, ocr_engine)
+    state_parser = StateParser(profile, card_recognizer, ocr_engine, debug_dir=args.debug_images)
     
     # Setup search
     search_config = SearchConfig(
