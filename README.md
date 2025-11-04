@@ -412,6 +412,8 @@ Individual test modules:
 
 ## Documentation
 
+- **[Getting Started](GETTING_STARTED.md)** - Quick setup guide for new users
+- **[Real-time Re-Solving](REALTIME_RESOLVING.md)** - Complete guide to real-time search integration
 - **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)
 - **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
 - **[Quick Reference](QUICKSTART.md)** - Quick command reference

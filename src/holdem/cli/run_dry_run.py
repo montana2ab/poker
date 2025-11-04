@@ -91,8 +91,14 @@ def main():
     
     logger.info("Starting dry-run mode (press Ctrl+C to stop)")
     logger.info(f"Observing every {args.interval} seconds")
+    logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}")
     
     try:
+        # Track action history for belief updates
+        # Resets on street changes to maintain accurate belief state
+        action_history = []
+        last_street = None
+        
         while True:
             # Capture screen
             if profile.screen_region:
@@ -122,22 +128,50 @@ def main():
             if state:
                 logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
                 
+                # Reset history on new street
+                if last_street != state.street:
+                    logger.info(f"New street detected: {state.street.name}")
+                    action_history = []
+                    last_street = state.street
+                
                 # Log board cards (community cards: flop, turn, river)
                 if state.board:
                     board_str = ", ".join([str(c) for c in state.board])
                     logger.info(f"Board: {board_str}")
                 
                 # Log hero's hole cards if detected
+                hero_cards = None
                 if profile.hero_position is not None and profile.hero_position < len(state.players):
                     hero = state.players[profile.hero_position]
                     if hero.hole_cards:
-                        cards_str = ", ".join([str(c) for c in hero.hole_cards])
+                        hero_cards = hero.hole_cards
+                        cards_str = ", ".join([str(c) for c in hero_cards])
                         logger.info(f"Hero cards: {cards_str}")
                     else:
                         logger.debug("Hero cards not detected")
                 
-                # Demonstrate what action we would take (if we had our cards)
-                logger.info("[DRY RUN] Would analyze and suggest action here")
+                # Use real-time search to decide action when we have our cards
+                if hero_cards and len(hero_cards) == 2:
+                    try:
+                        logger.info("[REAL-TIME SEARCH] Computing optimal action...")
+                        start_time = time.time()
+                        
+                        # Get action from search controller
+                        suggested_action = search_controller.get_action(
+                            state=state,
+                            our_cards=hero_cards,
+                            history=action_history
+                        )
+                        
+                        elapsed_ms = (time.time() - start_time) * 1000
+                        logger.info(f"[REAL-TIME SEARCH] Recommended action: {suggested_action.name} (computed in {elapsed_ms:.1f}ms)")
+                        
+                    except Exception as e:
+                        logger.warning(f"[REAL-TIME SEARCH] Failed: {e}")
+                        logger.info("[DRY RUN] Would fall back to blueprint or manual decision")
+                else:
+                    # No cards detected, can't make decision
+                    logger.info("[DRY RUN] Waiting for hole cards to be detected...")
             else:
                 logger.warning("Failed to parse state")
             

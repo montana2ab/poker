@@ -16,6 +16,23 @@ class SafetyChecker:
         self.action_count = 0
         self.session_start = time.time()
     
+    def check_safe_to_act(self, state: TableState) -> bool:
+        """Check if it's safe to act on the current state."""
+        if not state:
+            return False
+        
+        # Check session limits
+        session_duration = time.time() - self.session_start
+        if session_duration > 14400:  # 4 hours
+            logger.warning("Session limit reached (4 hours)")
+            return False
+        
+        if self.action_count > 5000:
+            logger.warning("Action limit reached (5000 actions)")
+            return False
+        
+        return True
+    
     def check_action(
         self,
         action: str,
