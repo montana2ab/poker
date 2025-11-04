@@ -1,0 +1,191 @@
+{
+  "window_title": "Hold'em",
+  "owner_name": "PokerStars",
+  "screen_region": [
+    369,
+    333,
+    597,
+    385
+  ],
+  "card_regions": [
+    {
+      "x": 208,
+      "y": 134,
+      "width": 179,
+      "height": 57
+    }
+  ],
+  "player_regions": [
+    {
+      "position": 0,
+      "name_region": {
+        "x": 456,
+        "y": 162,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 456,
+        "y": 192,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 466,
+        "y": 212,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 1,
+      "name_region": {
+        "x": 352,
+        "y": 278,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 352,
+        "y": 308,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 362,
+        "y": 328,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 2,
+      "name_region": {
+        "x": 144,
+        "y": 278,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 144,
+        "y": 308,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 154,
+        "y": 328,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 3,
+      "name_region": {
+        "x": 40,
+        "y": 162,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 40,
+        "y": 192,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 50,
+        "y": 212,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 4,
+      "name_region": {
+        "x": 144,
+        "y": 46,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 144,
+        "y": 76,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 154,
+        "y": 96,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 5,
+      "name_region": {
+        "x": 352,
+        "y": 46,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 352,
+        "y": 76,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 362,
+        "y": 96,
+        "width": 80,
+        "height": 60
+      }
+    }
+  ],
+  "pot_region": {
+    "x": 238,
+    "y": 96,
+    "width": 119,
+    "height": 38
+  },
+  "bet_regions": [],
+  "button_regions": {
+    "fold": {
+      "x": 149,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "check": {
+      "x": 238,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "call": {
+      "x": 238,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "bet": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "raise": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "allin": {
+      "x": 417,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    }
+  }
+}

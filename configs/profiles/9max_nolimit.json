@@ -1,0 +1,167 @@
+{
+  "name": "9max_nolimit",
+  "game": "holdem",
+  "num_players": 2,
+  "stack_size": 20000,
+  "small_blind": 50,
+  "big_blind": 100,
+  "limit_type": "no_limit",
+  "num_hands": 1000,
+  "max_raise": 20000,
+  "screen_region": [
+    756,
+    60,
+    946,
+    655
+  ],
+  "reference_image": "/Users/anthonyjodar/poker/assets/ref/table_ref_9max.png",
+  "descriptors": "/Users/anthonyjodar/poker/assets/ref/table_ref_9max_orb.npz",
+  "table_type": "ring",
+  "num_seats": 9,
+  "seats": [
+    {
+      "index": 0,
+      "angle_deg": 260,
+      "hole_cards_roi": [
+        887,
+        173,
+        144,
+        64
+      ],
+      "stack_roi": [
+        873,
+        122,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 1,
+      "angle_deg": 300,
+      "hole_cards_roi": [
+        1116,
+        256,
+        144,
+        64
+      ],
+      "stack_roi": [
+        1144,
+        220,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 2,
+      "angle_deg": 340,
+      "hole_cards_roi": [
+        1238,
+        467,
+        144,
+        64
+      ],
+      "stack_roi": [
+        1288,
+        469,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 3,
+      "angle_deg": 20,
+      "hole_cards_roi": [
+        1196,
+        706,
+        144,
+        64
+      ],
+      "stack_roi": [
+        1238,
+        753,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 4,
+      "angle_deg": 60,
+      "hole_cards_roi": [
+        1009,
+        863,
+        144,
+        64
+      ],
+      "stack_roi": [
+        1017,
+        938,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 5,
+      "angle_deg": 100,
+      "hole_cards_roi": [
+        766,
+        863,
+        144,
+        64
+      ],
+      "stack_roi": [
+        730,
+        938,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 6,
+      "angle_deg": 140,
+      "hole_cards_roi": [
+        579,
+        706,
+        144,
+        64
+      ],
+      "stack_roi": [
+        509,
+        753,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 7,
+      "angle_deg": 180,
+      "hole_cards_roi": [
+        537,
+        467,
+        144,
+        64
+      ],
+      "stack_roi": [
+        459,
+        469,
+        172,
+        37
+      ]
+    },
+    {
+      "index": 8,
+      "angle_deg": 220,
+      "hole_cards_roi": [
+        659,
+        256,
+        144,
+        64
+      ],
+      "stack_roi": [
+        603,
+        220,
+        172,
+        37
+      ]
+    }
+  ]
+}

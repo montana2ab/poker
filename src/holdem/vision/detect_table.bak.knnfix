@@ -1,0 +1,227 @@
+"""Table detection using feature matching."""
+
+import cv2
+import numpy as np
+import os
+from pathlib import Path
+from PIL import Image
+from typing import Optional, Tuple
+from holdem.vision.calibrate import TableProfile
+from holdem.utils.logging import get_logger
+
+logger = get_logger("vision.detect_table")
+
+
+def _load_refs_from_paths(profile: TableProfile, profile_path: Optional[Path] = None):
+    """
+    Load reference image and descriptors from file paths.
+    
+    Handles:
+    - reference_image as path (str) → loads as ndarray (BGR)
+    - descriptors as path (str) → loads from .npy or .npz file
+    - Converts relative paths to absolute using profile_path as base
+    
+    Args:
+        profile: TableProfile to update
+        profile_path: Optional path to the profile JSON file (for resolving relative paths)
+    """
+    # Determine base directory for resolving relative paths
+    base_dir = profile_path.parent if profile_path else Path.cwd()
+    
+    # Load reference_image if it's a path
+    ref_img = getattr(profile, "reference_image", None)
+    if isinstance(ref_img, str):
+        # Convert to absolute path if relative
+        ref_path = Path(ref_img)
+        if not ref_path.is_absolute():
+            ref_path = base_dir / ref_path
+        
+        if ref_path.exists():
+            try:
+                # Try cv2 first (handles more formats)
+                img = cv2.imread(str(ref_path))
+                if img is None:
+                    # Fallback to PIL
+                    img = cv2.cvtColor(
+                        np.array(Image.open(ref_path).convert("RGB")), 
+                        cv2.COLOR_RGB2BGR
+                    )
+                profile.reference_image = img
+                logger.info(f"Loaded reference image from {ref_path}")
+            except Exception as e:
+                logger.error(f"Failed to load reference image from {ref_path}: {e}")
+                profile.reference_image = None
+        else:
+            logger.warning(f"Reference image path does not exist: {ref_path}")
+            profile.reference_image = None
+    
+    # Load descriptors if it's a path
+    desc_path_attr = getattr(profile, "descriptors", None)
+    if isinstance(desc_path_attr, str):
+        # Convert to absolute path if relative
+        desc_path = Path(desc_path_attr)
+        if not desc_path.is_absolute():
+            desc_path = base_dir / desc_path
+        
+        if desc_path.exists():
+            try:
+                # Load .npz or .npy file
+                z = np.load(str(desc_path))
+                
+                # Handle .npz files (dictionary-like)
+                if isinstance(z, np.lib.npyio.NpzFile):
+                    # Try common keys in order of preference
+                    if "des" in z:
+                        profile.descriptors = z["des"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'des')")
+                    elif "descriptors" in z:
+                        profile.descriptors = z["descriptors"]
+                        logger.info(f"Loaded descriptors from {desc_path} (key: 'descriptors')")
+                    else:
+                        # Use first array in file
+                        first_key = list(z.keys())[0]
+                        profile.descriptors = z[first_key]
+                        logger.warning(f"Using first array from {desc_path} (key: '{first_key}')")
+                else:
+                    # .npy file (direct array)
+                    profile.descriptors = z
+                
+                logger.info(f"Loaded descriptors from {desc_path}")
+            except Exception as e:
+                logger.error(f"Failed to load descriptors from {desc_path}: {e}")
+                profile.descriptors = None
+        else:
+            logger.warning(f"Descriptors path does not exist: {desc_path}")
+            profile.descriptors = None
+
+
+class TableDetector:
+    """Detects and warps poker table using feature matching."""
+    
+    def __init__(self, profile: TableProfile, method: str = "orb", profile_path: Optional[Path] = None):
+        """
+        Initialize table detector.
+        
+        Args:
+            profile: TableProfile with reference image and descriptors
+            method: Feature detection method ("orb" or "akaze")
+            profile_path: Optional path to profile JSON (for resolving relative paths in references)
+        """
+        self.profile = profile
+        self.method = method.lower()
+        
+        # Load references from paths if they are strings
+        _load_refs_from_paths(profile, profile_path)
+        
+        if self.method == "orb":
+            self.detector = cv2.ORB_create(nfeatures=1000)
+        elif self.method == "akaze":
+            self.detector = cv2.AKAZE_create()
+        else:
+            raise ValueError(f"Unknown detection method: {method}")
+        
+        # Compute reference features if not already done
+        if profile.reference_image is not None and profile.descriptors is None:
+            gray = cv2.cvtColor(profile.reference_image, cv2.COLOR_BGR2GRAY)
+            profile.keypoints, profile.descriptors = self.detector.detectAndCompute(gray, None)
+            logger.info("Computed reference descriptors from reference image")
+    
+    def detect(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
+        """Detect table and return warped image."""
+        if self.profile.reference_image is None or self.profile.descriptors is None:
+            logger.warning("No reference image/descriptors in profile")
+            return screenshot  # Return unwarped
+        
+        # Detect features in current screenshot
+        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+        kp2, des2 = self.detector.detectAndCompute(gray, None)
+        
+        if des2 is None or len(kp2) < 4:
+            logger.warning("Not enough features detected in screenshot")
+            return screenshot
+        
+        # Match features
+        try:
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            matches = bf.knnMatch(self.profile.descriptors, des2, k=2)
+            
+            # Check if matches is valid
+            if matches is None or len(matches) == 0:
+                logger.warning("No matches found")
+                return screenshot
+            
+            # Apply ratio test (Lowe's test)
+            good_matches = []
+            for m_n in matches:
+                if len(m_n) == 2:
+                    m, n = m_n
+                    if m.distance < 0.78 * n.distance:
+                        good_matches.append(m)
+            
+            if len(good_matches) < 10:
+                logger.warning(f"Not enough good matches: {len(good_matches)}")
+                return screenshot
+            
+            # Find homography
+            src_pts = np.float32([self.profile.keypoints[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            
+            H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 6.0)
+            
+            if H is None:
+                logger.warning("Failed to compute homography")
+                return screenshot
+            
+            # Warp screenshot to match reference
+            h, w = self.profile.reference_image.shape[:2]
+            warped = cv2.warpPerspective(screenshot, H, (w, h))
+            
+            logger.debug(f"Table detected with {len(good_matches)} matches")
+            return warped
+            
+        except Exception as e:
+            logger.exception("Error during table detection", exc_info=True)
+            return None
+
+            logger.error(f"Error during table detection: {e}")
+            return screenshot
+    
+    def get_transform(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
+        """Get homography transformation matrix."""
+        if self.profile.reference_image is None or self.profile.descriptors is None:
+            return None
+        
+        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+        kp2, des2 = self.detector.detectAndCompute(gray, None)
+        
+        if des2 is None or len(kp2) < 4:
+            return None
+        
+        try:
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            matches = bf.knnMatch(self.profile.descriptors, des2, k=2)
+            
+            # Check if matches is valid
+            if matches is None or len(matches) == 0:
+                logger.warning("No matches found in get_transform")
+                return None
+            
+            good_matches = []
+            for m_n in matches:
+                if len(m_n) == 2:
+                    m, n = m_n
+                    if m.distance < 0.78 * n.distance:
+                        good_matches.append(m)
+            
+            if len(good_matches) < 10:
+                return None
+            
+            src_pts = np.float32([self.profile.keypoints[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            
+            H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 6.0)
+            return H
+            
+        except Exception as e:
+            logger.error(f"Error computing transform: {e}")
+            return None

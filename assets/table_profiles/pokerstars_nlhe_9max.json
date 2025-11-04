@@ -1,0 +1,192 @@
+{
+  "window_title": "Screen Region",
+  "owner_name": null,
+  "screen_region": [
+    967,
+    36,
+    953,
+    685
+  ],
+  "hero_position": 5,
+  "card_regions": [
+    {
+      "x": 319,
+      "y": 237,
+      "width": 313,
+      "height": 82
+    }
+  ],
+  "player_regions": [
+    {
+      "position": 0,
+      "name_region": {
+        "x": 759,
+        "y": 312,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 759,
+        "y": 342,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 769,
+        "y": 362,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 1,
+      "name_region": {
+        "x": 592,
+        "y": 519,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 592,
+        "y": 549,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 602,
+        "y": 569,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 2,
+      "name_region": {
+        "x": 260,
+        "y": 519,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 260,
+        "y": 549,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 270,
+        "y": 569,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 3,
+      "name_region": {
+        "x": 93,
+        "y": 312,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 93,
+        "y": 342,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 44,
+        "y": 220,
+        "width": 116,
+        "height": 51
+      }
+    },
+    {
+      "position": 4,
+      "name_region": {
+        "x": 260,
+        "y": 105,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 260,
+        "y": 135,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 270,
+        "y": 155,
+        "width": 80,
+        "height": 60
+      }
+    },
+    {
+      "position": 5,
+      "name_region": {
+        "x": 592,
+        "y": 105,
+        "width": 100,
+        "height": 20
+      },
+      "stack_region": {
+        "x": 592,
+        "y": 135,
+        "width": 100,
+        "height": 20
+      },
+      "card_region": {
+        "x": 418,
+        "y": 424,
+        "width": 121,
+        "height": 46
+      }
+    }
+  ],
+  "pot_region": {
+    "x": 467,
+    "y": 214,
+    "width": 56,
+    "height": 18
+  },
+  "bet_regions": [],
+  "button_regions": {
+    "fold": {
+      "x": 238,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    },
+    "check": {
+      "x": 381,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    },
+    "call": {
+      "x": 381,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    },
+    "bet": {
+      "x": 524,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    },
+    "raise": {
+      "x": 524,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    },
+    "allin": {
+      "x": 667,
+      "y": 582,
+      "width": 100,
+      "height": 40
+    }
+  }
+}
