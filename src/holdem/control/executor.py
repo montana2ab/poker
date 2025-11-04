@@ -25,6 +25,10 @@ class ActionExecutor:
         pyautogui.PAUSE = config.min_action_delay_ms / 1000.0
         pyautogui.FAILSAFE = True  # Move mouse to corner to abort
     
+    def execute(self, action: AbstractAction, state) -> bool:
+        """Execute an action (convenience method)."""
+        return self.execute_action(action)
+    
     def execute_action(self, action: AbstractAction) -> bool:
         """Execute an abstract action."""
         if self.stopped:

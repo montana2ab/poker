@@ -105,6 +105,11 @@ def main():
     safety = SafetyChecker()
     
     logger.info("Auto-play mode started")
+    logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}")
+    
+    # Track action history for belief updates
+    action_history = []
+    last_street = None
     
     try:
         while True:
@@ -130,12 +135,57 @@ def main():
                 time.sleep(1.0)
                 continue
             
-            # Check if it's our turn (simplified - would need proper detection)
-            # For now, just observe
-            logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}")
+            # Reset history on new street
+            if last_street != state.street:
+                logger.info(f"New street: {state.street.name}")
+                action_history = []
+                last_street = state.street
             
-            # This is a simplified placeholder
-            # Full implementation would detect when it's our turn and execute actions
+            logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
+            
+            # Get hero cards
+            hero_cards = None
+            if profile.hero_position is not None and profile.hero_position < len(state.players):
+                hero = state.players[profile.hero_position]
+                if hero.hole_cards:
+                    hero_cards = hero.hole_cards
+                    cards_str = ", ".join([str(c) for c in hero_cards])
+                    logger.info(f"Hero cards: {cards_str}")
+            
+            # Use real-time search to decide and execute action
+            if hero_cards and len(hero_cards) == 2:
+                try:
+                    # Safety check
+                    if not safety.check_safe_to_act(state):
+                        logger.warning("Safety check failed, skipping action")
+                        time.sleep(2.0)
+                        continue
+                    
+                    logger.info("[REAL-TIME SEARCH] Computing optimal action...")
+                    start_time = time.time()
+                    
+                    # Get action from search controller
+                    suggested_action = search_controller.get_action(
+                        state=state,
+                        our_cards=hero_cards,
+                        history=action_history
+                    )
+                    
+                    elapsed_ms = (time.time() - start_time) * 1000
+                    logger.info(f"[REAL-TIME SEARCH] Action decided: {suggested_action.name} (in {elapsed_ms:.1f}ms)")
+                    
+                    # Execute the action
+                    success = executor.execute(suggested_action, state)
+                    if success:
+                        logger.info(f"[AUTO-PLAY] Executed action: {suggested_action.name}")
+                        # Track this action in history
+                        action_history.append(suggested_action.name)
+                    else:
+                        logger.warning(f"[AUTO-PLAY] Failed to execute action: {suggested_action.name}")
+                    
+                except Exception as e:
+                    logger.error(f"[REAL-TIME SEARCH] Error: {e}", exc_info=True)
+                    logger.info("[AUTO-PLAY] Skipping action due to error")
             
             time.sleep(2.0)
             
