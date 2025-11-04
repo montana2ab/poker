@@ -1,6 +1,8 @@
 """Parse complete game state from vision."""
 
+import cv2
 import numpy as np
+from pathlib import Path
 from typing import Optional, List
 from holdem.types import TableState, PlayerState, Street, Card
 from holdem.vision.calibrate import TableProfile
@@ -18,15 +20,22 @@ class StateParser:
         self, 
         profile: TableProfile,
         card_recognizer: CardRecognizer,
-        ocr_engine: OCREngine
+        ocr_engine: OCREngine,
+        debug_dir: Optional[Path] = None
     ):
         self.profile = profile
         self.card_recognizer = card_recognizer
         self.ocr_engine = ocr_engine
+        self.debug_dir = debug_dir
+        self._debug_counter = 0
     
     def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
         """Parse table state from screenshot."""
         try:
+            # Increment debug counter for each parse call
+            if self.debug_dir:
+                self._debug_counter += 1
+            
             # Extract community cards
             board = self._parse_board(screenshot)
             
@@ -80,6 +89,13 @@ class StateParser:
         if y + h <= img.shape[0] and x + w <= img.shape[1]:
             card_region = img[y:y+h, x:x+w]
             logger.debug(f"Extracting board cards from region ({x},{y},{w},{h})")
+            
+            # Save debug image if debug mode is enabled
+            if self.debug_dir:
+                debug_path = self.debug_dir / f"board_region_{self._debug_counter:04d}.png"
+                cv2.imwrite(str(debug_path), card_region)
+                logger.debug(f"Saved board region to {debug_path}")
+            
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
             
             # Log the result
