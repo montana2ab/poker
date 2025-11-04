@@ -93,16 +93,22 @@ class StateParser:
             # Save debug image if debug mode is enabled
             if self.debug_dir:
                 debug_path = self.debug_dir / f"board_region_{self._debug_counter:04d}.png"
-                cv2.imwrite(str(debug_path), card_region)
-                logger.debug(f"Saved board region to {debug_path}")
+                try:
+                    success = cv2.imwrite(str(debug_path), card_region)
+                    if success:
+                        logger.debug(f"Saved board region to {debug_path}")
+                    else:
+                        logger.warning(f"Failed to save debug image to {debug_path}")
+                except Exception as e:
+                    logger.warning(f"Error saving debug image: {e}")
             
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
             
             # Log the result
-            recognized = [c for c in cards if c is not None]
-            if recognized:
-                cards_str = ", ".join([str(c) for c in recognized])
-                logger.info(f"Recognized {len(recognized)} board card(s): {cards_str}")
+            cards_str = ", ".join(str(c) for c in cards if c is not None)
+            if cards_str:
+                num_recognized = len([c for c in cards if c is not None])
+                logger.info(f"Recognized {num_recognized} board card(s): {cards_str}")
             else:
                 logger.warning("No board cards recognized - check card templates and region coordinates")
             

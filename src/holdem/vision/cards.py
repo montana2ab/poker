@@ -131,10 +131,9 @@ class CardRecognizer:
             logger.debug(f"Recognized {template_type} card {best_match} with confidence {best_score:.3f}")
             return Card.from_string(best_match)
         
-        if best_match:
-            logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_match} @ {best_score:.3f})")
-        else:
-            logger.debug(f"No {template_type} card match found")
+        # Log the best match even if below threshold
+        best_info = f"{best_match} @ {best_score:.3f}" if best_match else "none"
+        logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_info})")
         return None
     
     def _recognize_cnn(self, img: np.ndarray, threshold: float) -> Optional[Card]:
