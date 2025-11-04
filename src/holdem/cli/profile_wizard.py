@@ -17,13 +17,21 @@ def main():
                        help="Application owner name (e.g., 'PokerStars') for fallback detection on macOS")
     parser.add_argument("--region", type=int, nargs=4, metavar=("X", "Y", "W", "H"),
                        help="Screen region (x y width height)")
+    parser.add_argument("--seats", type=int, choices=[6, 9], default=9,
+                       help="Number of seats at the table (6 for 6-max, 9 for 9-max, default: 9)")
     parser.add_argument("--out", type=Path, required=True,
                        help="Output profile JSON file")
     
     args = parser.parse_args()
     
+    # Validate seats parameter (defense in depth)
+    if args.seats not in [6, 9]:
+        logger.error(f"Invalid seats value: {args.seats}. Must be 6 or 9.")
+        return
+    
     logger.info("Table Profile Wizard")
     logger.info("=" * 50)
+    logger.info(f"Table size: {args.seats}-max")
     
     # Capture screenshot
     screen_capture = ScreenCapture()
@@ -53,7 +61,8 @@ def main():
     logger.info("Running calibration...")
     profile = calibrate_interactive(
         screenshot,
-        args.window_title or "Screen Region"
+        args.window_title or "Screen Region",
+        seats=args.seats
     )
     
     profile.screen_region = window_region

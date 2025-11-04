@@ -1,8 +1,67 @@
 # Installation and Build Fixes - Summary
 
-This document summarizes all the fixes applied to resolve the installation and build issues mentioned in the problem statement.
+This document summarizes all the fixes applied to resolve installation, build, and calibration issues.
 
 ## Issues Fixed
+
+### 0. Calibration 6-max vs 9-max Issue ✅
+
+**Problem:**
+- Bot stuck at PREFLOP on 9-player tables
+- Calibration hardcoded to create only 6 player regions
+- On 9-seat tables, config showed only 6 seats
+- Cards for positions 6, 7, 8 could not be detected
+- Hero position might be in an undetected seat
+
+**Root Cause:**
+```python
+# In src/holdem/vision/calibrate.py line 137
+for i in range(6):  # Hardcoded to 6 players!
+```
+
+**Solutions:**
+- Added `--seats` parameter to `profile_wizard` CLI (choices: 6 or 9)
+- Updated `calibrate_interactive()` to accept `seats` parameter (default: 9)
+- Changed player region generation from hardcoded 6 to dynamic based on `seats`
+- Properly arrange player positions in circular layout: `angle_step = 360 / seats`
+- Updated all documentation (README.md, CALIBRATION_GUIDE.md, QUICKSTART_POKERSTARS.md)
+- Updated both English and French documentation
+
+**Files Changed:**
+- `src/holdem/vision/calibrate.py` - Added seats parameter to calibrate_interactive()
+- `src/holdem/cli/profile_wizard.py` - Added --seats CLI argument
+- `README.md` - Added --seats to calibration examples
+- `CALIBRATION_GUIDE.md` - Updated English and French sections
+- `QUICKSTART_POKERSTARS.md` - Updated calibration commands
+- `test_calibration_seats.py` - NEW: Tests for 6-max and 9-max calibration
+
+**Verification:**
+```bash
+$ python test_calibration_seats.py
+Testing calibration with variable seat counts...
+
+✓ 6-max calibration test passed
+✓ 9-max calibration test passed
+✓ Default seats test passed
+✓ Player region fields test passed
+
+All tests passed! ✓
+```
+
+**Usage:**
+```bash
+# For 9-player tables (default)
+python -m holdem.cli.profile_wizard \
+  --window-title "Hold'em" \
+  --seats 9 \
+  --out assets/table_profiles/pokerstars_9max.json
+
+# For 6-player tables
+python -m holdem.cli.profile_wizard \
+  --window-title "Hold'em" \
+  --seats 6 \
+  --out assets/table_profiles/pokerstars_6max.json
+```
 
 ### 1. Packaging / Import Issues ✅
 
