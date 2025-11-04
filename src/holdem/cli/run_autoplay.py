@@ -107,11 +107,12 @@ def main():
     logger.info("Auto-play mode started")
     logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}")
     
-    # Track action history for belief updates
-    action_history = []
-    last_street = None
-    
     try:
+        # Track action history for belief updates
+        # Resets on street changes to maintain accurate belief state
+        action_history = []
+        last_street = None
+        
         while True:
             # Capture and parse state
             if profile.screen_region:
