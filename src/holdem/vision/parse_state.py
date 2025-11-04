@@ -165,7 +165,8 @@ class StateParser:
             # Extract hole cards for hero player
             hole_cards = None
             if self.profile.hero_position is not None and i == self.profile.hero_position:
-                logger.info(f"Parsing hero cards at position {i}")
+                table_position = player_region.get('position', i)
+                logger.info(f"Parsing hero cards at position {table_position}")
                 hole_cards = self._parse_player_cards(img, player_region)
             
             player = PlayerState(
