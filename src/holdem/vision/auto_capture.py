@@ -387,15 +387,11 @@ def run_auto_capture(
                 continue
             
             # Detect table
-            table_region = table_detector.detect(screenshot)
-            if table_region is None:
+            table_img = table_detector.detect(screenshot)
+            if table_img is None:
                 logger.debug("Table not detected")
                 time.sleep(interval_seconds)
                 continue
-            
-            # Extract table region
-            x, y, w, h = table_region
-            table_img = screenshot[y:y+h, x:x+w]
             
             # Capture cards
             stats = capture.capture_from_screenshot(table_img)
