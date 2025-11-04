@@ -100,11 +100,11 @@ def test_player_card_debug_images_multiple_parses():
         
         # Create profile with hero_position
         profile = TableProfile()
-        profile.hero_position = 2
+        profile.hero_position = 0  # This is the index in player_regions list
         profile.card_regions = [{"x": 400, "y": 320, "width": 400, "height": 120}]
         profile.player_regions = [
             {
-                "position": 2,
+                "position": 2,  # This is the table position (seat number)
                 "name_region": {"x": 150, "y": 650, "width": 120, "height": 25},
                 "stack_region": {"x": 150, "y": 675, "width": 120, "height": 25},
                 "card_region": {"x": 130, "y": 700, "width": 160, "height": 100}
