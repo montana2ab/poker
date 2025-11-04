@@ -153,8 +153,8 @@ class StateParser:
         
         if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
             card_region = img[y:y+h, x:x+w]
-            # Hole cards are 2 cards
-            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2)
+            # Hole cards are 2 cards - use hero templates
+            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True)
             # Filter out None values
             valid_cards = [c for c in cards if c is not None]
             if len(valid_cards) > 0:

@@ -16,13 +16,19 @@ class CardRecognizer:
     RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
     SUITS = ['h', 'd', 'c', 's']  # hearts, diamonds, clubs, spades
     
-    def __init__(self, templates_dir: Optional[Path] = None, method: str = "template"):
+    def __init__(self, templates_dir: Optional[Path] = None, method: str = "template", 
+                 hero_templates_dir: Optional[Path] = None):
         self.method = method
         self.templates_dir = templates_dir
-        self.templates = {}
+        self.hero_templates_dir = hero_templates_dir
+        self.templates = {}  # Board card templates
+        self.hero_templates = {}  # Hero card templates
         
-        if method == "template" and templates_dir:
-            self._load_templates()
+        if method == "template":
+            if templates_dir:
+                self._load_templates()
+            if hero_templates_dir:
+                self._load_hero_templates()
     
     def _load_templates(self):
         """Load card templates from directory."""
@@ -39,22 +45,62 @@ class CardRecognizer:
                     if template is not None:
                         self.templates[card_name] = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
         
-        logger.info(f"Loaded {len(self.templates)} card templates")
+        logger.info(f"Loaded {len(self.templates)} board card templates")
     
-    def recognize_card(self, img: np.ndarray, confidence_threshold: float = 0.7) -> Optional[Card]:
-        """Recognize a single card from image."""
+    def _load_hero_templates(self):
+        """Load hero card templates from separate directory."""
+        if not self.hero_templates_dir or not self.hero_templates_dir.exists():
+            logger.warning(f"Hero templates directory not found: {self.hero_templates_dir}")
+            return
+        
+        for rank in self.RANKS:
+            for suit in self.SUITS:
+                card_name = f"{rank}{suit}"
+                template_path = self.hero_templates_dir / f"{card_name}.png"
+                if template_path.exists():
+                    template = cv2.imread(str(template_path))
+                    if template is not None:
+                        self.hero_templates[card_name] = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        
+        logger.info(f"Loaded {len(self.hero_templates)} hero card templates")
+    
+    def recognize_card(self, img: np.ndarray, confidence_threshold: float = 0.7, 
+                      use_hero_templates: bool = False) -> Optional[Card]:
+        """Recognize a single card from image.
+        
+        Args:
+            img: Card image to recognize
+            confidence_threshold: Minimum confidence score required
+            use_hero_templates: If True, use hero templates instead of board templates
+        """
         if self.method == "template":
-            return self._recognize_template(img, confidence_threshold)
+            return self._recognize_template(img, confidence_threshold, use_hero_templates)
         elif self.method == "cnn":
             return self._recognize_cnn(img, confidence_threshold)
         else:
             raise ValueError(f"Unknown recognition method: {self.method}")
     
-    def _recognize_template(self, img: np.ndarray, threshold: float) -> Optional[Card]:
-        """Template matching approach."""
-        if not self.templates:
-            logger.warning("No templates loaded")
-            return None
+    def _recognize_template(self, img: np.ndarray, threshold: float, 
+                           use_hero_templates: bool = False) -> Optional[Card]:
+        """Template matching approach.
+        
+        Args:
+            img: Card image to recognize
+            threshold: Minimum confidence score required
+            use_hero_templates: If True, use hero templates instead of board templates
+        """
+        # Select appropriate template set
+        templates_to_use = self.hero_templates if use_hero_templates and self.hero_templates else self.templates
+        
+        if not templates_to_use:
+            # Fall back to regular templates if hero templates not available
+            if use_hero_templates and not self.hero_templates:
+                logger.debug("Hero templates not available, falling back to board templates")
+                templates_to_use = self.templates
+            
+            if not templates_to_use:
+                logger.warning("No templates loaded")
+                return None
         
         # Convert to grayscale
         if len(img.shape) == 3:
@@ -68,7 +114,7 @@ class CardRecognizer:
         best_match = None
         best_score = 0.0
         
-        for card_name, template in self.templates.items():
+        for card_name, template in templates_to_use.items():
             # Resize template to match
             template_resized = cv2.resize(template, (70, 100))
             
@@ -80,11 +126,12 @@ class CardRecognizer:
                 best_score = max_val
                 best_match = card_name
         
+        template_type = "hero" if use_hero_templates else "board"
         if best_score >= threshold and best_match:
-            logger.debug(f"Recognized card {best_match} with confidence {best_score:.3f}")
+            logger.debug(f"Recognized {template_type} card {best_match} with confidence {best_score:.3f}")
             return Card.from_string(best_match)
         
-        logger.debug(f"No card match above threshold {threshold} (best: {best_score:.3f})")
+        logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_score:.3f})")
         return None
     
     def _recognize_cnn(self, img: np.ndarray, threshold: float) -> Optional[Card]:
@@ -92,8 +139,15 @@ class CardRecognizer:
         logger.warning("CNN recognition not implemented, falling back to template matching")
         return self._recognize_template(img, threshold)
     
-    def recognize_cards(self, img: np.ndarray, num_cards: int = 5) -> List[Optional[Card]]:
-        """Recognize multiple cards from image (community cards)."""
+    def recognize_cards(self, img: np.ndarray, num_cards: int = 5, 
+                       use_hero_templates: bool = False) -> List[Optional[Card]]:
+        """Recognize multiple cards from image.
+        
+        Args:
+            img: Image containing multiple cards
+            num_cards: Number of cards to recognize
+            use_hero_templates: If True, use hero templates instead of board templates
+        """
         cards = []
         height, width = img.shape[:2]
         
@@ -105,14 +159,19 @@ class CardRecognizer:
             x2 = (i + 1) * card_width
             card_img = img[:, x1:x2]
             
-            card = self.recognize_card(card_img)
+            card = self.recognize_card(card_img, use_hero_templates=use_hero_templates)
             cards.append(card)
         
         return cards
 
 
-def create_mock_templates(output_dir: Path):
-    """Create mock card templates for testing."""
+def create_mock_templates(output_dir: Path, for_hero: bool = False):
+    """Create mock card templates for testing.
+    
+    Args:
+        output_dir: Directory to save templates
+        for_hero: If True, creates templates styled for hero cards (smaller, different appearance)
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     
     ranks = CardRecognizer.RANKS
@@ -121,7 +180,15 @@ def create_mock_templates(output_dir: Path):
     for rank in ranks:
         for suit in suits:
             # Create a simple colored rectangle as mock template
-            img = np.ones((100, 70, 3), dtype=np.uint8) * 255
+            # Hero cards might be smaller or have different styling
+            if for_hero:
+                # Hero cards - slightly different appearance with border
+                img = np.ones((100, 70, 3), dtype=np.uint8) * 245
+                # Add a border to distinguish hero cards
+                cv2.rectangle(img, (2, 2), (68, 98), (200, 200, 200), 2)
+            else:
+                # Board cards - standard appearance
+                img = np.ones((100, 70, 3), dtype=np.uint8) * 255
             
             # Add rank text
             cv2.putText(img, rank, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 
@@ -135,4 +202,5 @@ def create_mock_templates(output_dir: Path):
             filename = f"{rank}{suit}.png"
             cv2.imwrite(str(output_dir / filename), img)
     
-    logger.info(f"Created {len(ranks) * len(suits)} mock templates in {output_dir}")
+    template_type = "hero" if for_hero else "board"
+    logger.info(f"Created {len(ranks) * len(suits)} mock {template_type} templates in {output_dir}")
