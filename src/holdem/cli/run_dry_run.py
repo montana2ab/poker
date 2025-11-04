@@ -115,6 +115,11 @@ def main():
             if state:
                 logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
                 
+                # Log board cards (community cards: flop, turn, river)
+                if state.board:
+                    board_str = ", ".join([str(c) for c in state.board])
+                    logger.info(f"Board: {board_str}")
+                
                 # Log hero's hole cards if detected
                 if profile.hero_position is not None and profile.hero_position < len(state.players):
                     hero = state.players[profile.hero_position]
