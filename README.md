@@ -139,6 +139,21 @@ python -m holdem.cli.run_dry_run \
   --time-budget-ms 80 --min-iters 100
 ```
 
+**Troubleshooting card recognition:** If board cards (flop, turn, river) are not being detected, use the `--debug-images` flag to save extracted card regions for inspection:
+
+```bash
+python -m holdem.cli.run_dry_run \
+  --profile assets/table_profiles/default_profile.json \
+  --policy runs/blueprint/avg_policy.json \
+  --debug-images /tmp/debug_cards
+```
+
+This will save the card regions to `/tmp/debug_cards/board_region_XXXX.png` files, allowing you to verify:
+- The card region coordinates in your table profile are correct
+- The cards are visible and clear in the extracted region
+- The extracted cards match the templates in `assets/templates/` or `assets/hero_templates/`
+
+
 ### 6. Run Auto-Play (Use with Caution!)
 
 **WARNING**: Auto-play mode will click on your screen. Use only on approved platforms and with proper authorization.
