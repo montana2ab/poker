@@ -71,6 +71,7 @@ class StateParser:
     def _parse_board(self, img: np.ndarray) -> list:
         """Parse community cards from image."""
         if not self.profile.card_regions:
+            logger.warning("No card regions defined in profile")
             return [None] * 5
         
         region = self.profile.card_regions[0]
@@ -78,8 +79,20 @@ class StateParser:
         
         if y + h <= img.shape[0] and x + w <= img.shape[1]:
             card_region = img[y:y+h, x:x+w]
+            logger.debug(f"Extracting board cards from region ({x},{y},{w},{h})")
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
+            
+            # Log the result
+            recognized = [c for c in cards if c is not None]
+            if recognized:
+                cards_str = ", ".join([str(c) for c in recognized])
+                logger.info(f"Recognized {len(recognized)} board card(s): {cards_str}")
+            else:
+                logger.warning("No board cards recognized - check card templates and region coordinates")
+            
             return cards
+        else:
+            logger.error(f"Card region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")
         
         return [None] * 5
     

@@ -131,7 +131,10 @@ class CardRecognizer:
             logger.debug(f"Recognized {template_type} card {best_match} with confidence {best_score:.3f}")
             return Card.from_string(best_match)
         
-        logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_score:.3f})")
+        if best_match:
+            logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_match} @ {best_score:.3f})")
+        else:
+            logger.debug(f"No {template_type} card match found")
         return None
     
     def _recognize_cnn(self, img: np.ndarray, threshold: float) -> Optional[Card]:
@@ -154,6 +157,9 @@ class CardRecognizer:
         # Assume cards are horizontally aligned
         card_width = width // num_cards
         
+        template_type = "hero" if use_hero_templates else "board"
+        logger.debug(f"Recognizing {num_cards} {template_type} cards from image {width}x{height}")
+        
         for i in range(num_cards):
             x1 = i * card_width
             x2 = (i + 1) * card_width
@@ -161,6 +167,11 @@ class CardRecognizer:
             
             card = self.recognize_card(card_img, use_hero_templates=use_hero_templates)
             cards.append(card)
+            
+            if card:
+                logger.debug(f"Card {i}: {card}")
+            else:
+                logger.debug(f"Card {i}: not recognized")
         
         return cards
 
