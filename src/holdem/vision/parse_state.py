@@ -165,6 +165,8 @@ class StateParser:
             # Extract hole cards for hero player
             hole_cards = None
             if self.profile.hero_position is not None and i == self.profile.hero_position:
+                table_position = player_region.get('position', i)
+                logger.info(f"Parsing hero cards at position {table_position}")
                 hole_cards = self._parse_player_cards(img, player_region)
             
             player = PlayerState(
@@ -186,14 +188,38 @@ class StateParser:
         x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
                     card_reg.get('width', 0), card_reg.get('height', 0)
         
+        player_pos = player_region.get('position', 'unknown')
+        logger.debug(f"Extracting player cards for position {player_pos} from region ({x},{y},{w},{h})")
+        
         if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
             card_region = img[y:y+h, x:x+w]
+            
+            # Save debug image if debug mode is enabled
+            if self.debug_dir:
+                debug_path = self.debug_dir / f"player_{player_pos}_cards_{self._debug_counter:04d}.png"
+                try:
+                    success = cv2.imwrite(str(debug_path), card_region)
+                    if success:
+                        logger.debug(f"Saved player {player_pos} card region to {debug_path}")
+                    else:
+                        logger.warning(f"Failed to save player {player_pos} debug image to {debug_path}")
+                except Exception as e:
+                    logger.warning(f"Error saving player {player_pos} debug image: {e}")
+            
             # Hole cards are 2 cards - use hero templates
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True)
+            
             # Filter out None values
             valid_cards = [c for c in cards if c is not None]
+            
+            # Log the result
             if len(valid_cards) > 0:
-                logger.debug(f"Parsed {len(valid_cards)} hole cards")
+                cards_str = ", ".join(str(c) for c in valid_cards)
+                logger.info(f"Recognized {len(valid_cards)} card(s) for player {player_pos}: {cards_str}")
                 return valid_cards
+            else:
+                logger.warning(f"No cards recognized for player {player_pos} - check card templates and region coordinates")
+        else:
+            logger.error(f"Player {player_pos} card region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")
         
         return None
