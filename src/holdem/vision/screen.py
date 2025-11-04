@@ -186,6 +186,15 @@ def _find_window_by_title(
 
 
 class ScreenCapture:
+
+    def capture(self):
+        """Capture tout l'écran (moniteur principal)."""
+        monitor = self.sct.monitors[0]
+        screenshot = self.sct.grab(monitor)
+        import numpy as _np
+        img = _np.array(screenshot)
+        return img[:, :, :3]
+
     """Captures screen regions using mss."""
     
     def __init__(self):

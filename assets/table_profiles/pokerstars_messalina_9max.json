@@ -251,5 +251,6 @@
       "height": 40
     }
   },
-  "hero_position": null
+  "hero_position": 7,
+  "hero_templates_dir": "assets/hero_templates"
 }
