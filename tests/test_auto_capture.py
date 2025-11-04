@@ -265,7 +265,7 @@ def test_table_detector_returns_image_not_bbox(tmp_path):
             pass
         
         # Verify detect was called and returned an image
-        assert mock_detector_instance.detect.called
+        mock_detector_instance.detect.assert_called()
         # The key test: if detect() returns an image (not a tuple),
         # it should be used directly, not unpacked as (x, y, w, h)
 
