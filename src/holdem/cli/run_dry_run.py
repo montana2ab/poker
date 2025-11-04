@@ -61,8 +61,15 @@ def main():
     # Setup components
     screen_capture = ScreenCapture()
     table_detector = TableDetector(profile)
+    
+    # Setup card recognizer with hero templates if configured
+    hero_templates_dir = None
+    if profile.hero_templates_dir:
+        hero_templates_dir = Path(profile.hero_templates_dir)
+    
     card_recognizer = CardRecognizer(
         templates_dir=Path("assets/templates"),
+        hero_templates_dir=hero_templates_dir,
         method="template"
     )
     ocr_engine = OCREngine(backend="paddleocr")
