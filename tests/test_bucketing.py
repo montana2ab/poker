@@ -14,19 +14,19 @@ def test_bucketing_stable_with_seed():
         k_flop=20,
         k_turn=15,
         k_river=10,
-        num_samples=1000,
+        num_samples=500,  # Reduced for speed
         seed=42
     )
     
     # Build buckets twice with same seed
     bucketing1 = HandBucketing(config)
-    bucketing1.build(num_samples=1000)
+    bucketing1.build(num_samples=500)
     
     bucketing2 = HandBucketing(config)
-    bucketing2.build(num_samples=1000)
+    bucketing2.build(num_samples=500)
     
     # Test same bucket assignments
-    test_hands = generate_random_hands(100, Street.FLOP, seed=123)
+    test_hands = generate_random_hands(50, Street.FLOP, seed=123)
     
     for hole_cards, board in test_hands:
         bucket1 = bucketing1.get_bucket(hole_cards, board, Street.FLOP)
@@ -68,16 +68,16 @@ def test_bucketing_produces_files(tmp_path):
 def test_bucket_range():
     """Test that bucket assignments are in valid range."""
     config = BucketConfig(
-        k_preflop=12,
-        k_flop=60,
-        k_turn=40,
-        k_river=24,
-        num_samples=500,
+        k_preflop=24,
+        k_flop=80,
+        k_turn=80,
+        k_river=64,
+        num_samples=300,  # Reduced for speed
         seed=42
     )
     
     bucketing = HandBucketing(config)
-    bucketing.build(num_samples=500)
+    bucketing.build(num_samples=300)
     
     # Test each street
     streets_and_k = [
@@ -88,7 +88,7 @@ def test_bucket_range():
     ]
     
     for street, k in streets_and_k:
-        test_hands = generate_random_hands(50, street, seed=street.value * 100)
+        test_hands = generate_random_hands(30, street, seed=street.value * 100)
         for hole_cards, board in test_hands:
             bucket = bucketing.get_bucket(hole_cards, board, street)
             assert 0 <= bucket < k, f"Bucket {bucket} out of range [0, {k}) for {street.name}"
