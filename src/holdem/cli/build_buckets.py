@@ -14,13 +14,13 @@ def main():
     parser = argparse.ArgumentParser(description="Build hand abstraction buckets")
     parser.add_argument("--hands", type=int, default=500000,
                        help="Number of hands to sample per street")
-    parser.add_argument("--k-preflop", type=int, default=12,
+    parser.add_argument("--k-preflop", type=int, default=24,
                        help="Number of preflop buckets")
-    parser.add_argument("--k-flop", type=int, default=60,
+    parser.add_argument("--k-flop", type=int, default=80,
                        help="Number of flop buckets")
-    parser.add_argument("--k-turn", type=int, default=40,
+    parser.add_argument("--k-turn", type=int, default=80,
                        help="Number of turn buckets")
-    parser.add_argument("--k-river", type=int, default=24,
+    parser.add_argument("--k-river", type=int, default=64,
                        help="Number of river buckets")
     parser.add_argument("--config", type=Path,
                        help="Output config file path")

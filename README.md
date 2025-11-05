@@ -7,7 +7,7 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 ## Features
 
 - **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
-- **Abstraction**: 7-action bucket {Fold, Check/Call, 0.25×pot, 0.5×pot, 1.0×pot, 2.0×pot, All-in} + k-means clustering per street based on equity, position, SPR, draws
+- **Abstraction**: 7-action bucket {Fold, Check/Call, 0.25×pot, 0.5×pot, 1.0×pot, 2.0×pot, All-in} + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: MCCFR/CFR+ with outcome sampling, exports average policy to JSON/PyTorch format
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with KL regularization toward blueprint, time-budgeted (e.g., 80ms), fallback to blueprint on timeout
 - **Control**: Dry-run mode by default; optional auto-click with confirmations, minimum delays, hotkeys (pause/stop), requires `--i-understand-the-tos` flag
@@ -103,7 +103,7 @@ Generate hand clusters for abstraction:
 
 ```bash
 python -m holdem.cli.build_buckets --hands 500000 \
-  --k-preflop 12 --k-flop 60 --k-turn 40 --k-river 24 \
+  --k-preflop 24 --k-flop 80 --k-turn 80 --k-river 64 \
   --config assets/abstraction/buckets_config.yaml \
   --out assets/abstraction/precomputed_buckets.pkl
 ```
@@ -413,6 +413,7 @@ Individual test modules:
 ## Documentation
 
 - **[Getting Started](GETTING_STARTED.md)** - Quick setup guide for new users
+- **[Feature Extraction](FEATURE_EXTRACTION.md)** - Detailed guide to the 10-dimensional preflop and 34-dimensional postflop feature extraction system
 - **[Real-time Re-Solving](REALTIME_RESOLVING.md)** - Complete guide to real-time search integration
 - **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)
 - **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
@@ -435,7 +436,10 @@ MIT License - see LICENSE file for details
 
 ### Abstraction
 - **Actions**: 7-bucket system (Fold, Check/Call, 0.25p, 0.5p, 1.0p, 2.0p, All-in)
-- **Buckets**: k-means clustering per street using equity (eval7), position, SPR, draw features
+- **Buckets**: k-means clustering per street (24/80/80/64 buckets for preflop/flop/turn/river) using comprehensive feature extraction
+  - Preflop: 10-dimensional features (hand strength, suitedness, connectivity, equity)
+  - Postflop: 34-dimensional features (hand categories, draw types, board texture, equity, SPR, position)
+  - See [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for complete details
 
 ### Blueprint Training
 - Algorithm: MCCFR with CFR+ (outcome sampling)
