@@ -71,7 +71,7 @@ Binary flag indicating both flush and straight draws:
 Analyzes community card texture:
 
 1. **board_paired** - Board contains at least one pair
-2. **board_trips_or_more** - Board is trips or better (includes two pair)
+2. **board_trips_or_more** - Board has two pair or better (trips, two pair, full house, or quads)
 3. **board_monotone** - At least 3 cards of same suit on board
 4. **board_two_suited** - Exactly 2 cards of same suit (not monotone)
 5. **board_ace_high** - Highest board card is an Ace

@@ -296,7 +296,7 @@ def analyze_board_texture(board: List[Card]) -> np.ndarray:
     
     Returns array of 6 binary flags:
     - board_paired: Board contains at least one pair
-    - board_trips_or_more: Board is trips or better
+    - board_trips_or_more: Board has two pair or better (trips, two pair, full house, or quads)
     - board_monotone: At least 3 cards of same suit
     - board_two_suited: Exactly 2 cards of same suit (and not monotone)
     - board_ace_high: Highest card is Ace
@@ -316,7 +316,7 @@ def analyze_board_texture(board: List[Card]) -> np.ndarray:
     if any(count >= 2 for count in rank_counts.values()):
         features[0] = 1.0
     
-    # board_trips_or_more (index 1)
+    # board_trips_or_more (index 1) - two pair or better
     if any(count >= 3 for count in rank_counts.values()):
         features[1] = 1.0
     # Also check for two pair on board
