@@ -11,13 +11,9 @@ logger = get_logger("abstraction.features")
 
 def card_to_eval7(card: Card) -> eval7.Card:
     """Convert our Card type to eval7.Card."""
-    rank_map = {'T': '10', 'J': 'Jack', 'Q': 'Queen', 'K': 'King', 'A': 'Ace'}
-    suit_map = {'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs', 's': 'Spades'}
-    
-    rank = rank_map.get(card.rank, card.rank)
-    suit = suit_map[card.suit]
-    
-    return eval7.Card(f"{rank} of {suit}")
+    # eval7 uses the simple format: rank + suit (e.g., "As", "Kh", "Td")
+    # Our Card already has rank and suit in compatible format
+    return eval7.Card(f"{card.rank}{card.suit}")
 
 
 def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: int = 1, num_samples: int = 1000) -> float:
@@ -48,7 +44,7 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
             
             # Deal community cards and track them
             needed_board_cards = max(0, 5 - len(board_eval7))
-            dealt_board_cards = [deck.deal() for _ in range(needed_board_cards)]
+            dealt_board_cards = deck.deal(needed_board_cards) if needed_board_cards > 0 else []
             sim_board = board_eval7 + dealt_board_cards
             
             # Evaluate our hand
@@ -60,11 +56,9 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
             dealt_opp_cards = []
             
             for _ in range(num_opponents):
-                opp_card1 = deck.deal()
-                opp_card2 = deck.deal()
-                opp_hand = [opp_card1, opp_card2]
-                dealt_opp_cards.extend([opp_card1, opp_card2])
-                opp_value = eval7.evaluate(opp_hand + sim_board)
+                opp_cards = deck.deal(2)
+                dealt_opp_cards.extend(opp_cards)
+                opp_value = eval7.evaluate(opp_cards + sim_board)
                 
                 if opp_value > our_hand_value:
                     opponent_better = True

@@ -77,7 +77,7 @@ def classify_hand_category(hole_cards: List[Card], board: List[Card]) -> int:
         
         # Evaluate hand strength
         hand_value = eval7.evaluate(hand + board_eval7)
-        hand_rank = eval7.HandRange(hand_value)
+        hand_type = eval7.handtype(hand_value)
         
         # Get board ranks sorted (high to low)
         board_ranks = sorted([get_rank_value(c.rank) for c in board], reverse=True)
@@ -89,28 +89,27 @@ def classify_hand_category(hole_cards: List[Card], board: List[Card]) -> int:
         suit_counts = Counter([c.suit for c in all_cards])
         
         # Check for straight flush or quads
-        rank_name = str(hand_rank).lower()
-        if 'straight flush' in rank_name or 'four of a kind' in rank_name:
+        if hand_type == 'Straight Flush' or hand_type == 'Quads':
             return HandCategory.QUADS_OR_STRAIGHT_FLUSH
         
         # Check for full house
-        if 'full house' in rank_name:
+        if hand_type == 'Full House':
             return HandCategory.FULL_HOUSE
         
         # Check for flush
-        if 'flush' in rank_name:
+        if hand_type == 'Flush':
             return HandCategory.FLUSH
         
         # Check for straight
-        if 'straight' in rank_name:
+        if hand_type == 'Straight':
             return HandCategory.STRAIGHT
         
         # Check for trips
-        if 'three of a kind' in rank_name:
+        if hand_type == 'Trips':
             return HandCategory.TRIPS
         
         # Check for two pair
-        if 'two pair' in rank_name:
+        if hand_type == 'Two Pair':
             # Determine if it's pocket pair + board pair or mixed
             if hole_cards[0].rank == hole_cards[1].rank:
                 # Pocket pair + board pair
@@ -120,7 +119,7 @@ def classify_hand_category(hole_cards: List[Card], board: List[Card]) -> int:
                 return HandCategory.TWO_PAIR_BOARD_HAND
         
         # Check for pair
-        if 'pair' in rank_name:
+        if hand_type == 'Pair':
             # Determine pair type
             if hole_cards[0].rank == hole_cards[1].rank:
                 # Pocket pair
@@ -372,13 +371,17 @@ def calculate_future_equity(
             deck.cards.remove(card)
         
         equity_sum = 0.0
-        cards_to_deal = 1 if street == Street.FLOP else 1  # Deal 1 turn or 1 river
+        cards_to_deal = 1  # Deal 1 turn or 1 river
+        
+        # eval7 value ranges (approximately)
+        MIN_VAL = 500000
+        MAX_VAL = 135000000
         
         for _ in range(num_samples):
             deck.shuffle()
             
             # Deal next card(s)
-            future_cards = [deck.deal() for _ in range(cards_to_deal)]
+            future_cards = deck.deal(cards_to_deal)
             future_board = board_eval7 + future_cards
             
             # Calculate equity on this future board (simplified: just evaluate strength)
@@ -386,7 +389,7 @@ def calculate_future_equity(
             if len(future_board) < 5:
                 # Pad to 5 cards for evaluation
                 remaining_needed = 5 - len(future_board)
-                extra_cards = [deck.deal() for _ in range(remaining_needed)]
+                extra_cards = deck.deal(remaining_needed) if remaining_needed > 0 else []
                 eval_board = future_board + extra_cards
                 
                 # Return cards for next iteration
@@ -397,9 +400,10 @@ def calculate_future_equity(
             
             # Evaluate hand strength (normalized to 0-1)
             hand_value = eval7.evaluate(hand + eval_board)
-            # eval7 uses lower values for better hands, max is around 7462
-            # Approximate equity as (7462 - hand_value) / 7462
-            equity_approx = (7462 - hand_value) / 7462.0
+            # eval7 uses higher values for better hands
+            # Normalize to 0-1 range
+            equity_approx = (hand_value - MIN_VAL) / (MAX_VAL - MIN_VAL)
+            equity_approx = max(0.0, min(1.0, equity_approx))  # Clamp to [0, 1]
             equity_sum += equity_approx
             
             # Return dealt cards
