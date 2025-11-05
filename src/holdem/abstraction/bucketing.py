@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 from holdem.types import Card, Street, BucketConfig
 from holdem.abstraction.features import extract_features, extract_simple_features
+from holdem.abstraction.preflop_features import extract_preflop_features
+from holdem.abstraction.postflop_features import extract_postflop_features
 from holdem.utils.rng import get_rng
 from holdem.utils.serialization import save_pickle, load_pickle
 from holdem.utils.logging import get_logger
@@ -39,11 +41,31 @@ class HandBucketing:
             features_list = []
             for _ in range(num_samples):
                 hole_cards, board = self._sample_hand(street, rng)
-                features = extract_simple_features(hole_cards, board)
+                
+                # Use appropriate feature extraction based on street
+                if street == Street.PREFLOP:
+                    features = extract_preflop_features(hole_cards, equity_samples=100)
+                else:
+                    # Postflop: use comprehensive feature vector
+                    # Use default context values for training
+                    features = extract_postflop_features(
+                        hole_cards=hole_cards,
+                        board=board,
+                        street=street,
+                        pot=100.0,  # Default pot
+                        stack=200.0,  # Default stack (SPR=2)
+                        is_in_position=True,  # Default position
+                        num_opponents=1,
+                        equity_samples=100,  # Faster for training
+                        future_equity_samples=50  # Faster for training
+                    )
+                
                 features_list.append(features)
             
             # Prepare data for sklearn (ensures float64 and C-contiguous)
             X = prepare_for_sklearn(np.array(features_list))
+            
+            logger.info(f"  Feature matrix shape: {X.shape}")
             
             # Fit k-means
             kmeans = KMeans(n_clusters=k, random_state=self.config.seed, n_init=10)
@@ -89,15 +111,43 @@ class HandBucketing:
         
         return hole_cards, board
     
-    def get_bucket(self, hole_cards: List[Card], board: List[Card], street: Street) -> int:
-        """Get bucket index for a hand."""
+    def get_bucket(self, hole_cards: List[Card], board: List[Card], street: Street,
+                   pot: float = 100.0, stack: float = 200.0, is_in_position: bool = True) -> int:
+        """Get bucket index for a hand.
+        
+        Args:
+            hole_cards: Player's hole cards
+            board: Community cards
+            street: Current street
+            pot: Current pot size (for SPR calculation)
+            stack: Player's stack (for SPR calculation)
+            is_in_position: Whether player is in position
+        
+        Returns:
+            Bucket index (0 to k-1 for the street)
+        """
         if not self.fitted:
             raise RuntimeError("Buckets not built yet. Call build() first.")
         
         if street not in self.models:
             raise ValueError(f"No model for street {street}")
         
-        features = extract_simple_features(hole_cards, board)
+        # Extract features based on street
+        if street == Street.PREFLOP:
+            features = extract_preflop_features(hole_cards, equity_samples=100)
+        else:
+            features = extract_postflop_features(
+                hole_cards=hole_cards,
+                board=board,
+                street=street,
+                pot=pot,
+                stack=stack,
+                is_in_position=is_in_position,
+                num_opponents=1,
+                equity_samples=100,
+                future_equity_samples=50
+            )
+        
         # KMeans.predict expects 2D array (n_samples, n_features)
         features_2d = prepare_for_sklearn(features[np.newaxis, :])
         bucket = self.models[street].predict(features_2d)[0]

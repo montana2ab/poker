@@ -99,10 +99,10 @@ class HandHistory:
 @dataclass
 class BucketConfig:
     """Configuration for hand bucketing."""
-    k_preflop: int = 12
-    k_flop: int = 60
-    k_turn: int = 40
-    k_river: int = 24
+    k_preflop: int = 24
+    k_flop: int = 80
+    k_turn: int = 80
+    k_river: int = 64
     num_samples: int = 500000
     seed: int = 42
 
