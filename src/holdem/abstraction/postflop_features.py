@@ -373,9 +373,12 @@ def calculate_future_equity(
         equity_sum = 0.0
         cards_to_deal = 1  # Deal 1 turn or 1 river
         
-        # eval7 value ranges (approximately)
-        MIN_VAL = 500000
-        MAX_VAL = 135000000
+        # eval7 evaluation value ranges (empirically determined)
+        # eval7.evaluate() returns higher values for better hands
+        # Observed range: ~500k (worst high card) to ~135M (royal flush)
+        # These constants provide a reasonable normalization to [0, 1] range
+        EVAL7_MIN_VALUE = 500_000
+        EVAL7_MAX_VALUE = 135_000_000
         
         for _ in range(num_samples):
             deck.shuffle()
@@ -401,8 +404,8 @@ def calculate_future_equity(
             # Evaluate hand strength (normalized to 0-1)
             hand_value = eval7.evaluate(hand + eval_board)
             # eval7 uses higher values for better hands
-            # Normalize to 0-1 range
-            equity_approx = (hand_value - MIN_VAL) / (MAX_VAL - MIN_VAL)
+            # Normalize to 0-1 range using empirically determined constants
+            equity_approx = (hand_value - EVAL7_MIN_VALUE) / (EVAL7_MAX_VALUE - EVAL7_MIN_VALUE)
             equity_approx = max(0.0, min(1.0, equity_approx))  # Clamp to [0, 1]
             equity_sum += equity_approx
             
