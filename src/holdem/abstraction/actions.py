@@ -194,14 +194,15 @@ class ActionAbstraction:
             # Calculate remaining stack after calling
             remaining_stack = stack - to_call
             
-            # Enforce minimum raise: at least the previous raise increment
+            # Enforce minimum raise: at least big_blind increment
             if not facing_check:
-                # Minimum raise is the last raise amount (or big blind if no raises yet)
-                # Last raise = current_bet - previous_bet (approximated by big_blind if unknown)
-                min_raise_increment = max(big_blind, current_bet - player_bet) if player_bet == 0 else big_blind
-                min_total_raise = to_call + min_raise_increment
+                # Minimum raise increment is always at least the big blind
+                # In standard poker, minimum raise = at least the size of the previous raise
+                # For simplicity, we use big_blind as the minimum raise increment
+                min_raise_increment = big_blind
+                min_total_bet = to_call + min_raise_increment
                 
-                if bet_amount + to_call < min_total_raise and bet_amount < remaining_stack:
+                if bet_amount + to_call < min_total_bet and remaining_stack >= min_raise_increment:
                     # If raise is too small and we have chips, bump to minimum
                     bet_amount = min_raise_increment
             
