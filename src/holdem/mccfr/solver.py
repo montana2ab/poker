@@ -35,7 +35,11 @@ class MCCFRSolver:
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
             num_players=num_players,
-            epsilon=config.exploration_epsilon
+            epsilon=config.exploration_epsilon,
+            use_linear_weighting=config.use_linear_weighting,
+            enable_pruning=config.enable_pruning,
+            pruning_threshold=config.pruning_threshold,
+            pruning_probability=config.pruning_probability
         )
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None
@@ -71,9 +75,13 @@ class MCCFRSolver:
             utility = self.sampler.sample_iteration(self.iteration)
             utility_history.append(utility)
             
-            # CFR+ discount
-            if self.iteration % 1000 == 0 and self.config.discount_factor < 1.0:
-                self.sampler.regret_tracker.discount(self.config.discount_factor)
+            # Linear MCCFR discount at regular intervals
+            if (self.iteration % self.config.discount_interval == 0 and 
+                (self.config.regret_discount_alpha < 1.0 or self.config.strategy_discount_beta < 1.0)):
+                self.sampler.regret_tracker.discount(
+                    regret_factor=self.config.regret_discount_alpha,
+                    strategy_factor=self.config.strategy_discount_beta
+                )
             
             # TensorBoard logging (every 100 iterations for smoother curves)
             if self.writer and (i + 1) % 100 == 0:

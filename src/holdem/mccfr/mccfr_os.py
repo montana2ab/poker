@@ -20,7 +20,11 @@ class OutcomeSampler:
         self,
         bucketing: HandBucketing,
         num_players: int = 2,
-        epsilon: float = 0.6
+        epsilon: float = 0.6,
+        use_linear_weighting: bool = True,
+        enable_pruning: bool = True,
+        pruning_threshold: float = -300_000_000.0,
+        pruning_probability: float = 0.95
     ):
         self.bucketing = bucketing
         self.num_players = num_players
@@ -28,6 +32,14 @@ class OutcomeSampler:
         self.encoder = StateEncoder(bucketing)
         self.regret_tracker = RegretTracker()
         self.rng = get_rng()
+        
+        # Linear MCCFR parameters
+        self.use_linear_weighting = use_linear_weighting
+        
+        # Dynamic pruning parameters
+        self.enable_pruning = enable_pruning
+        self.pruning_threshold = pruning_threshold
+        self.pruning_probability = pruning_probability
     
     def sample_iteration(self, iteration: int) -> float:
         """Run one iteration of outcome sampling MCCFR."""
@@ -98,8 +110,23 @@ class OutcomeSampler:
             self.encoder.encode_history(history)
         )
         
+        # Dynamic pruning: skip iteration if conditions are met
+        # Don't prune at river or terminal nodes
+        is_river = (street == Street.RIVER)
+        if (self.enable_pruning and 
+            not is_river and 
+            current_player == sample_player and
+            self.regret_tracker.should_prune(infoset, actions, self.pruning_threshold)):
+            # Sample q ∈ [0,1) and skip with pruning_probability
+            if self.rng.random() < self.pruning_probability:
+                # Skip this iteration - return neutral utility
+                return 0.0
+        
         # Get current strategy
         strategy = self.regret_tracker.get_strategy(infoset, actions)
+        
+        # Linear weighting: use iteration number as weight
+        weight = float(iteration) if self.use_linear_weighting else 1.0
         
         if current_player == sample_player:
             # Sample player: explore with epsilon-greedy
@@ -120,7 +147,7 @@ class OutcomeSampler:
                 player, reach_prob, sample_player, iteration
             )
             
-            # Update regrets
+            # Update regrets with linear weighting
             action_utilities = {sampled_action: utility}
             for action in actions:
                 if action != sampled_action:
@@ -130,10 +157,11 @@ class OutcomeSampler:
             
             for action in actions:
                 regret = action_utilities.get(action, 0.0) - expected_utility
-                self.regret_tracker.update_regret(infoset, action, regret)
+                self.regret_tracker.update_regret(infoset, action, regret, weight)
             
-            # Add to strategy sum
-            self.regret_tracker.add_strategy(infoset, strategy, reach_prob)
+            # Add to strategy sum with linear weighting
+            strategy_weight = weight * reach_prob
+            self.regret_tracker.add_strategy(infoset, strategy, strategy_weight)
             
             return utility
         

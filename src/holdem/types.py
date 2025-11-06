@@ -115,6 +115,17 @@ class MCCFRConfig:
     discount_factor: float = 1.0  # CFR+ uses adaptive discount
     exploration_epsilon: float = 0.6  # For outcome sampling
     
+    # Linear MCCFR parameters
+    use_linear_weighting: bool = True  # Use Linear MCCFR (weighting ∝ t)
+    discount_interval: int = 1000  # Apply discounting every N iterations
+    regret_discount_alpha: float = 1.0  # Regret discount factor (α)
+    strategy_discount_beta: float = 1.0  # Strategy discount factor (β)
+    
+    # Dynamic pruning parameters
+    enable_pruning: bool = True  # Enable dynamic pruning
+    pruning_threshold: float = -300_000_000.0  # Regret threshold for pruning
+    pruning_probability: float = 0.95  # Probability to skip iteration when below threshold
+    
 
 @dataclass
 class SearchConfig:
