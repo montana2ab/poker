@@ -52,7 +52,11 @@ def worker_cfr_iteration(
         
         sampled_action = rng.choice(actions, p=action_probs)
         
-        # Simplified utility calculation
+        # NOTE: This is a simplified utility calculation for demonstration.
+        # In production, this should perform actual game tree traversal and 
+        # proper CFR utility calculation based on the subgame structure.
+        # The current implementation serves as a placeholder that shows the
+        # basic structure of parallel CFR iterations.
         utility = rng.uniform(-1.0, 1.0)
         
         # Add KL divergence penalty
@@ -162,12 +166,22 @@ class ParallelSubgameResolver:
         
         # Wait for all workers to complete or timeout
         timeout = time_budget_ms / 1000.0
+        start_wait = time.time()
+        
         for p in workers:
-            remaining = timeout - (time.time() - start_time)
+            remaining = timeout - (time.time() - start_wait)
             if remaining > 0:
                 p.join(timeout=remaining)
+                # If process didn't finish, terminate it
+                if p.is_alive():
+                    logger.warning(f"Worker process did not complete in time, terminating")
+                    p.terminate()
+                    p.join(timeout=1.0)  # Give it a second to clean up
             else:
-                p.terminate()
+                # Timeout exceeded, terminate remaining workers
+                if p.is_alive():
+                    p.terminate()
+                    p.join(timeout=1.0)
         
         # Collect results
         strategies = []
@@ -229,7 +243,8 @@ class ParallelSubgameResolver:
             
             sampled_action = rng.choice(actions, p=action_probs)
             
-            # Simplified utility calculation
+            # NOTE: Simplified utility calculation (placeholder).
+            # Should be replaced with proper game tree traversal and CFR utility calculation.
             utility = rng.uniform(-1.0, 1.0)
             
             # Add KL divergence penalty

@@ -138,8 +138,8 @@ class ParallelMCCFRSolver:
                 for action, regret in actions_dict.items():
                     if action not in self.regret_tracker.regrets[infoset]:
                         self.regret_tracker.regrets[infoset][action] = 0.0
-                    # Average regrets from workers
-                    self.regret_tracker.regrets[infoset][action] += regret / len(results)
+                    # Sum regrets from workers (each worker's regrets are independent samples)
+                    self.regret_tracker.regrets[infoset][action] += regret
             
             # Merge strategy updates
             for infoset, actions_dict in strategy_updates.items():
@@ -311,15 +311,16 @@ class ParallelMCCFRSolver:
                     elapsed_total = current_time - start_time
                     remaining = self.config.time_budget_seconds - elapsed_total
                     logger.info(
-                        f"Iteration {self.iteration} "
-                        f"({iter_per_sec:.1f} iter/s) - Utility: {recent_utility:.6f} - "
+                        f"Iteration {self.iteration} ({iter_per_sec:.1f} iter/s) - "
+                        f"Utility: {recent_utility:.6f} - "
                         f"Elapsed: {elapsed_total:.1f}s, Remaining: {remaining:.1f}s - "
                         f"Workers: {self.num_workers}"
                     )
                 else:
                     logger.info(
                         f"Iteration {self.iteration}/{self.config.num_iterations} "
-                        f"({iter_per_sec:.1f} iter/s) - Utility: {recent_utility:.6f} - "
+                        f"({iter_per_sec:.1f} iter/s) - "
+                        f"Utility: {recent_utility:.6f} - "
                         f"Workers: {self.num_workers}"
                     )
                 
