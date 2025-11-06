@@ -7,7 +7,11 @@ from holdem.types import Action, ActionType, Street
 
 
 class AbstractAction(Enum):
-    """Abstract action buckets."""
+    """Abstract action buckets.
+    
+    Canonical order: [FOLD, CHECK_CALL, BET_33, BET_66, BET_75, BET_100, BET_150, ALL_IN]
+    This order should be maintained everywhere to ensure strategy/regret alignment.
+    """
     FOLD = "fold"
     CHECK_CALL = "check_call"
     BET_QUARTER_POT = "bet_0.25p"
@@ -16,7 +20,7 @@ class AbstractAction(Enum):
     BET_TWO_THIRDS_POT = "bet_0.66p"
     BET_THREE_QUARTERS_POT = "bet_0.75p"
     BET_POT = "bet_1.0p"
-    BET_ONE_HALF_POT = "bet_1.5p"
+    BET_OVERBET_150 = "bet_1.5p"  # Renamed from BET_ONE_HALF_POT (1.5× pot, not 0.5×)
     BET_DOUBLE_POT = "bet_2.0p"
     ALL_IN = "all_in"
 
@@ -95,7 +99,7 @@ class ActionAbstraction:
                 0.66: AbstractAction.BET_TWO_THIRDS_POT,
                 0.75: AbstractAction.BET_THREE_QUARTERS_POT,
                 1.0: AbstractAction.BET_POT,
-                1.5: AbstractAction.BET_ONE_HALF_POT,
+                1.5: AbstractAction.BET_OVERBET_150,
                 2.0: AbstractAction.BET_DOUBLE_POT
             }
             
@@ -119,7 +123,13 @@ class ActionAbstraction:
         player_bet: float,
         can_check: bool
     ) -> Action:
-        """Convert abstract action to concrete action."""
+        """Convert abstract action to concrete action.
+        
+        Betting semantics:
+        - Facing check (current_bet == 0): size = round(f * pot)
+        - Facing bet: raise_to = round(f * (pot + call_amount)) (to-size convention)
+        - Clamp to stack size; if size >= 97% of stack -> ALL-IN
+        """
         to_call = current_bet - player_bet
         
         if abstract_action == AbstractAction.FOLD:
@@ -143,18 +153,30 @@ class ActionAbstraction:
                 AbstractAction.BET_TWO_THIRDS_POT: 0.66,
                 AbstractAction.BET_THREE_QUARTERS_POT: 0.75,
                 AbstractAction.BET_POT: 1.0,
-                AbstractAction.BET_ONE_HALF_POT: 1.5,
+                AbstractAction.BET_OVERBET_150: 1.5,
                 AbstractAction.BET_DOUBLE_POT: 2.0
             }
             
             fraction = pot_fraction_map.get(abstract_action, 1.0)
-            bet_amount = pot * fraction
+            
+            # Betting semantics: facing check vs facing bet
+            if current_bet == 0 or current_bet == player_bet:
+                # Facing check: bet = fraction * pot
+                bet_amount = round(fraction * pot)
+            else:
+                # Facing bet: raise to = fraction * (pot + call_amount)
+                bet_amount = round(fraction * (pot + to_call))
             
             # Cap at stack
-            bet_amount = min(bet_amount, stack - to_call)
+            remaining_stack = stack - to_call
+            bet_amount = min(bet_amount, remaining_stack)
             
-            if current_bet == 0:
-                return Action(ActionType.BET, amount=bet_amount + to_call)
+            # If bet >= 97% of stack, treat as all-in
+            if bet_amount >= 0.97 * remaining_stack:
+                return Action(ActionType.ALLIN, amount=stack)
+            
+            if current_bet == 0 or current_bet == player_bet:
+                return Action(ActionType.BET, amount=bet_amount)
             else:
                 return Action(ActionType.RAISE, amount=bet_amount + to_call)
     
@@ -191,7 +213,7 @@ class ActionAbstraction:
             elif ratio < 1.25:  # Closest to 1.0
                 return AbstractAction.BET_POT
             elif ratio < 1.75:  # Closest to 1.5
-                return AbstractAction.BET_ONE_HALF_POT
+                return AbstractAction.BET_OVERBET_150
             else:
                 return AbstractAction.BET_DOUBLE_POT
         

@@ -32,7 +32,7 @@ class TestActionAbstraction:
         assert AbstractAction.BET_THIRD_POT not in actions
         assert AbstractAction.BET_TWO_THIRDS_POT not in actions
         assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
     
     def test_flop_ip_actions(self):
         """Test flop in position actions: {33, 75, 100, 150}."""
@@ -51,7 +51,7 @@ class TestActionAbstraction:
         assert AbstractAction.BET_THIRD_POT in actions
         assert AbstractAction.BET_THREE_QUARTERS_POT in actions
         assert AbstractAction.BET_POT in actions
-        assert AbstractAction.BET_ONE_HALF_POT in actions
+        assert AbstractAction.BET_OVERBET_150 in actions
         assert AbstractAction.ALL_IN in actions
         
         # Should not have these
@@ -80,7 +80,7 @@ class TestActionAbstraction:
         assert AbstractAction.ALL_IN in actions
         
         # Should NOT have 1.5p (IP only on flop)
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
         assert AbstractAction.BET_QUARTER_POT not in actions
         assert AbstractAction.BET_HALF_POT not in actions
         assert AbstractAction.BET_TWO_THIRDS_POT not in actions
@@ -104,7 +104,7 @@ class TestActionAbstraction:
             assert AbstractAction.CHECK_CALL in actions
             assert AbstractAction.BET_TWO_THIRDS_POT in actions
             assert AbstractAction.BET_POT in actions
-            assert AbstractAction.BET_ONE_HALF_POT in actions
+            assert AbstractAction.BET_OVERBET_150 in actions
             assert AbstractAction.ALL_IN in actions
             
             # Should not have these
@@ -132,7 +132,7 @@ class TestActionAbstraction:
             assert AbstractAction.CHECK_CALL in actions
             assert AbstractAction.BET_THREE_QUARTERS_POT in actions
             assert AbstractAction.BET_POT in actions
-            assert AbstractAction.BET_ONE_HALF_POT in actions
+            assert AbstractAction.BET_OVERBET_150 in actions
             assert AbstractAction.ALL_IN in actions
             
             # Should not have these
@@ -195,7 +195,7 @@ class TestActionAbstraction:
         # Should not have these (stack too small)
         assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
         assert AbstractAction.BET_POT not in actions
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
         
         # Note: 0.33p (33.0) would fit in stack but river doesn't have that bet size
     
@@ -239,7 +239,7 @@ class TestActionAbstraction:
         
         # Test 1.5p
         action = ActionAbstraction.abstract_to_concrete(
-            AbstractAction.BET_ONE_HALF_POT,
+            AbstractAction.BET_OVERBET_150,
             pot=100.0,
             stack=200.0,
             current_bet=0,
@@ -281,7 +281,7 @@ class TestActionAbstraction:
             pot=100.0,
             stack=200.0
         )
-        assert abstract == AbstractAction.BET_ONE_HALF_POT
+        assert abstract == AbstractAction.BET_OVERBET_150
 
 
 if __name__ == "__main__":
