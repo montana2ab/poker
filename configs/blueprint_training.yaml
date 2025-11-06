@@ -18,7 +18,15 @@ regret_discount_alpha: 1.0  # Regret discount factor (α) - 1.0 means no discoun
 strategy_discount_beta: 1.0  # Strategy discount factor (β) - 1.0 means no discount
 
 # Exploration
+# Static epsilon (used if epsilon_schedule not provided)
 exploration_epsilon: 0.6
+
+# Epsilon schedule - step-based decay (iteration, epsilon)
+# Uncomment to use schedule instead of static epsilon:
+# epsilon_schedule:
+#   - [0, 0.6]           # Start at 0.6
+#   - [1000000, 0.3]     # Drop to 0.3 at iteration 1M
+#   - [2000000, 0.1]     # Drop to 0.1 at iteration 2M
 
 # Dynamic pruning (Pluribus paper values)
 enable_pruning: true

@@ -49,6 +49,10 @@ class MCCFRSolver:
         )
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None
+        
+        # Initialize epsilon schedule tracking
+        self._epsilon_schedule_index = 0
+        self._current_epsilon = config.exploration_epsilon
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
         """Run MCCFR training.
@@ -105,6 +109,9 @@ class MCCFRSolver:
             utility = self.sampler.sample_iteration(self.iteration)
             utility_history.append(utility)
             
+            # Update epsilon based on schedule (if configured)
+            self._update_epsilon_schedule()
+            
             # Linear MCCFR discount at regular intervals
             if (self.iteration % self.config.discount_interval == 0 and 
                 (self.config.regret_discount_alpha < 1.0 or self.config.strategy_discount_beta < 1.0)):
@@ -130,7 +137,17 @@ class MCCFRSolver:
                     self.writer.add_scalar('Training/UtilityMovingAvg', avg_utility, self.iteration)
                 
                 # Log exploration epsilon
-                self.writer.add_scalar('Training/Epsilon', self.config.exploration_epsilon, self.iteration)
+                self.writer.add_scalar('Training/Epsilon', self._current_epsilon, self.iteration)
+                
+                # Log policy entropy per street
+                entropy_metrics = self._calculate_policy_entropy_metrics()
+                for metric_name, value in entropy_metrics.items():
+                    self.writer.add_scalar(metric_name, value, self.iteration)
+                
+                # Log normalized regret per street
+                regret_metrics = self._calculate_regret_norm_metrics()
+                for metric_name, value in regret_metrics.items():
+                    self.writer.add_scalar(metric_name, value, self.iteration)
             
             # Console logging (every 10000 iterations or every 60 seconds in time-budget mode)
             time_since_log = current_time - last_log_time
@@ -527,6 +544,151 @@ class MCCFRSolver:
         logger.warning("Training will continue from current regret state with restored RNG")
         
         return iteration
+    
+    def _update_epsilon_schedule(self):
+        """Update epsilon based on schedule if configured."""
+        if self.config.epsilon_schedule is None:
+            return
+        
+        # Find the appropriate epsilon for current iteration
+        # Schedule is list of (iteration, epsilon) tuples sorted by iteration
+        schedule = self.config.epsilon_schedule
+        
+        # Find the current epsilon value
+        for i in range(len(schedule) - 1, -1, -1):
+            if self.iteration >= schedule[i][0]:
+                new_epsilon = schedule[i][1]
+                if new_epsilon != self._current_epsilon:
+                    self._current_epsilon = new_epsilon
+                    # Update sampler epsilon (defensive check for interface)
+                    if hasattr(self.sampler, 'set_epsilon'):
+                        self.sampler.set_epsilon(new_epsilon)
+                    else:
+                        # Fallback: directly set epsilon attribute
+                        self.sampler.epsilon = new_epsilon
+                    logger.info(f"Epsilon updated to {new_epsilon:.3f} at iteration {self.iteration}")
+                break
+    
+    def _calculate_policy_entropy_metrics(self) -> Dict[str, float]:
+        """Calculate policy entropy metrics per street and position.
+        
+        Returns:
+            Dictionary of metric names to values
+        """
+        import math
+        
+        # Group infosets by street and position (IP/OOP)
+        entropy_by_street = {
+            'preflop': [],
+            'flop': [],
+            'turn': [],
+            'river': []
+        }
+        entropy_by_position = {
+            'IP': [],  # In Position
+            'OOP': []  # Out of Position
+        }
+        
+        for infoset in self.sampler.regret_tracker.strategy_sum:
+            actions_dict = self.sampler.regret_tracker.strategy_sum[infoset]
+            if not actions_dict:
+                continue
+                
+            actions = list(actions_dict.keys())
+            avg_strategy = self.sampler.regret_tracker.get_average_strategy(infoset, actions)
+            
+            # Calculate entropy: H(p) = -Σ p(a) * log(p(a))
+            entropy = 0.0
+            for action, prob in avg_strategy.items():
+                if prob > 0:
+                    entropy -= prob * math.log2(prob)
+            
+            # Determine street
+            street = self._extract_street_from_infoset(infoset)
+            entropy_by_street[street].append(entropy)
+            
+            # Determine position (simplified: based on infoset encoding)
+            # IP if acting last, OOP if acting first
+            # This is a simplification - proper position depends on game state
+            position = self._extract_position_from_infoset(infoset)
+            if position:
+                entropy_by_position[position].append(entropy)
+        
+        # Calculate averages
+        metrics = {}
+        for street, entropies in entropy_by_street.items():
+            if entropies:
+                metrics[f'policy_entropy/{street}'] = sum(entropies) / len(entropies)
+        
+        for position, entropies in entropy_by_position.items():
+            if entropies:
+                metrics[f'policy_entropy/{position}'] = sum(entropies) / len(entropies)
+        
+        return metrics
+    
+    def _extract_position_from_infoset(self, infoset: str) -> Optional[str]:
+        """Extract position (IP/OOP) from infoset.
+        
+        Simplified heuristic: if history ends with 'c' (call), player is IP,
+        if ends with 'b' or 'r' (bet/raise), player is OOP.
+        
+        Args:
+            infoset: Information set identifier
+            
+        Returns:
+            'IP' for in position, 'OOP' for out of position, or None
+        """
+        try:
+            # Parse infoset to get action history
+            parts = infoset.split('|')
+            if len(parts) >= 2:
+                history = parts[1] if len(parts) > 1 else ''
+                if history:
+                    last_action = history[-1]
+                    # Simple heuristic
+                    if last_action in ['c', 'k']:  # call or check
+                        return 'IP'
+                    elif last_action in ['b', 'r']:  # bet or raise
+                        return 'OOP'
+        except (IndexError, ValueError):
+            pass
+        return None
+    
+    def _calculate_regret_norm_metrics(self) -> Dict[str, float]:
+        """Calculate normalized regret metrics per street.
+        
+        Returns:
+            Dictionary of metric names to values
+        """
+        import numpy as np
+        
+        # Group regrets by street
+        regrets_by_street = {
+            'preflop': [],
+            'flop': [],
+            'turn': [],
+            'river': []
+        }
+        
+        for infoset, action_regrets in self.sampler.regret_tracker.regrets.items():
+            if not action_regrets:
+                continue
+                
+            # Determine street
+            street = self._extract_street_from_infoset(infoset)
+            
+            # Calculate regret norm (L2 norm)
+            regret_values = list(action_regrets.values())
+            regret_norm = np.linalg.norm(regret_values)
+            regrets_by_street[street].append(regret_norm)
+        
+        # Calculate averages
+        metrics = {}
+        for street, regret_norms in regrets_by_street.items():
+            if regret_norms:
+                metrics[f'avg_regret_norm/{street}'] = sum(regret_norms) / len(regret_norms)
+        
+        return metrics
     
     def save_policy(self, logdir: Path):
         """Save final average policy."""

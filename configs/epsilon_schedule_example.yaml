@@ -1,0 +1,50 @@
+# Example configuration with epsilon schedule
+# This demonstrates the step-based epsilon decay feature
+
+# Training mode: iteration-based
+num_iterations: 2500000
+
+# Checkpoint configuration
+checkpoint_interval: 100000
+
+# Linear MCCFR parameters
+use_linear_weighting: true
+discount_interval: 1000
+regret_discount_alpha: 1.0
+strategy_discount_beta: 1.0
+
+# Epsilon schedule - step-based decay
+# Format: list of [iteration, epsilon] pairs
+# The solver will use the highest epsilon value for iterations >= that threshold
+epsilon_schedule:
+  - [0, 0.6]           # Start at 0.6 (high exploration)
+  - [1000000, 0.3]     # Drop to 0.3 at iteration 1M (moderate exploration)
+  - [2000000, 0.1]     # Drop to 0.1 at iteration 2M (low exploration, more exploitation)
+
+# Note: If epsilon_schedule is provided, the static exploration_epsilon is ignored
+# exploration_epsilon: 0.6  # Only used if epsilon_schedule is not provided
+
+# Dynamic pruning (Pluribus paper values)
+enable_pruning: true
+pruning_threshold: -300000000.0
+pruning_probability: 0.95
+
+# TensorBoard logging
+tensorboard_log_interval: 1000  # Log every 1000 iterations
+
+# Example: Time-budget based training with epsilon schedule
+# Uncomment these lines to use time-based training instead:
+# time_budget_seconds: 691200  # 8 days CPU time
+# snapshot_interval_seconds: 3600  # Save snapshots every hour
+# 
+# epsilon_schedule:
+#   - [0, 0.6]                    # Start at 0.6
+#   - [345600, 0.3]               # Drop to 0.3 after 4 days
+#   - [518400, 0.1]               # Drop to 0.1 after 6 days
+
+# Example: Monitoring and evaluation
+# To watch for new snapshots and automatically trigger evaluation:
+# holdem-watch-snapshots --snapshot-dir ./logs/snapshots --episodes 20000 --check-interval 300
+#
+# To resume training from a checkpoint with bucket validation:
+# holdem-train-blueprint --config this_file.yaml --buckets buckets.pkl --logdir ./logs --resume-from ./logs/checkpoints/checkpoint_iter1000000.pkl
