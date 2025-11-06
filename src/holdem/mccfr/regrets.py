@@ -21,13 +21,20 @@ class RegretTracker:
             return 0.0
         return self.regrets[infoset].get(action, 0.0)
     
-    def update_regret(self, infoset: str, action: AbstractAction, regret: float):
-        """Update cumulative regret."""
+    def update_regret(self, infoset: str, action: AbstractAction, regret: float, weight: float = 1.0):
+        """Update cumulative regret.
+        
+        Args:
+            infoset: Information set identifier
+            action: Action to update
+            regret: Instantaneous regret value
+            weight: Linear weight (typically iteration number for Linear MCCFR)
+        """
         if infoset not in self.regrets:
             self.regrets[infoset] = {}
         
         current = self.regrets[infoset].get(action, 0.0)
-        self.regrets[infoset][action] = current + regret
+        self.regrets[infoset][action] = current + weight * regret
     
     def get_strategy(self, infoset: str, actions: List[AbstractAction]) -> Dict[AbstractAction, float]:
         """Get current strategy using regret matching."""
@@ -56,7 +63,14 @@ class RegretTracker:
         return strategy
     
     def add_strategy(self, infoset: str, strategy: Dict[AbstractAction, float], weight: float = 1.0):
-        """Add to cumulative strategy."""
+        """Add to cumulative strategy.
+        
+        Args:
+            infoset: Information set identifier
+            strategy: Current strategy (probability distribution over actions)
+            weight: Linear weight (typically iteration number for Linear MCCFR, 
+                   weighted by reach probability)
+        """
         if infoset not in self.strategy_sum:
             self.strategy_sum[infoset] = {}
         
@@ -87,12 +101,38 @@ class RegretTracker:
                 if self.regrets[infoset][action] < 0:
                     self.regrets[infoset][action] = 0.0
     
-    def discount(self, factor: float):
-        """Discount regrets and strategy (for CFR+)."""
+    def discount(self, regret_factor: float = 1.0, strategy_factor: float = 1.0):
+        """Discount regrets and strategy (for CFR+ and Linear MCCFR).
+        
+        Args:
+            regret_factor: Discount factor α for regrets
+            strategy_factor: Discount factor β for average strategy
+        """
         for infoset in self.regrets:
             for action in self.regrets[infoset]:
-                self.regrets[infoset][action] *= factor
+                self.regrets[infoset][action] *= regret_factor
         
         for infoset in self.strategy_sum:
             for action in self.strategy_sum[infoset]:
-                self.strategy_sum[infoset][action] *= factor
+                self.strategy_sum[infoset][action] *= strategy_factor
+    
+    def should_prune(self, infoset: str, actions: List[AbstractAction], threshold: float) -> bool:
+        """Check if all actions at infoset have regret below threshold.
+        
+        Args:
+            infoset: Information set to check
+            actions: List of available actions
+            threshold: Regret threshold (typically -300,000,000)
+        
+        Returns:
+            True if all actions have regret below threshold
+        """
+        if infoset not in self.regrets:
+            return False  # No regrets yet, don't prune
+        
+        for action in actions:
+            regret = self.regrets[infoset].get(action, 0.0)
+            if regret >= threshold:
+                return False  # At least one action above threshold
+        
+        return True  # All actions below threshold

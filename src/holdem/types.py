@@ -115,6 +115,20 @@ class MCCFRConfig:
     discount_factor: float = 1.0  # CFR+ uses adaptive discount
     exploration_epsilon: float = 0.6  # For outcome sampling
     
+    # Linear MCCFR parameters
+    use_linear_weighting: bool = True  # Use Linear MCCFR (weighting ∝ t)
+    discount_interval: int = 1000  # Apply discounting every N iterations
+    regret_discount_alpha: float = 1.0  # Regret discount factor (α)
+    strategy_discount_beta: float = 1.0  # Strategy discount factor (β)
+    
+    # Dynamic pruning parameters (Pluribus paper values)
+    enable_pruning: bool = True  # Enable dynamic pruning
+    # Pluribus uses -300,000,000 as the regret threshold for pruning
+    # Reference: "Superhuman AI for multiplayer poker" (Brown & Sandholm, 2019)
+    PLURIBUS_PRUNING_THRESHOLD: float = -300_000_000.0
+    pruning_threshold: float = PLURIBUS_PRUNING_THRESHOLD  # Regret threshold for pruning
+    pruning_probability: float = 0.95  # Probability to skip iteration when below threshold
+    
 
 @dataclass
 class SearchConfig:
