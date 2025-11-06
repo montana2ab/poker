@@ -1,7 +1,8 @@
 """Random number generation utilities."""
 
 import numpy as np
-from typing import Optional
+import random
+from typing import Optional, Dict, Any
 
 
 class RNG:
@@ -35,6 +36,28 @@ class RNG:
     def uniform(self, low=0.0, high=1.0, size=None):
         """Generate samples from uniform distribution."""
         return self.rng.uniform(low, high, size)
+    
+    def get_state(self) -> Dict[str, Any]:
+        """Get the current RNG state for serialization.
+        
+        Returns:
+            Dictionary containing RNG state information
+        """
+        return {
+            'seed': self.seed,
+            'numpy_state': self.rng.__getstate__(),
+            'python_random_state': random.getstate()
+        }
+    
+    def set_state(self, state: Dict[str, Any]):
+        """Restore RNG state from serialized data.
+        
+        Args:
+            state: Dictionary containing RNG state information
+        """
+        self.seed = state['seed']
+        self.rng.__setstate__(state['numpy_state'])
+        random.setstate(state['python_random_state'])
 
 
 # Global RNG instance
