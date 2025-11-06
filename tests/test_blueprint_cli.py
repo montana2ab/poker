@@ -8,7 +8,9 @@ from pathlib import Path
 
 def test_yaml_config_structure():
     """Test that YAML configuration has the expected structure."""
-    config_path = Path("/home/runner/work/poker/poker/configs/blueprint_training.yaml")
+    # Use relative path from test file location
+    test_dir = Path(__file__).parent
+    config_path = test_dir.parent / "configs" / "blueprint_training.yaml"
     
     if not config_path.exists():
         pytest.skip("Config file not found")

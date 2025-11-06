@@ -44,8 +44,6 @@ class MCCFRSolver:
         )
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None
-        self.pruned_iterations = 0  # Track number of pruned iterations
-        self.total_states_visited = 0  # Track total states visited
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
         """Run MCCFR training.
@@ -128,11 +126,6 @@ class MCCFRSolver:
                 
                 # Log exploration epsilon
                 self.writer.add_scalar('Training/Epsilon', self.config.exploration_epsilon, self.iteration)
-                
-                # Log pruning statistics
-                if self.config.enable_pruning:
-                    pruning_rate = self.pruned_iterations / self.iteration if self.iteration > 0 else 0
-                    self.writer.add_scalar('Training/PruningRate', pruning_rate * 100, self.iteration)
             
             # Console logging (every 10000 iterations or every 60 seconds in time-budget mode)
             time_since_log = current_time - last_log_time
@@ -142,7 +135,15 @@ class MCCFRSolver:
                 elapsed = timer.stop()
                 timer.start()
                 
-                iter_count = 10000 if self.iteration % 10000 == 0 else self.iteration - (self.iteration // 10000) * 10000
+                # Calculate iterations since last log
+                if self.iteration % 10000 == 0:
+                    iter_count = 10000
+                else:
+                    # For time-budget mode when logging happens due to time
+                    iter_count = self.iteration - int(last_log_time - start_time) * int(10000 / 60)
+                    if iter_count <= 0:
+                        iter_count = 1
+                
                 iter_per_sec = iter_count / elapsed if elapsed > 0 else 0
                 
                 if use_time_budget:
@@ -190,6 +191,32 @@ class MCCFRSolver:
         if logdir:
             self.save_policy(logdir)
     
+    def _extract_street_from_infoset(self, infoset: str) -> str:
+        """Extract street name from infoset encoding.
+        
+        This is a simplified heuristic. In production, you would parse
+        the actual infoset encoding structure properly.
+        
+        Args:
+            infoset: Information set identifier
+            
+        Returns:
+            Street name: 'preflop', 'flop', 'turn', or 'river'
+        """
+        # Simple heuristic based on infoset string
+        # This assumes infosets contain street information in their encoding
+        infoset_lower = infoset.lower()
+        
+        if 'river' in infoset_lower:
+            return 'river'
+        elif 'turn' in infoset_lower:
+            return 'turn'
+        elif 'flop' in infoset_lower:
+            return 'flop'
+        else:
+            # Default to preflop for simple encodings or if street can't be determined
+            return 'preflop'
+    
     def save_snapshot(self, logdir: Path, iteration: int, elapsed_seconds: float):
         """Save training snapshot with per-street policies.
         
@@ -236,9 +263,6 @@ class MCCFRSolver:
         }
         
         for infoset in self.sampler.regret_tracker.strategy_sum:
-            # Infosets are encoded with street information
-            # Extract street from infoset encoding (simplified - assumes street is encoded in infoset)
-            # In practice, the StateEncoder includes street information
             actions_dict = self.sampler.regret_tracker.strategy_sum[infoset]
             actions = list(actions_dict.keys())
             avg_strategy = self.sampler.regret_tracker.get_average_strategy(infoset, actions)
@@ -248,19 +272,9 @@ class MCCFRSolver:
                 action.value: prob for action, prob in avg_strategy.items()
             }
             
-            # Determine street from infoset (this is a simplified heuristic)
-            # In production, you'd parse the infoset encoding properly
-            if 'preflop' in infoset.lower() or len(infoset.split('_')) <= 2:
-                policies_by_street['preflop'][infoset] = policy_entry
-            elif 'flop' in infoset.lower():
-                policies_by_street['flop'][infoset] = policy_entry
-            elif 'turn' in infoset.lower():
-                policies_by_street['turn'][infoset] = policy_entry
-            elif 'river' in infoset.lower():
-                policies_by_street['river'][infoset] = policy_entry
-            else:
-                # Default to preflop if can't determine
-                policies_by_street['preflop'][infoset] = policy_entry
+            # Determine street using helper method
+            street = self._extract_street_from_infoset(infoset)
+            policies_by_street[street][infoset] = policy_entry
         
         # Save each street's policy
         for street, policy in policies_by_street.items():
@@ -308,18 +322,20 @@ class MCCFRSolver:
         # Calculate average regret per street
         avg_regret_by_street = self._calculate_avg_regret_by_street()
         
-        # Calculate pruning statistics
-        pruning_rate = self.pruned_iterations / iteration if iteration > 0 else 0
-        
         # Calculate states per second
         states_per_sec = iteration / elapsed_seconds if elapsed_seconds > 0 else 0
+        
+        # Note: Pruning statistics would require modifying OutcomeSampler
+        # to track and report pruning events. For now, we set to 0.
+        # To implement properly, OutcomeSampler.sample_iteration would need
+        # to return a tuple (utility, was_pruned) and solver would track it.
         
         metrics = {
             'avg_regret_preflop': avg_regret_by_street.get('preflop', 0.0),
             'avg_regret_flop': avg_regret_by_street.get('flop', 0.0),
             'avg_regret_turn': avg_regret_by_street.get('turn', 0.0),
             'avg_regret_river': avg_regret_by_street.get('river', 0.0),
-            'pruned_iterations_pct': pruning_rate * 100,
+            'pruned_iterations_pct': 0.0,  # Placeholder - requires OutcomeSampler modification
             'iterations_per_second': states_per_sec,
             'total_iterations': iteration,
             'num_infosets': len(self.sampler.regret_tracker.regrets)
@@ -341,17 +357,8 @@ class MCCFRSolver:
         }
         
         for infoset, action_regrets in self.sampler.regret_tracker.regrets.items():
-            # Determine street (simplified heuristic)
-            if 'preflop' in infoset.lower() or len(infoset.split('_')) <= 2:
-                street = 'preflop'
-            elif 'flop' in infoset.lower():
-                street = 'flop'
-            elif 'turn' in infoset.lower():
-                street = 'turn'
-            elif 'river' in infoset.lower():
-                street = 'river'
-            else:
-                street = 'preflop'
+            # Determine street using helper method
+            street = self._extract_street_from_infoset(infoset)
             
             # Add all regrets for this infoset
             regrets_by_street[street].extend(action_regrets.values())
