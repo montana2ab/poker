@@ -112,6 +112,8 @@ class OutcomeSampler:
         
         # Dynamic pruning: skip iteration if conditions are met
         # Don't prune at river or terminal nodes
+        # Note: Each infoset is visited at most once per iteration in outcome sampling,
+        # so this check is not repeated unnecessarily within the same iteration.
         is_river = (street == Street.RIVER)
         if (self.enable_pruning and 
             not is_river and 
