@@ -23,6 +23,10 @@ class CardRecognizer:
         self.hero_templates_dir = hero_templates_dir
         self.templates = {}  # Board card templates
         self.hero_templates = {}  # Hero card templates
+
+        # Matching thresholds (overridable)
+        self.board_match_threshold = 0.82
+        self.hero_match_threshold = 0.65
         
         if method == "template":
             if templates_dir:
@@ -64,7 +68,7 @@ class CardRecognizer:
         
         logger.info(f"Loaded {len(self.hero_templates)} hero card templates")
     
-    def recognize_card(self, img: np.ndarray, confidence_threshold: float = 0.7, 
+    def recognize_card(self, img: np.ndarray, confidence_threshold: Optional[float] = None, 
                       use_hero_templates: bool = False) -> Optional[Card]:
         """Recognize a single card from image.
         
@@ -73,6 +77,11 @@ class CardRecognizer:
             confidence_threshold: Minimum confidence score required
             use_hero_templates: If True, use hero templates instead of board templates
         """
+        # Auto-pick default threshold if not provided
+        if confidence_threshold is None:
+            confidence_threshold = (
+                self.hero_match_threshold if use_hero_templates else self.board_match_threshold
+            )
         if self.method == "template":
             return self._recognize_template(img, confidence_threshold, use_hero_templates)
         elif self.method == "cnn":
@@ -107,30 +116,46 @@ class CardRecognizer:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
-        
-        # Resize to standard size
-        gray = cv2.resize(gray, (70, 100))
-        
+
+        # Dimensions
+        h, w = gray.shape[:2]
+        search = cv2.equalizeHist(gray)
+  
         best_match = None
         best_score = 0.0
-        
+  
         for card_name, template in templates_to_use.items():
-            # Resize template to match
-            template_resized = cv2.resize(template, (70, 100))
-            
-            # Match using normalized correlation
-            result = cv2.matchTemplate(gray, template_resized, cv2.TM_CCOEFF_NORMED)
+            # Normalize template
+            t = cv2.equalizeHist(template)
+            th, tw = t.shape[:2]
+  
+            # If template is bigger than ROI, scale it down proportionally
+            if th > h or tw > w:
+                scale = min(h / float(th), w / float(tw))
+                if scale <= 0:
+                    continue
+                t = cv2.resize(t, (max(1, int(tw * scale)), max(1, int(th * scale))), interpolation=cv2.INTER_AREA)
+                th, tw = t.shape[:2]
+  
+            # Skip degenerate or still-too-large templates
+            if th <= 0 or tw <= 0 or th > h or tw > w:
+                continue
+  
+            # Sliding search across the full ROI
+            result = cv2.matchTemplate(search, t, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(result)
-            
             if max_val > best_score:
                 best_score = max_val
                 best_match = card_name
-        
+  
         template_type = "hero" if use_hero_templates else "board"
+        # Brief INFO summary of best score (helps when logger level is INFO)
+        logger.info(f"{template_type} best={best_match} score={best_score:.3f} thr={threshold:.2f}")
+  
         if best_score >= threshold and best_match:
             logger.debug(f"Recognized {template_type} card {best_match} with confidence {best_score:.3f}")
             return Card.from_string(best_match)
-        
+  
         # Log the best match even if below threshold
         best_info = f"{best_match} @ {best_score:.3f}" if best_match else "none"
         logger.debug(f"No {template_type} card match above threshold {threshold} (best: {best_info})")
@@ -152,6 +177,10 @@ class CardRecognizer:
         """
         cards = []
         height, width = img.shape[:2]
+        
+        # If not specified, assume 2 hole cards for hero
+        if use_hero_templates and num_cards == 5:
+            num_cards = 2
         
         # Assume cards are horizontally aligned
         card_width = width // num_cards
