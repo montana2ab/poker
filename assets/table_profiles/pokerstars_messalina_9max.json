@@ -73,16 +73,16 @@
         "height": 20
       },
       "card_region": {
-        "x": 419,
-        "y": 306,
-        "width": 112,
-        "height": 141
+        "x": 415,
+        "y": 402,
+        "width": 125,
+        "height": 47
       }
     },
     {
       "position": 3,
       "name_region": {
-        "x": 258,
+        "x": 263,
         "y": 490,
         "width": 100,
         "height": 20
@@ -157,8 +157,8 @@
         "height": 20
       },
       "card_region": {
-        "x": 268,
-        "y": 148,
+        "x": 260,
+        "y": 143,
         "width": 80,
         "height": 60
       }
@@ -252,5 +252,5 @@
     }
   },
   "hero_position": 2,
-  "hero_templates_dir": null
+  "hero_templates_dir": "assets/hero_templates"
 }
