@@ -374,6 +374,33 @@ class TestActionAbstraction:
         ]
         
         assert actions == expected_order, f"Expected {expected_order}, got {actions}"
+    
+    def test_preflop_action_order(self):
+        """Test that preflop actions maintain canonical order."""
+        actions = ActionAbstraction.get_available_actions(
+            pot=3.0,
+            stack=200.0,
+            current_bet=2.0,  # Facing a bet, so FOLD is included
+            player_bet=1.0,
+            can_check=False,
+            street=Street.PREFLOP,
+            in_position=True
+        )
+        
+        # Expected order for preflop: FOLD, CHECK_CALL, BET_25, BET_50, BET_100, BET_200, ALL_IN
+        # But since BET_25 is BET_QUARTER_POT and we check if stack >= pot * size
+        # With pot=3.0 and stack=200.0, we can afford all bets
+        expected_order = [
+            AbstractAction.FOLD,
+            AbstractAction.CHECK_CALL,
+            AbstractAction.BET_QUARTER_POT,
+            AbstractAction.BET_HALF_POT,
+            AbstractAction.BET_POT,
+            AbstractAction.BET_DOUBLE_POT,
+            AbstractAction.ALL_IN
+        ]
+        
+        assert actions == expected_order, f"Expected {expected_order}, got {actions}"
 
 
 if __name__ == "__main__":
