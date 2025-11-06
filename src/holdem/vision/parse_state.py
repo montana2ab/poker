@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional, List
+import re
+from decimal import Decimal
 from holdem.types import TableState, PlayerState, Street, Card
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.cards import CardRecognizer
@@ -11,6 +13,30 @@ from holdem.vision.ocr import OCREngine
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.parse_state")
+
+
+# Helper to robustly parse stack/amounts from OCR text (locale-aware)
+def _parse_amount_from_text(txt: str) -> Optional[float]:
+    """Parse amounts like '1,234.50', '€12,50', '$0.25' into float."""
+    if not txt:
+        return None
+    s = txt.strip()
+    # Keep only digits, separators, spaces, and currency signs
+    s = re.sub(r"[^\d,.\s]", "", s)
+    s = s.strip()
+    if not s:
+        return None
+    # Normalize decimal separators:
+    # - if both ',' and '.' are present, assume '.' is decimal (remove commas as thousands)
+    # - else, treat ',' as decimal
+    if ("," in s) and ("." in s):
+        s = s.replace(",", "")
+    else:
+        s = s.replace(",", ".")
+    try:
+        return float(Decimal(s))
+    except Exception:
+        return None
 
 
 class StateParser:
@@ -136,50 +162,61 @@ class StateParser:
     def _parse_players(self, img: np.ndarray) -> list:
         """Parse player states from image."""
         players = []
-        
+        parse_opp = getattr(self.profile, "parse_opponent_cards", False)
+        hero_pos = getattr(self.profile, "hero_position", None)
         for i, player_region in enumerate(self.profile.player_regions):
+            table_position = player_region.get('position', i)
             # Extract stack
             stack_reg = player_region.get('stack_region', {})
             x, y, w, h = stack_reg.get('x', 0), stack_reg.get('y', 0), \
-                        stack_reg.get('width', 0), stack_reg.get('height', 0)
-            
+                         stack_reg.get('width', 0), stack_reg.get('height', 0)
+
             stack = 1000.0  # Default
-            if y + h <= img.shape[0] and x + w <= img.shape[1]:
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 stack_img = img[y:y+h, x:x+w]
                 parsed_stack = self.ocr_engine.extract_number(stack_img)
+                if parsed_stack is None:
+                    # Fallback: OCR raw text then parse locale-aware
+                    raw_txt = self.ocr_engine.read_text(stack_img) or ""
+                    parsed_stack = _parse_amount_from_text(raw_txt)
                 if parsed_stack is not None:
                     stack = parsed_stack
-            
+                    logger.info(f"Player {table_position} stack OCR: {stack:.2f}")
+
             # Extract name
             name_reg = player_region.get('name_region', {})
             x, y, w, h = name_reg.get('x', 0), name_reg.get('y', 0), \
-                        name_reg.get('width', 0), name_reg.get('height', 0)
-            
-            name = f"Player{i}"
-            if y + h <= img.shape[0] and x + w <= img.shape[1]:
+                         name_reg.get('width', 0), name_reg.get('height', 0)
+
+            name = f"Player{table_position}"
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 name_img = img[y:y+h, x:x+w]
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
-                    name = parsed_name
-            
-            # Extract hole cards for hero player
+                    name = parsed_name.strip()
+                    logger.info(f"Player {table_position} name OCR: {name}")
+
+            # Extract hole cards
             hole_cards = None
-            if self.profile.hero_position is not None and i == self.profile.hero_position:
-                table_position = player_region.get('position', i)
+            if hero_pos is not None and table_position == hero_pos:
                 logger.info(f"Parsing hero cards at position {table_position}")
                 hole_cards = self._parse_player_cards(img, player_region)
-            
+            elif parse_opp:
+                logger.info(f"Parsing opponent cards at position {table_position}")
+                # Templates héros et joueurs identiques -> on réutilise la même reco
+                hole_cards = self._parse_player_cards(img, player_region)
+
             player = PlayerState(
                 name=name,
                 stack=stack,
-                position=player_region.get('position', i),
+                position=table_position,
                 bet_this_round=0.0,
                 folded=False,
                 all_in=False,
                 hole_cards=hole_cards
             )
             players.append(player)
-        
+
         return players
     
     def _parse_player_cards(self, img: np.ndarray, player_region: dict) -> Optional[List[Card]]:
