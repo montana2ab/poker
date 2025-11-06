@@ -41,6 +41,14 @@ class OutcomeSampler:
         self.pruning_threshold = pruning_threshold
         self.pruning_probability = pruning_probability
     
+    def set_epsilon(self, epsilon: float):
+        """Update exploration epsilon.
+        
+        Args:
+            epsilon: New epsilon value
+        """
+        self.epsilon = epsilon
+    
     def sample_iteration(self, iteration: int) -> float:
         """Run one iteration of outcome sampling MCCFR."""
         # Sample hands for all players

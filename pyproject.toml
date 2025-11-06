@@ -47,6 +47,7 @@ holdem-dry-run = "holdem.cli.run_dry_run:main"
 holdem-eval-blueprint = "holdem.cli.eval_blueprint:main"
 holdem-profile-wizard = "holdem.cli.profile_wizard:main"
 holdem-train-blueprint = "holdem.cli.train_blueprint:main"
+holdem-watch-snapshots = "holdem.cli.watch_snapshots:main"
 
 [project.urls]
 Homepage = "https://github.com/montana2ab/poker"

@@ -57,9 +57,15 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
     
     if args.epsilon is not None:
         config_dict['exploration_epsilon'] = args.epsilon
+        # Clear epsilon_schedule if static epsilon provided via CLI
+        config_dict.pop('epsilon_schedule', None)
     
     if args.discount_interval is not None:
         config_dict['discount_interval'] = args.discount_interval
+    
+    # Convert epsilon_schedule from list of lists to list of tuples
+    if 'epsilon_schedule' in config_dict and config_dict['epsilon_schedule'] is not None:
+        config_dict['epsilon_schedule'] = [tuple(item) for item in config_dict['epsilon_schedule']]
     
     return MCCFRConfig(**config_dict)
 
@@ -94,6 +100,8 @@ def main():
                        help="Number of players")
     parser.add_argument("--epsilon", type=float,
                        help="Exploration epsilon for outcome sampling")
+    parser.add_argument("--resume-from", type=Path,
+                       help="Resume training from checkpoint (will validate bucket compatibility)")
     parser.add_argument("--tensorboard", action="store_true", default=True,
                        help="Enable TensorBoard logging (default: True)")
     parser.add_argument("--no-tensorboard", action="store_false", dest="tensorboard",
@@ -129,7 +137,14 @@ def main():
         logger.info(f"Checkpoints will be saved every {config.checkpoint_interval} iterations")
     
     logger.info(f"Discount interval: {config.discount_interval} iterations")
-    logger.info(f"Exploration epsilon: {config.exploration_epsilon}")
+    
+    # Log epsilon configuration
+    if config.epsilon_schedule:
+        logger.info("Epsilon schedule configured:")
+        for iteration, epsilon in config.epsilon_schedule:
+            logger.info(f"  Iteration {iteration:>10}: ε = {epsilon:.3f}")
+    else:
+        logger.info(f"Exploration epsilon (static): {config.exploration_epsilon}")
     
     # Create solver
     logger.info("Initializing MCCFR solver...")
@@ -138,6 +153,21 @@ def main():
         bucketing=bucketing,
         num_players=args.num_players
     )
+    
+    # Resume from checkpoint if provided
+    if args.resume_from:
+        logger.info(f"Resuming training from checkpoint: {args.resume_from}")
+        try:
+            solver.load_checkpoint(args.resume_from, validate_buckets=True)
+            logger.info("Checkpoint loaded and validated successfully")
+        except ValueError as e:
+            logger.error(f"BUCKET VALIDATION FAILED: {e}")
+            logger.error("Cannot resume training with incompatible bucket configuration")
+            logger.error("Please use the same bucket file that was used for the checkpoint")
+            return 1
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}")
+            return 1
     
     # Train
     logger.info("Starting training...")

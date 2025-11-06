@@ -113,7 +113,11 @@ class MCCFRConfig:
     num_iterations: int = 2500000
     checkpoint_interval: int = 100000
     discount_factor: float = 1.0  # CFR+ uses adaptive discount
-    exploration_epsilon: float = 0.6  # For outcome sampling
+    exploration_epsilon: float = 0.6  # For outcome sampling (static value if epsilon_schedule not provided)
+    
+    # Epsilon schedule - list of (iteration, epsilon) tuples for step-based decay
+    # Example: [(0, 0.6), (1000000, 0.3), (2000000, 0.1)]
+    epsilon_schedule: Optional[List[Tuple[int, float]]] = None
     
     # Linear MCCFR parameters
     use_linear_weighting: bool = True  # Use Linear MCCFR (weighting ∝ t)
