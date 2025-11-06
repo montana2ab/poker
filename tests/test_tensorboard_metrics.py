@@ -140,6 +140,3 @@ def test_position_extraction():
     position = solver._extract_position_from_infoset(infoset_none)
     assert position is None
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

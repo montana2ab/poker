@@ -168,6 +168,3 @@ def test_snapshot_saves_bucket_metadata():
         assert 'bucket_file_sha' in metadata['bucket_metadata']
         assert metadata['bucket_metadata']['k_preflop'] == 2
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

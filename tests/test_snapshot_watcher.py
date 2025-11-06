@@ -157,6 +157,3 @@ def test_snapshot_watcher_creates_eval_directory():
         # Note: We can't easily test the actual evaluation trigger without
         # a real eval script, but we can verify the directory structure
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

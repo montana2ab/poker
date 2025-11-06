@@ -560,7 +560,12 @@ class MCCFRSolver:
                 new_epsilon = schedule[i][1]
                 if new_epsilon != self._current_epsilon:
                     self._current_epsilon = new_epsilon
-                    self.sampler.set_epsilon(new_epsilon)
+                    # Update sampler epsilon (defensive check for interface)
+                    if hasattr(self.sampler, 'set_epsilon'):
+                        self.sampler.set_epsilon(new_epsilon)
+                    else:
+                        # Fallback: directly set epsilon attribute
+                        self.sampler.epsilon = new_epsilon
                     logger.info(f"Epsilon updated to {new_epsilon:.3f} at iteration {self.iteration}")
                 break
     

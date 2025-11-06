@@ -137,6 +137,3 @@ def test_yaml_epsilon_schedule_parsing():
     
     assert config.epsilon_schedule == [(0, 0.6), (500, 0.3), (800, 0.1)]
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
