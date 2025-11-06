@@ -245,20 +245,27 @@ class OutcomeSampler:
             List of available abstract actions
         
         Note:
-            Position inference is simplified for heads-up play:
-            - Empty or even-length history -> OOP (first to act)
-            - Odd-length history -> IP (last to act)
+            Position determination for heads-up play:
+            - Preflop: even history length (0, 2, 4...) -> OOP, odd -> IP
+            - Postflop: positions flip! even history length -> IP, odd -> OOP
             
-            For multi-way pots or more complex scenarios, explicit position
-            tracking would be needed.
+            This is because in HU:
+            - Preflop: SB acts first (OOP), BB second (IP)
+            - Postflop: SB (button) has position, BB is OOP
         """
         if history is None:
             history = []
         
         # Determine if player is in position (IP) or out of position (OOP)
-        # Heuristic for heads-up: if history is empty or has even length, player is OOP (first to act)
-        # If history has odd length, player is IP (last to act)
-        in_position = len(history) % 2 == 1
+        # For heads-up poker, position determination depends on street
+        action_count = len(history)
+        
+        if street == Street.PREFLOP:
+            # Preflop: even length -> OOP (SB), odd -> IP (BB)
+            in_position = action_count % 2 == 1
+        else:
+            # Postflop: positions flip! even length -> IP (button/SB), odd -> OOP (BB)
+            in_position = action_count % 2 == 0
         
         # Use ActionAbstraction with large stack to get all available actions
         # (we'll filter by actual stack in the solver)
