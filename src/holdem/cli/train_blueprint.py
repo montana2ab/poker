@@ -63,6 +63,12 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
     if args.discount_interval is not None:
         config_dict['discount_interval'] = args.discount_interval
     
+    if args.num_workers is not None:
+        config_dict['num_workers'] = args.num_workers
+    
+    if args.batch_size is not None:
+        config_dict['batch_size'] = args.batch_size
+    
     # Convert epsilon_schedule from list of lists to list of tuples
     if 'epsilon_schedule' in config_dict and config_dict['epsilon_schedule'] is not None:
         config_dict['epsilon_schedule'] = [tuple(item) for item in config_dict['epsilon_schedule']]
@@ -106,6 +112,10 @@ def main():
                        help="Enable TensorBoard logging (default: True)")
     parser.add_argument("--no-tensorboard", action="store_false", dest="tensorboard",
                        help="Disable TensorBoard logging")
+    parser.add_argument("--num-workers", type=int,
+                       help="Number of parallel worker processes (1 = single process, 0 = use all CPU cores)")
+    parser.add_argument("--batch-size", type=int,
+                       help="Number of iterations per worker batch (only for parallel training)")
     
     args = parser.parse_args()
     
@@ -138,6 +148,14 @@ def main():
     
     logger.info(f"Discount interval: {config.discount_interval} iterations")
     
+    # Log multiprocessing configuration
+    if config.num_workers > 1 or config.num_workers == 0:
+        import multiprocessing as mp
+        actual_workers = config.num_workers if config.num_workers > 0 else mp.cpu_count()
+        logger.info(f"Parallel training enabled: {actual_workers} worker(s), batch size: {config.batch_size}")
+    else:
+        logger.info("Single-process training mode")
+    
     # Log epsilon configuration
     if config.epsilon_schedule:
         logger.info("Epsilon schedule configured:")
@@ -148,11 +166,21 @@ def main():
     
     # Create solver
     logger.info("Initializing MCCFR solver...")
-    solver = MCCFRSolver(
-        config=config,
-        bucketing=bucketing,
-        num_players=args.num_players
-    )
+    
+    # Choose solver based on num_workers
+    if config.num_workers > 1 or config.num_workers == 0:
+        from holdem.mccfr.parallel_solver import ParallelMCCFRSolver
+        solver = ParallelMCCFRSolver(
+            config=config,
+            bucketing=bucketing,
+            num_players=args.num_players
+        )
+    else:
+        solver = MCCFRSolver(
+            config=config,
+            bucketing=bucketing,
+            num_players=args.num_players
+        )
     
     # Resume from checkpoint if provided
     if args.resume_from:

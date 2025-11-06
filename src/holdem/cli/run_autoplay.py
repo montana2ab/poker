@@ -32,6 +32,8 @@ def main():
                        help="Time budget for search (ms)")
     parser.add_argument("--min-iters", type=int, default=100,
                        help="Minimum iterations for search")
+    parser.add_argument("--num-workers", type=int, default=1,
+                       help="Number of parallel workers for real-time solving (1 = single process, 0 = use all CPU cores)")
     parser.add_argument("--confirm-every-action", type=bool, default=True,
                        help="Confirm each action")
     parser.add_argument("--i-understand-the-tos", action="store_true",
@@ -92,7 +94,8 @@ def main():
     
     search_config = SearchConfig(
         time_budget_ms=args.time_budget_ms,
-        min_iterations=args.min_iters
+        min_iterations=args.min_iters,
+        num_workers=args.num_workers
     )
     search_controller = SearchController(search_config, bucketing, policy)
     
@@ -105,7 +108,7 @@ def main():
     safety = SafetyChecker()
     
     logger.info("Auto-play mode started")
-    logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}")
+    logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}, workers={args.num_workers}")
     
     try:
         # Track action history for belief updates
