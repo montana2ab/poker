@@ -25,7 +25,7 @@ class CardRecognizer:
         self.hero_templates = {}  # Hero card templates
 
         # Matching thresholds (overridable)
-        self.board_match_threshold = 0.82
+        self.board_match_threshold = 0.70
         self.hero_match_threshold = 0.65
         
         if method == "template":

@@ -252,5 +252,6 @@
     }
   },
   "hero_position": 2,
-  "hero_templates_dir": "assets/hero_templates"
+  "hero_templates_dir": "assets/hero_templates",
+  "parse_opponent_cards": true
 }

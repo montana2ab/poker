@@ -1,0 +1,50 @@
+# Blueprint training configuration
+# This file configures MCCFR training parameters
+
+# Training mode: choose either time_budget_seconds OR num_iterations
+time_budget_seconds: 18000  # 5 hours
+# num_iterations: 2500000  # disabled (using time_budget_seconds)
+
+# Snapshot configuration (for time-budget mode)
+snapshot_interval_seconds: 900  # Save snapshots every 15 minutes (5h test = ~20 snapshots)
+
+# Checkpoint configuration
+# checkpoint_interval_seconds: 1800  # (unsupported by MCCFRConfig; using default/time-budget behavior)
+# checkpoint_interval: 100000  # (optional; only used in iteration-mode, ignored in time-budget)
+
+# Linear MCCFR parameters
+use_linear_weighting: true
+discount_interval: 1000  # Apply discounting every N iterations
+regret_discount_alpha: 1.0  # Regret discount factor (α) - 1.0 means no discount
+strategy_discount_beta: 1.0  # Strategy discount factor (β) - 1.0 means no discount
+
+# Exploration
+# Static epsilon (used if epsilon_schedule not provided)
+exploration_epsilon: 0.6
+
+# Epsilon schedule - step-based decay (iteration, epsilon)
+# Active schedule tuned for a ~5h run (~2.0–2.5M iterations on M2 @ ~120–140 iter/s)
+epsilon_schedule:
+  - [0,        0.60]  # bootstrap exploration
+  - [200000,   0.35]  # stabilize faster for short run
+  - [1000000,  0.20]
+  - [2000000,  0.10]
+
+# Dynamic pruning (Pluribus paper values)
+enable_pruning: true
+pruning_threshold: -300000000.0  # -300M as per Pluribus paper
+pruning_probability: 0.95  # Skip iteration with 95% probability when all actions below threshold
+
+# Example configurations:
+# For a 5-hour test:
+# time_budget_seconds: 18000
+# snapshot_interval_seconds: 900
+# checkpoint_interval_seconds: 1800
+
+# For 8 days CPU time:
+# time_budget_seconds: 691200
+# snapshot_interval_seconds: 3600  # Snapshot every hour
+
+# For 1 day CPU time:
+# time_budget_seconds: 86400
+# snapshot_interval_seconds: 1800  # Snapshot every 30 minutes
