@@ -107,8 +107,8 @@ class OutcomeSampler:
         # Get current player
         current_player = self._get_acting_player(history, self.num_players)
         
-        # Get available actions
-        actions = self._get_available_actions(pot)
+        # Get available actions based on street and position
+        actions = self._get_available_actions(pot, street, history)
         
         # Create infoset
         infoset, _ = self.encoder.encode_infoset(
@@ -228,12 +228,39 @@ class OutcomeSampler:
         """Get player to act based on history."""
         return len(history) % num_players
     
-    def _get_available_actions(self, pot: float) -> List[AbstractAction]:
-        """Get available actions (simplified)."""
-        return [
-            AbstractAction.FOLD,
-            AbstractAction.CHECK_CALL,
-            AbstractAction.BET_HALF_POT,
-            AbstractAction.BET_POT,
-            AbstractAction.ALL_IN
-        ]
+    def _get_available_actions(
+        self,
+        pot: float,
+        street: Street = Street.PREFLOP,
+        history: List[str] = None
+    ) -> List[AbstractAction]:
+        """Get available actions based on street and position.
+        
+        Args:
+            pot: Current pot size
+            street: Current game street
+            history: Action history to infer position
+        
+        Returns:
+            List of available abstract actions
+        """
+        if history is None:
+            history = []
+        
+        # Determine if player is in position (IP) or out of position (OOP)
+        # Heuristic: if history is empty or has even length, player is OOP (first to act)
+        # If history has odd length, player is IP (last to act)
+        in_position = len(history) % 2 == 1
+        
+        # Use ActionAbstraction with large stack to get all available actions
+        # (we'll filter by actual stack in the solver)
+        large_stack = pot * 10  # Large enough to include all actions
+        return ActionAbstraction.get_available_actions(
+            pot=pot,
+            stack=large_stack,
+            current_bet=0,
+            player_bet=0,
+            can_check=True,
+            street=street,
+            in_position=in_position
+        )
