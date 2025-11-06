@@ -81,8 +81,12 @@ class ActionExecutor:
             AbstractAction.FOLD: "fold",
             AbstractAction.CHECK_CALL: "check",  # Or "call"
             AbstractAction.BET_QUARTER_POT: "bet",
+            AbstractAction.BET_THIRD_POT: "bet",
             AbstractAction.BET_HALF_POT: "bet",
+            AbstractAction.BET_TWO_THIRDS_POT: "bet",
+            AbstractAction.BET_THREE_QUARTERS_POT: "bet",
             AbstractAction.BET_POT: "bet",
+            AbstractAction.BET_ONE_HALF_POT: "raise",
             AbstractAction.BET_DOUBLE_POT: "raise",
             AbstractAction.ALL_IN: "allin",
         }
