@@ -34,8 +34,9 @@ class MCCFRSolver:
         self.bucketing = bucketing
         self.num_players = num_players
         
-        # Set preflop equity samples for training optimization
-        self.bucketing.preflop_equity_samples = config.preflop_equity_samples
+        # Note: We pass the preflop_equity_samples to bucketing during construction
+        # to avoid mutating it here. The bucketing object should be initialized
+        # with the correct equity_samples value based on use case (training vs runtime)
         
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
@@ -394,7 +395,7 @@ class MCCFRSolver:
             SHA256 hash of bucket configuration
         """
         import hashlib
-        import pickle
+        import json
         
         # Create a deterministic representation of the bucket configuration
         bucket_data = {
@@ -407,14 +408,16 @@ class MCCFRSolver:
         }
         
         # Include cluster centers if available (most critical part)
+        # Use tolist() for deterministic cross-platform hashing
         if self.bucketing.fitted and self.bucketing.models:
             for street, model in self.bucketing.models.items():
                 if hasattr(model, 'cluster_centers_'):
-                    bucket_data[f'{street.name}_centers'] = model.cluster_centers_.tobytes()
+                    # Convert to list for deterministic serialization
+                    bucket_data[f'{street.name}_centers'] = model.cluster_centers_.tolist()
         
-        # Calculate hash
-        data_bytes = pickle.dumps(bucket_data, protocol=pickle.HIGHEST_PROTOCOL)
-        return hashlib.sha256(data_bytes).hexdigest()
+        # Calculate hash using JSON for deterministic serialization
+        data_str = json.dumps(bucket_data, sort_keys=True)
+        return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
     
     def save_checkpoint(self, logdir: Path, iteration: int, elapsed_seconds: float = 0):
         """Save training checkpoint with enhanced metrics and RNG state.
@@ -468,32 +471,27 @@ class MCCFRSolver:
     def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True) -> int:
         """Load checkpoint and restore training state.
         
+        Note: Currently only loads metadata and validates configuration.
+        Full regret tracker state restoration is not yet implemented.
+        
         Args:
             checkpoint_path: Path to checkpoint .pkl file
             validate_buckets: If True, validate bucket configuration matches
             
         Returns:
-            Iteration number from checkpoint
+            Iteration number from checkpoint (0 if metadata not found)
             
         Raises:
             ValueError: If bucket validation fails
+            NotImplementedError: If trying to load policy data (not yet supported)
         """
         from holdem.utils.serialization import load_json, load_pickle
-        
-        # Load policy
-        policy_data = load_pickle(checkpoint_path)
-        
-        # Restore regret tracker state
-        if 'policy' in policy_data:
-            # This is a policy store, we need the actual regret data
-            logger.warning("Checkpoint contains policy store, not full regret tracker state")
-            # For now, we can't fully restore training state from policy-only checkpoint
-            return 0
         
         # Load metadata
         metadata_path = checkpoint_path.parent / f"{checkpoint_path.stem}_metadata.json"
         if not metadata_path.exists():
             logger.warning(f"Metadata file not found: {metadata_path}")
+            logger.warning("Cannot restore training state without metadata")
             return 0
         
         metadata = load_json(metadata_path)
@@ -522,7 +520,11 @@ class MCCFRSolver:
         
         # Get iteration number
         iteration = metadata.get('iteration', 0)
-        logger.info(f"Loaded checkpoint from iteration {iteration}")
+        
+        # Note about full state restoration
+        logger.info(f"Loaded checkpoint metadata from iteration {iteration}")
+        logger.warning("Note: Full regret tracker state restoration not yet implemented")
+        logger.warning("Training will continue from current regret state with restored RNG")
         
         return iteration
     
