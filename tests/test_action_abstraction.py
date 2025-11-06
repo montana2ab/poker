@@ -172,10 +172,15 @@ class TestActionAbstraction:
     
     def test_stack_constraints(self):
         """Test that actions are limited by stack size."""
-        # Small stack that can't make pot-sized bet
+        # Small stack that can't make larger bets
+        # With pot=100.0 and stack=40.0:
+        # - 0.33p = 33.0 (fits in stack, should be available)
+        # - 0.75p = 75.0 (exceeds stack, should NOT be available)
+        # - 1.0p = 100.0 (exceeds stack, should NOT be available)
+        # - 1.5p = 150.0 (exceeds stack, should NOT be available)
         actions = ActionAbstraction.get_available_actions(
             pot=100.0,
-            stack=40.0,  # Can't make 0.75p bet (75)
+            stack=40.0,
             current_bet=0,
             player_bet=0,
             can_check=True,
@@ -183,7 +188,7 @@ class TestActionAbstraction:
             in_position=True
         )
         
-        # Should have check/call and all-in only
+        # Should have check/call and all-in
         assert AbstractAction.CHECK_CALL in actions
         assert AbstractAction.ALL_IN in actions
         
@@ -191,6 +196,8 @@ class TestActionAbstraction:
         assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
         assert AbstractAction.BET_POT not in actions
         assert AbstractAction.BET_ONE_HALF_POT not in actions
+        
+        # Note: 0.33p (33.0) would fit in stack but river doesn't have that bet size
     
     def test_abstract_to_concrete_new_sizes(self):
         """Test conversion of new abstract actions to concrete actions."""

@@ -243,12 +243,20 @@ class OutcomeSampler:
         
         Returns:
             List of available abstract actions
+        
+        Note:
+            Position inference is simplified for heads-up play:
+            - Empty or even-length history -> OOP (first to act)
+            - Odd-length history -> IP (last to act)
+            
+            For multi-way pots or more complex scenarios, explicit position
+            tracking would be needed.
         """
         if history is None:
             history = []
         
         # Determine if player is in position (IP) or out of position (OOP)
-        # Heuristic: if history is empty or has even length, player is OOP (first to act)
+        # Heuristic for heads-up: if history is empty or has even length, player is OOP (first to act)
         # If history has odd length, player is IP (last to act)
         in_position = len(history) % 2 == 1
         
