@@ -129,6 +129,10 @@ class MCCFRConfig:
     pruning_threshold: float = PLURIBUS_PRUNING_THRESHOLD  # Regret threshold for pruning
     pruning_probability: float = 0.95  # Probability to skip iteration when below threshold
     
+    # Time-budget based training (alternative to num_iterations)
+    time_budget_seconds: Optional[float] = None  # Run for specified time (e.g., 8 days = 691200s)
+    snapshot_interval_seconds: float = 600  # Save snapshots every X seconds (default: 10 minutes)
+    
 
 @dataclass
 class SearchConfig:
