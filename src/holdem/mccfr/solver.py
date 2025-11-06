@@ -33,6 +33,10 @@ class MCCFRSolver:
         self.config = config
         self.bucketing = bucketing
         self.num_players = num_players
+        
+        # Set preflop equity samples for training optimization
+        self.bucketing.preflop_equity_samples = config.preflop_equity_samples
+        
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
             num_players=num_players,
@@ -115,8 +119,8 @@ class MCCFRSolver:
                     self.save_snapshot(logdir, self.iteration, current_time - start_time)
                     last_snapshot_time = current_time
             
-            # TensorBoard logging (every 100 iterations for smoother curves)
-            if self.writer and self.iteration % 100 == 0:
+            # TensorBoard logging (configurable interval to reduce I/O overhead)
+            if self.writer and self.iteration % self.config.tensorboard_log_interval == 0:
                 self.writer.add_scalar('Training/Utility', utility, self.iteration)
                 
                 # Log moving average over last 1000 iterations
@@ -194,8 +198,7 @@ class MCCFRSolver:
     def _extract_street_from_infoset(self, infoset: str) -> str:
         """Extract street name from infoset encoding.
         
-        This is a simplified heuristic. In production, you would parse
-        the actual infoset encoding structure properly.
+        Uses proper parsing instead of string matching heuristics.
         
         Args:
             infoset: Information set identifier
@@ -203,18 +206,14 @@ class MCCFRSolver:
         Returns:
             Street name: 'preflop', 'flop', 'turn', or 'river'
         """
-        # Simple heuristic based on infoset string
-        # This assumes infosets contain street information in their encoding
-        infoset_lower = infoset.lower()
+        from holdem.abstraction.state_encode import parse_infoset_key
         
-        if 'river' in infoset_lower:
-            return 'river'
-        elif 'turn' in infoset_lower:
-            return 'turn'
-        elif 'flop' in infoset_lower:
-            return 'flop'
-        else:
-            # Default to preflop for simple encodings or if street can't be determined
+        try:
+            street_name, _, _ = parse_infoset_key(infoset)
+            return street_name.lower()
+        except (ValueError, IndexError):
+            # Fallback for malformed infosets
+            logger.warning(f"Could not parse infoset: {infoset}, defaulting to preflop")
             return 'preflop'
     
     def save_snapshot(self, logdir: Path, iteration: int, elapsed_seconds: float):
@@ -247,12 +246,12 @@ class MCCFRSolver:
         logger.info(f"Saved snapshot at iteration {iteration} (elapsed: {elapsed_seconds:.1f}s)")
     
     def _save_per_street_policies(self, snapshot_path: Path):
-        """Save policies separated by street.
+        """Save policies separated by street with gzip compression.
         
         Args:
             snapshot_path: Path to snapshot directory
         """
-        import json
+        from holdem.utils.serialization import save_json
         
         # Group infosets by street
         policies_by_street = {
@@ -272,29 +271,35 @@ class MCCFRSolver:
                 action.value: prob for action, prob in avg_strategy.items()
             }
             
-            # Determine street using helper method
+            # Determine street using proper parsing
             street = self._extract_street_from_infoset(infoset)
             policies_by_street[street][infoset] = policy_entry
         
-        # Save each street's policy
+        # Save each street's policy with gzip compression
         for street, policy in policies_by_street.items():
             if policy:  # Only save if there are policies for this street
-                street_path = snapshot_path / f"avg_policy_{street}.json"
-                with open(street_path, 'w') as f:
-                    json.dump(policy, f, indent=2)
+                street_path = snapshot_path / f"avg_policy_{street}.json.gz"
+                save_json(policy, street_path, use_gzip=True)
     
     def _save_snapshot_metadata(self, snapshot_path: Path, iteration: int, elapsed_seconds: float):
-        """Save snapshot metadata with enhanced metrics.
+        """Save snapshot metadata with enhanced metrics and RNG state.
         
         Args:
             snapshot_path: Path to snapshot directory
             iteration: Current iteration number
             elapsed_seconds: Time elapsed since training start
         """
-        import json
+        from holdem.utils.serialization import save_json
+        import hashlib
         
         # Calculate metrics
         metrics = self._calculate_metrics(iteration, elapsed_seconds)
+        
+        # Get RNG state
+        rng_state = self.sampler.rng.get_state()
+        
+        # Calculate bucket file hash for validation
+        bucket_sha = self._calculate_bucket_hash()
         
         # Save metadata
         metadata = {
@@ -302,12 +307,21 @@ class MCCFRSolver:
             'elapsed_seconds': elapsed_seconds,
             'elapsed_hours': elapsed_seconds / 3600,
             'elapsed_days': elapsed_seconds / 86400,
-            'metrics': metrics
+            'metrics': metrics,
+            'rng_state': rng_state,
+            'bucket_metadata': {
+                'bucket_file_sha': bucket_sha,
+                'k_preflop': self.bucketing.config.k_preflop,
+                'k_flop': self.bucketing.config.k_flop,
+                'k_turn': self.bucketing.config.k_turn,
+                'k_river': self.bucketing.config.k_river,
+                'num_samples': self.bucketing.config.num_samples,
+                'seed': self.bucketing.config.seed
+            }
         }
         
         metadata_path = snapshot_path / "metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        save_json(metadata, metadata_path)
     
     def _calculate_metrics(self, iteration: int, elapsed_seconds: float) -> Dict:
         """Calculate training metrics.
@@ -373,14 +387,45 @@ class MCCFRSolver:
         
         return avg_regrets
     
+    def _calculate_bucket_hash(self) -> str:
+        """Calculate hash of bucket configuration for validation.
+        
+        Returns:
+            SHA256 hash of bucket configuration
+        """
+        import hashlib
+        import pickle
+        
+        # Create a deterministic representation of the bucket configuration
+        bucket_data = {
+            'k_preflop': self.bucketing.config.k_preflop,
+            'k_flop': self.bucketing.config.k_flop,
+            'k_turn': self.bucketing.config.k_turn,
+            'k_river': self.bucketing.config.k_river,
+            'num_samples': self.bucketing.config.num_samples,
+            'seed': self.bucketing.config.seed,
+        }
+        
+        # Include cluster centers if available (most critical part)
+        if self.bucketing.fitted and self.bucketing.models:
+            for street, model in self.bucketing.models.items():
+                if hasattr(model, 'cluster_centers_'):
+                    bucket_data[f'{street.name}_centers'] = model.cluster_centers_.tobytes()
+        
+        # Calculate hash
+        data_bytes = pickle.dumps(bucket_data, protocol=pickle.HIGHEST_PROTOCOL)
+        return hashlib.sha256(data_bytes).hexdigest()
+    
     def save_checkpoint(self, logdir: Path, iteration: int, elapsed_seconds: float = 0):
-        """Save training checkpoint with enhanced metrics.
+        """Save training checkpoint with enhanced metrics and RNG state.
         
         Args:
             logdir: Directory for checkpoints
             iteration: Current iteration number
             elapsed_seconds: Time elapsed since training start (for time-budget mode)
         """
+        from holdem.utils.serialization import save_json
+        
         checkpoint_dir = logdir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
@@ -391,20 +436,95 @@ class MCCFRSolver:
             checkpoint_name += f"_t{int(elapsed_seconds)}s"
         policy_store.save(checkpoint_dir / f"{checkpoint_name}.pkl")
         
-        # Save checkpoint metadata with metrics
-        import json
+        # Get RNG state
+        rng_state = self.sampler.rng.get_state()
+        
+        # Calculate bucket file hash for validation
+        bucket_sha = self._calculate_bucket_hash()
+        
+        # Save checkpoint metadata with metrics, RNG state, and bucket metadata
         metrics = self._calculate_metrics(iteration, elapsed_seconds)
         metadata = {
             'iteration': iteration,
             'elapsed_seconds': elapsed_seconds,
-            'metrics': metrics
+            'metrics': metrics,
+            'rng_state': rng_state,
+            'bucket_metadata': {
+                'bucket_file_sha': bucket_sha,
+                'k_preflop': self.bucketing.config.k_preflop,
+                'k_flop': self.bucketing.config.k_flop,
+                'k_turn': self.bucketing.config.k_turn,
+                'k_river': self.bucketing.config.k_river,
+                'num_samples': self.bucketing.config.num_samples,
+                'seed': self.bucketing.config.seed
+            }
         }
         
         metadata_path = checkpoint_dir / f"{checkpoint_name}_metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        save_json(metadata, metadata_path)
         
-        logger.info(f"Saved checkpoint at iteration {iteration} with metrics")
+        logger.info(f"Saved checkpoint at iteration {iteration} with metrics and RNG state")
+    
+    def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True) -> int:
+        """Load checkpoint and restore training state.
+        
+        Args:
+            checkpoint_path: Path to checkpoint .pkl file
+            validate_buckets: If True, validate bucket configuration matches
+            
+        Returns:
+            Iteration number from checkpoint
+            
+        Raises:
+            ValueError: If bucket validation fails
+        """
+        from holdem.utils.serialization import load_json, load_pickle
+        
+        # Load policy
+        policy_data = load_pickle(checkpoint_path)
+        
+        # Restore regret tracker state
+        if 'policy' in policy_data:
+            # This is a policy store, we need the actual regret data
+            logger.warning("Checkpoint contains policy store, not full regret tracker state")
+            # For now, we can't fully restore training state from policy-only checkpoint
+            return 0
+        
+        # Load metadata
+        metadata_path = checkpoint_path.parent / f"{checkpoint_path.stem}_metadata.json"
+        if not metadata_path.exists():
+            logger.warning(f"Metadata file not found: {metadata_path}")
+            return 0
+        
+        metadata = load_json(metadata_path)
+        
+        # Validate bucket configuration
+        if validate_buckets and 'bucket_metadata' in metadata:
+            current_sha = self._calculate_bucket_hash()
+            checkpoint_sha = metadata['bucket_metadata'].get('bucket_file_sha', '')
+            
+            if current_sha != checkpoint_sha:
+                raise ValueError(
+                    f"Bucket configuration mismatch!\n"
+                    f"Current SHA: {current_sha}\n"
+                    f"Checkpoint SHA: {checkpoint_sha}\n"
+                    f"Cannot safely resume training with different bucket configuration."
+                )
+            
+            logger.info("Bucket configuration validated successfully")
+        
+        # Restore RNG state
+        if 'rng_state' in metadata:
+            self.sampler.rng.set_state(metadata['rng_state'])
+            logger.info("RNG state restored")
+        else:
+            logger.warning("No RNG state found in checkpoint, randomness will not be exactly reproducible")
+        
+        # Get iteration number
+        iteration = metadata.get('iteration', 0)
+        logger.info(f"Loaded checkpoint from iteration {iteration}")
+        
+        return iteration
     
     def save_policy(self, logdir: Path):
         """Save final average policy."""

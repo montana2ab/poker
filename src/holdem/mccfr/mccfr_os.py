@@ -103,7 +103,7 @@ class OutcomeSampler:
         actions = self._get_available_actions(pot)
         
         # Create infoset
-        infoset = self.encoder.encode_infoset(
+        infoset, _ = self.encoder.encode_infoset(
             hands[current_player],
             board,
             street,

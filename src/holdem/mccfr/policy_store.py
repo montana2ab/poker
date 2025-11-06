@@ -75,11 +75,15 @@ class PolicyStore:
         save_pickle(data, path)
         logger.info(f"Saved policy to {path}")
     
-    def save_json(self, path: Path):
-        """Save policy as JSON."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
-            json.dump(self.policy, f, indent=2)
+    def save_json(self, path: Path, use_gzip: bool = False):
+        """Save policy as JSON.
+        
+        Args:
+            path: Target file path
+            use_gzip: If True, save as gzipped JSON
+        """
+        from holdem.utils.serialization import save_json
+        save_json(self.policy, path, use_gzip=use_gzip)
         logger.info(f"Saved policy to {path}")
     
     @classmethod
@@ -95,9 +99,9 @@ class PolicyStore:
     
     @classmethod
     def load_json(cls, path: Path) -> "PolicyStore":
-        """Load policy from JSON."""
-        with open(path, 'r') as f:
-            policy_dict = json.load(f)
+        """Load policy from JSON (supports gzip)."""
+        from holdem.utils.serialization import load_json
+        policy_dict = load_json(path)
         
         store = cls()
         store.policy = policy_dict

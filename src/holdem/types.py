@@ -133,6 +133,12 @@ class MCCFRConfig:
     time_budget_seconds: Optional[float] = None  # Run for specified time (e.g., 8 days = 691200s)
     snapshot_interval_seconds: float = 600  # Save snapshots every X seconds (default: 10 minutes)
     
+    # Logging and I/O optimization
+    tensorboard_log_interval: int = 1000  # Log to TensorBoard every N iterations (default: 1000 to reduce overhead)
+    
+    # Preflop equity optimization
+    preflop_equity_samples: int = 100  # Number of equity samples for preflop (0 to disable during training)
+    
 
 @dataclass
 class SearchConfig:
