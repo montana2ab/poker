@@ -252,6 +252,11 @@ class OutcomeSampler:
             This is because in HU:
             - Preflop: SB acts first (OOP), BB second (IP)
             - Postflop: SB (button) has position, BB is OOP
+            
+            **Future 6-max support**: For multi-way pots, position should be 
+            retrieved from the game state encoder (button/IP per street) rather 
+            than inferred from action history modulo. The current HU heuristic 
+            will need to be replaced with explicit position tracking.
         """
         if history is None:
             history = []

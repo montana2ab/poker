@@ -124,14 +124,28 @@ class ActionAbstraction:
         stack: float,
         current_bet: float,
         player_bet: float,
-        can_check: bool
+        can_check: bool,
+        big_blind: float = 2.0,
+        min_chip_increment: float = 1.0
     ) -> Action:
         """Convert abstract action to concrete action.
         
         Betting semantics:
         - Facing check (current_bet == 0): size = round(f * pot)
         - Facing bet: raise_to = round(f * (pot + call_amount)) (to-size convention)
+        - Respects minimum raise (at least the last raise increment)
+        - Rounds to chip increment (e.g., 1 BB or smallest chip)
         - Clamp to stack size; if size >= 97% of stack -> ALL-IN
+        
+        Args:
+            abstract_action: The abstract action to convert
+            pot: Current pot size
+            stack: Player's total stack (including current bets)
+            current_bet: Current highest bet on the table
+            player_bet: Player's current bet this round
+            can_check: Whether player can check for free
+            big_blind: Big blind size (default 2.0) for minimum raise calculation
+            min_chip_increment: Minimum chip increment for rounding (default 1.0)
         """
         to_call = current_bet - player_bet
         
@@ -169,18 +183,38 @@ class ActionAbstraction:
             
             if facing_check:
                 # Facing check: bet = fraction * pot
-                bet_amount = round(fraction * pot)
+                bet_amount = fraction * pot
             else:
                 # Facing bet: raise to = fraction * (pot + call_amount)
-                bet_amount = round(fraction * (pot + to_call))
+                bet_amount = fraction * (pot + to_call)
             
-            # Cap at stack
+            # Round to chip increment (e.g., 1 BB or smallest chip)
+            bet_amount = round(bet_amount / min_chip_increment) * min_chip_increment
+            
+            # Calculate remaining stack after calling
             remaining_stack = stack - to_call
+            
+            # Enforce minimum raise: at least the previous raise increment
+            if not facing_check:
+                # Minimum raise is the last raise amount (or big blind if no raises yet)
+                # Last raise = current_bet - previous_bet (approximated by big_blind if unknown)
+                min_raise_increment = max(big_blind, current_bet - player_bet) if player_bet == 0 else big_blind
+                min_total_raise = to_call + min_raise_increment
+                
+                if bet_amount + to_call < min_total_raise and bet_amount < remaining_stack:
+                    # If raise is too small and we have chips, bump to minimum
+                    bet_amount = min_raise_increment
+            
+            # Cap at remaining stack
             bet_amount = min(bet_amount, remaining_stack)
             
             # If bet >= threshold of stack, treat as all-in
             if bet_amount >= ActionAbstraction.ALL_IN_THRESHOLD * remaining_stack:
                 return Action(ActionType.ALLIN, amount=stack)
+            
+            # Ensure we can actually make this bet (must have at least min_chip_increment)
+            if bet_amount < min_chip_increment and remaining_stack >= min_chip_increment:
+                bet_amount = min_chip_increment
             
             if facing_check:
                 return Action(ActionType.BET, amount=bet_amount)

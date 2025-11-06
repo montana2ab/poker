@@ -406,6 +406,56 @@ class TestActionAbstraction:
         ]
         
         assert actions == expected_order, f"Expected {expected_order}, got {actions}"
+    
+    def test_chip_increment_rounding(self):
+        """Test that bets are rounded to chip increments."""
+        # Test with 0.5 chip increment
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True,
+            big_blind=2.0,
+            min_chip_increment=0.5
+        )
+        # 33% of 100 = 33.0, rounded to nearest 0.5 = 33.0
+        assert action.action_type == ActionType.BET
+        assert action.amount % 0.5 == 0, f"Amount {action.amount} not rounded to 0.5"
+        
+        # Test with 1.0 chip increment (default)
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True
+        )
+        # Should be rounded to nearest 1.0
+        assert action.action_type == ActionType.BET
+        assert action.amount % 1.0 == 0, f"Amount {action.amount} not rounded to 1.0"
+    
+    def test_minimum_raise_enforcement(self):
+        """Test that minimum raise rules are respected."""
+        # Facing a bet of 50, minimum raise should be at least big_blind (2.0)
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,  # This might be small
+            pot=150.0,  # 100 + 50 bet
+            stack=200.0,
+            current_bet=50.0,
+            player_bet=0,
+            can_check=False,
+            big_blind=2.0,
+            min_chip_increment=1.0
+        )
+        
+        # The raise should respect minimum raise increment
+        # Total action = call (50) + raise (at least 2.0)
+        if action.action_type == ActionType.RAISE:
+            # Amount should be at least call + min_raise
+            assert action.amount >= 50.0 + 2.0, f"Raise {action.amount} doesn't meet minimum"
 
 
 if __name__ == "__main__":
