@@ -307,7 +307,9 @@ class TestActionAbstraction:
             can_check=False
         )
         assert action_facing_bet.action_type == ActionType.RAISE
-        # Should be: round(1.0 * (150 + 50)) = 200 total (50 to call + 150 raise)
+        # Calculation: round(1.0 * (150 + 50)) = 200
+        # This is the total amount we put in (50 to call + 150 additional raise)
+        # So action.amount = 200 (total bet to this point)
         assert action_facing_bet.amount == 200.0
     
     def test_overbet_sizing(self):
@@ -338,18 +340,21 @@ class TestActionAbstraction:
         assert action.amount == 300.0
     
     def test_all_in_threshold(self):
-        """Test that bets >= 97% of stack become all-in."""
+        """Test that bets >= ALL_IN_THRESHOLD (97%) of stack become all-in."""
         # Bet that would be 98% of remaining stack should become all-in
         action = ActionAbstraction.abstract_to_concrete(
             AbstractAction.BET_POT,
             pot=100.0,
-            stack=102.0,  # After betting 100, only 2 left (98% used)
+            stack=102.0,  # After betting 100, only 2 left (98% used, exceeds 97% threshold)
             current_bet=0,
             player_bet=0,
             can_check=True
         )
         assert action.action_type == ActionType.ALLIN
         assert action.amount == 102.0
+        
+        # Verify the threshold constant is accessible
+        assert ActionAbstraction.ALL_IN_THRESHOLD == 0.97
     
     def test_action_order_consistency(self):
         """Test that actions maintain canonical order."""

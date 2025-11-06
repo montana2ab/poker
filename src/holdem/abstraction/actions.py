@@ -29,6 +29,9 @@ class AbstractAction(Enum):
 class ActionAbstraction:
     """Maps abstract actions to concrete actions."""
     
+    # All-in threshold: if bet >= this fraction of stack, treat as all-in
+    ALL_IN_THRESHOLD = 0.97
+    
     @staticmethod
     def get_available_actions(
         pot: float,
@@ -160,7 +163,11 @@ class ActionAbstraction:
             fraction = pot_fraction_map.get(abstract_action, 1.0)
             
             # Betting semantics: facing check vs facing bet
-            if current_bet == 0 or current_bet == player_bet:
+            # When facing check (or we've already matched the bet), size relative to pot
+            # When facing bet, size relative to pot + what we need to call (to-size)
+            facing_check = (current_bet == 0 or current_bet == player_bet)
+            
+            if facing_check:
                 # Facing check: bet = fraction * pot
                 bet_amount = round(fraction * pot)
             else:
@@ -171,11 +178,11 @@ class ActionAbstraction:
             remaining_stack = stack - to_call
             bet_amount = min(bet_amount, remaining_stack)
             
-            # If bet >= 97% of stack, treat as all-in
-            if bet_amount >= 0.97 * remaining_stack:
+            # If bet >= threshold of stack, treat as all-in
+            if bet_amount >= ActionAbstraction.ALL_IN_THRESHOLD * remaining_stack:
                 return Action(ActionType.ALLIN, amount=stack)
             
-            if current_bet == 0 or current_bet == player_bet:
+            if facing_check:
                 return Action(ActionType.BET, amount=bet_amount)
             else:
                 return Action(ActionType.RAISE, amount=bet_amount + to_call)
