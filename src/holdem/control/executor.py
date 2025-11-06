@@ -86,7 +86,7 @@ class ActionExecutor:
             AbstractAction.BET_TWO_THIRDS_POT: "bet",
             AbstractAction.BET_THREE_QUARTERS_POT: "bet",
             AbstractAction.BET_POT: "bet",
-            AbstractAction.BET_ONE_HALF_POT: "raise",
+            AbstractAction.BET_OVERBET_150: "raise",
             AbstractAction.BET_DOUBLE_POT: "raise",
             AbstractAction.ALL_IN: "allin",
         }

@@ -4,10 +4,12 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 > **🚀 New to the project?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a quick setup guide!
 
+> **⚠️ BREAKING CHANGE (v0.2.0)**: Action abstraction has been updated with improved bet sizing and renamed actions (`BET_ONE_HALF_POT` → `BET_OVERBET_150`). **Old checkpoints and trained policies are incompatible** with the new action space. You must retrain from scratch. See [ACTION_ABSTRACTION_FIX_SUMMARY.md](ACTION_ABSTRACTION_FIX_SUMMARY.md) for details.
+
 ## Features
 
 - **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
-- **Abstraction**: 7-action bucket {Fold, Check/Call, 0.25×pot, 0.5×pot, 1.0×pot, 2.0×pot, All-in} + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
+- **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: MCCFR/CFR+ with outcome sampling, exports average policy to JSON/PyTorch format
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with KL regularization toward blueprint, time-budgeted (e.g., 80ms), fallback to blueprint on timeout
 - **Control**: Dry-run mode by default; optional auto-click with confirmations, minimum delays, hotkeys (pause/stop), requires `--i-understand-the-tos` flag

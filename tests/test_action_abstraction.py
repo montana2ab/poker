@@ -32,7 +32,7 @@ class TestActionAbstraction:
         assert AbstractAction.BET_THIRD_POT not in actions
         assert AbstractAction.BET_TWO_THIRDS_POT not in actions
         assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
     
     def test_flop_ip_actions(self):
         """Test flop in position actions: {33, 75, 100, 150}."""
@@ -51,7 +51,7 @@ class TestActionAbstraction:
         assert AbstractAction.BET_THIRD_POT in actions
         assert AbstractAction.BET_THREE_QUARTERS_POT in actions
         assert AbstractAction.BET_POT in actions
-        assert AbstractAction.BET_ONE_HALF_POT in actions
+        assert AbstractAction.BET_OVERBET_150 in actions
         assert AbstractAction.ALL_IN in actions
         
         # Should not have these
@@ -80,7 +80,7 @@ class TestActionAbstraction:
         assert AbstractAction.ALL_IN in actions
         
         # Should NOT have 1.5p (IP only on flop)
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
         assert AbstractAction.BET_QUARTER_POT not in actions
         assert AbstractAction.BET_HALF_POT not in actions
         assert AbstractAction.BET_TWO_THIRDS_POT not in actions
@@ -104,7 +104,7 @@ class TestActionAbstraction:
             assert AbstractAction.CHECK_CALL in actions
             assert AbstractAction.BET_TWO_THIRDS_POT in actions
             assert AbstractAction.BET_POT in actions
-            assert AbstractAction.BET_ONE_HALF_POT in actions
+            assert AbstractAction.BET_OVERBET_150 in actions
             assert AbstractAction.ALL_IN in actions
             
             # Should not have these
@@ -132,7 +132,7 @@ class TestActionAbstraction:
             assert AbstractAction.CHECK_CALL in actions
             assert AbstractAction.BET_THREE_QUARTERS_POT in actions
             assert AbstractAction.BET_POT in actions
-            assert AbstractAction.BET_ONE_HALF_POT in actions
+            assert AbstractAction.BET_OVERBET_150 in actions
             assert AbstractAction.ALL_IN in actions
             
             # Should not have these
@@ -195,7 +195,7 @@ class TestActionAbstraction:
         # Should not have these (stack too small)
         assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
         assert AbstractAction.BET_POT not in actions
-        assert AbstractAction.BET_ONE_HALF_POT not in actions
+        assert AbstractAction.BET_OVERBET_150 not in actions
         
         # Note: 0.33p (33.0) would fit in stack but river doesn't have that bet size
     
@@ -239,7 +239,7 @@ class TestActionAbstraction:
         
         # Test 1.5p
         action = ActionAbstraction.abstract_to_concrete(
-            AbstractAction.BET_ONE_HALF_POT,
+            AbstractAction.BET_OVERBET_150,
             pot=100.0,
             stack=200.0,
             current_bet=0,
@@ -281,7 +281,181 @@ class TestActionAbstraction:
             pot=100.0,
             stack=200.0
         )
-        assert abstract == AbstractAction.BET_ONE_HALF_POT
+        assert abstract == AbstractAction.BET_OVERBET_150
+    
+    def test_bet_vs_raise_semantics(self):
+        """Test that bet sizing differs when facing check vs facing bet."""
+        # Facing check: bet should be fraction * pot
+        action_facing_check = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_POT,
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True
+        )
+        assert action_facing_check.action_type == ActionType.BET
+        assert action_facing_check.amount == 100.0  # 1.0 * 100
+        
+        # Facing bet: raise should be fraction * (pot + call)
+        action_facing_bet = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_POT,
+            pot=150.0,  # pot = 100 + 50 (opponent's bet)
+            stack=200.0,
+            current_bet=50.0,
+            player_bet=0,
+            can_check=False
+        )
+        assert action_facing_bet.action_type == ActionType.RAISE
+        # Calculation: round(1.0 * (150 + 50)) = 200
+        # This is the total amount we put in (50 to call + 150 additional raise)
+        # So action.amount = 200 (total bet to this point)
+        assert action_facing_bet.amount == 200.0
+    
+    def test_overbet_sizing(self):
+        """Test 150% overbet sizing in different scenarios."""
+        # Facing check: 1.5 * pot
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_OVERBET_150,
+            pot=100.0,
+            stack=300.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True
+        )
+        assert action.action_type == ActionType.BET
+        assert action.amount == 150.0  # 1.5 * 100
+        
+        # Facing bet: 1.5 * (pot + call)
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_OVERBET_150,
+            pot=150.0,  # 100 original + 50 bet
+            stack=300.0,
+            current_bet=50.0,
+            player_bet=0,
+            can_check=False
+        )
+        assert action.action_type == ActionType.RAISE
+        # Should be: round(1.5 * (150 + 50)) = 300 total
+        assert action.amount == 300.0
+    
+    def test_all_in_threshold(self):
+        """Test that bets >= ALL_IN_THRESHOLD (97%) of stack become all-in."""
+        # Bet that would be 98% of remaining stack should become all-in
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_POT,
+            pot=100.0,
+            stack=102.0,  # After betting 100, only 2 left (98% used, exceeds 97% threshold)
+            current_bet=0,
+            player_bet=0,
+            can_check=True
+        )
+        assert action.action_type == ActionType.ALLIN
+        assert action.amount == 102.0
+        
+        # Verify the threshold constant is accessible
+        assert ActionAbstraction.ALL_IN_THRESHOLD == 0.97
+    
+    def test_action_order_consistency(self):
+        """Test that actions maintain canonical order."""
+        # Get actions for a street and verify they're in canonical order
+        actions = ActionAbstraction.get_available_actions(
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True,
+            street=Street.TURN,
+            in_position=True
+        )
+        
+        # Expected order for turn: CHECK_CALL, BET_66, BET_100, BET_150, ALL_IN
+        expected_order = [
+            AbstractAction.CHECK_CALL,
+            AbstractAction.BET_TWO_THIRDS_POT,
+            AbstractAction.BET_POT,
+            AbstractAction.BET_OVERBET_150,
+            AbstractAction.ALL_IN
+        ]
+        
+        assert actions == expected_order, f"Expected {expected_order}, got {actions}"
+    
+    def test_preflop_action_order(self):
+        """Test that preflop actions maintain canonical order."""
+        actions = ActionAbstraction.get_available_actions(
+            pot=3.0,
+            stack=200.0,
+            current_bet=2.0,  # Facing a bet, so FOLD is included
+            player_bet=1.0,
+            can_check=False,
+            street=Street.PREFLOP,
+            in_position=True
+        )
+        
+        # Expected order for preflop: FOLD, CHECK_CALL, BET_25, BET_50, BET_100, BET_200, ALL_IN
+        # But since BET_25 is BET_QUARTER_POT and we check if stack >= pot * size
+        # With pot=3.0 and stack=200.0, we can afford all bets
+        expected_order = [
+            AbstractAction.FOLD,
+            AbstractAction.CHECK_CALL,
+            AbstractAction.BET_QUARTER_POT,
+            AbstractAction.BET_HALF_POT,
+            AbstractAction.BET_POT,
+            AbstractAction.BET_DOUBLE_POT,
+            AbstractAction.ALL_IN
+        ]
+        
+        assert actions == expected_order, f"Expected {expected_order}, got {actions}"
+    
+    def test_chip_increment_rounding(self):
+        """Test that bets are rounded to chip increments."""
+        # Test with 0.5 chip increment
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True,
+            big_blind=2.0,
+            min_chip_increment=0.5
+        )
+        # 33% of 100 = 33.0, rounded to nearest 0.5 = 33.0
+        assert action.action_type == ActionType.BET
+        assert action.amount % 0.5 == 0, f"Amount {action.amount} not rounded to 0.5"
+        
+        # Test with 1.0 chip increment (default)
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,
+            pot=100.0,
+            stack=200.0,
+            current_bet=0,
+            player_bet=0,
+            can_check=True
+        )
+        # Should be rounded to nearest 1.0
+        assert action.action_type == ActionType.BET
+        assert action.amount % 1.0 == 0, f"Amount {action.amount} not rounded to 1.0"
+    
+    def test_minimum_raise_enforcement(self):
+        """Test that minimum raise rules are respected."""
+        # Facing a bet of 50, minimum raise should be at least big_blind (2.0)
+        action = ActionAbstraction.abstract_to_concrete(
+            AbstractAction.BET_THIRD_POT,  # This might be small
+            pot=150.0,  # 100 + 50 bet
+            stack=200.0,
+            current_bet=50.0,
+            player_bet=0,
+            can_check=False,
+            big_blind=2.0,
+            min_chip_increment=1.0
+        )
+        
+        # The raise should respect minimum raise increment
+        # Total action = call (50) + raise (at least 2.0)
+        if action.action_type == ActionType.RAISE:
+            # Amount should be at least call + min_raise
+            assert action.amount >= 50.0 + 2.0, f"Raise {action.amount} doesn't meet minimum"
 
 
 if __name__ == "__main__":
