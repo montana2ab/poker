@@ -26,7 +26,9 @@ class SnapshotWatcher:
         
         Args:
             snapshot_dir: Directory to watch for snapshots
-            eval_script: [DEPRECATED] Path to evaluation script (ignored, kept for compatibility)
+            eval_script: Path to evaluation script. **Deprecated:** This parameter is 
+                ignored and kept for backward compatibility only. The evaluation now 
+                uses the current Python interpreter with `-m holdem.cli.eval_blueprint`.
             eval_episodes: Number of episodes for evaluation
             check_interval: Check interval in seconds
         """
@@ -39,7 +41,7 @@ class SnapshotWatcher:
         if eval_script is not None:
             warnings.warn(
                 "The 'eval_script' parameter is deprecated and will be removed in a future version. "
-                "The evaluation now always uses 'python -m holdem.cli.eval_blueprint'.",
+                "The evaluation now uses the current Python interpreter to run 'holdem.cli.eval_blueprint'.",
                 DeprecationWarning,
                 stacklevel=2
             )
