@@ -28,6 +28,18 @@ except ImportError:
     logger.warning("TensorBoard not available. Install tensorboard for training visualization: pip install tensorboard")
 
 
+def _diagnostic_test_worker(queue: mp.Queue):
+    """Simple worker function for diagnostic multiprocessing test.
+    
+    This function must be at module level to be picklable with the 'spawn'
+    multiprocessing start method.
+    
+    Args:
+        queue: Queue to put test result
+    """
+    queue.put("test_success")
+
+
 def worker_process(
     worker_id: int,
     bucketing: HandBucketing,
@@ -222,9 +234,7 @@ class ParallelMCCFRSolver:
         logger.info("Running multiprocessing diagnostic test...")
         try:
             test_queue = self.mp_context.Queue()
-            def test_worker(q):
-                q.put("test_success")
-            test_proc = self.mp_context.Process(target=test_worker, args=(test_queue,))
+            test_proc = self.mp_context.Process(target=_diagnostic_test_worker, args=(test_queue,))
             test_proc.start()
             test_proc.join(timeout=5)
             if test_proc.is_alive():
