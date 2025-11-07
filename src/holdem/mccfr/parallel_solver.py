@@ -23,6 +23,14 @@ logger = get_logger("mccfr.parallel_solver")
 WORKER_TIMEOUT_MIN_SECONDS = 300  # Minimum timeout in seconds (5 minutes)
 WORKER_TIMEOUT_MULTIPLIER = 10  # Multiplier for adaptive timeout based on batch size (seconds per iteration)
 
+# Queue operation timeouts
+QUEUE_GET_TIMEOUT_SECONDS = 0.01  # Timeout for queue.get() operations (10ms - keeps processes responsive)
+RESULT_PUT_TIMEOUT_SECONDS = 60  # Timeout for putting results in queue (60s - handles large payloads)
+ERROR_PUT_TIMEOUT_SECONDS = 5  # Timeout for putting error results (5s - shorter since errors are small)
+
+# Worker monitoring configuration
+WORKER_STATUS_CHECK_INTERVAL = 10  # Check worker status every N results collected
+
 # Optional TensorBoard support
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -82,7 +90,7 @@ def persistent_worker_process(
             # Wait for task from main process
             # Use shorter timeout to keep worker responsive and maintain CPU usage
             try:
-                task = task_queue.get(timeout=0.01)
+                task = task_queue.get(timeout=QUEUE_GET_TIMEOUT_SECONDS)
             except queue.Empty:
                 continue
             
@@ -143,13 +151,12 @@ def persistent_worker_process(
             
             # Use a timeout to avoid indefinite blocking on large results
             # The main process should be actively consuming results, but this provides a safeguard
-            put_timeout = 60  # 60 second timeout for putting results
             try:
-                result_queue.put(result, timeout=put_timeout)
+                result_queue.put(result, timeout=RESULT_PUT_TIMEOUT_SECONDS)
                 worker_logger.debug(f"Worker {worker_id} successfully sent results to main process")
             except queue.Full:
                 # This should rarely happen if main process is consuming results properly
-                error_msg = f"Worker {worker_id}: Result queue full after {put_timeout}s timeout!"
+                error_msg = f"Worker {worker_id}: Result queue full after {RESULT_PUT_TIMEOUT_SECONDS}s timeout!"
                 worker_logger.error(error_msg)
                 # Try to send error result with shorter timeout
                 error_result = {
@@ -161,7 +168,7 @@ def persistent_worker_process(
                     'error': error_msg
                 }
                 try:
-                    result_queue.put(error_result, timeout=5)
+                    result_queue.put(error_result, timeout=ERROR_PUT_TIMEOUT_SECONDS)
                 except queue.Full:
                     worker_logger.error(f"Worker {worker_id}: Failed to send error result - queue still full")
                     # At this point, worker will continue to next iteration or shutdown
@@ -473,11 +480,11 @@ class ParallelMCCFRSolver:
                         logger.error(f"Timeout waiting for worker results after {timeout_seconds}s")
                         break
                     
-                    # Try to get result from queue with very short timeout (0.01s instead of 1.0s)
+                    # Try to get result from queue with very short timeout
                     # This keeps the main process actively checking the queue instead of blocking,
                     # which maintains consistent CPU usage and prevents the sawtooth pattern
                     try:
-                        result = self._result_queue.get(timeout=0.01)
+                        result = self._result_queue.get(timeout=QUEUE_GET_TIMEOUT_SECONDS)
                         results.append(result)
                         logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
                     except queue.Empty:
@@ -487,7 +494,7 @@ class ParallelMCCFRSolver:
                     
                     # Check if any worker has died unexpectedly
                     # Check on first result and then periodically to balance overhead vs responsiveness
-                    if len(results) == 1 or len(results) % 10 == 0:
+                    if len(results) == 1 or len(results) % WORKER_STATUS_CHECK_INTERVAL == 0:
                         for p in self._workers:
                             if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
                                 logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")

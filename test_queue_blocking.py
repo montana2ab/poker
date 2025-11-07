@@ -13,6 +13,14 @@ import queue
 import time
 from typing import Dict
 
+# Test configuration constants
+RESULT_PUT_TIMEOUT_SECONDS = 10.0  # Timeout for workers to put results in queue
+QUEUE_GET_TIMEOUT_SECONDS = 0.01  # Timeout for main process to get results from queue
+CPU_WORK_ITERATIONS = 1000  # Number of CPU work iterations
+CPU_WORK_RANGE_SIZE = 1000  # Range size for CPU work
+DEFAULT_RESULT_SIZE = 5000  # Number of items in simulated result data
+TEST_TIMEOUT_SECONDS = 30  # Maximum time to wait for test completion
+
 
 def worker_with_large_result(worker_id: int, task_queue: mp.Queue, result_queue: mp.Queue, 
                               result_size: int = 10000):
@@ -34,8 +42,8 @@ def worker_with_large_result(worker_id: int, task_queue: mp.Queue, result_queue:
         # Simulate computation
         work_start = time.time()
         computation_result = 0
-        for _ in range(1000):
-            computation_result += sum(range(1000))
+        for _ in range(CPU_WORK_ITERATIONS):
+            computation_result += sum(range(CPU_WORK_RANGE_SIZE))
         
         # Create large result (simulating regret/strategy updates)
         large_result = {
@@ -51,11 +59,11 @@ def worker_with_large_result(worker_id: int, task_queue: mp.Queue, result_queue:
         # Try to put result with timeout (like the fix)
         put_start = time.time()
         try:
-            result_queue.put(large_result, timeout=10.0)
+            result_queue.put(large_result, timeout=RESULT_PUT_TIMEOUT_SECONDS)
             put_duration = time.time() - put_start
             print(f"Worker {worker_id}: Successfully sent result (put took {put_duration:.3f}s)")
         except queue.Full:
-            print(f"Worker {worker_id}: ERROR - Queue full after 10s timeout!")
+            print(f"Worker {worker_id}: ERROR - Queue full after {RESULT_PUT_TIMEOUT_SECONDS}s timeout!")
             result_queue.put({'worker_id': worker_id, 'error': 'Queue full'}, block=False)
     
     print(f"Worker {worker_id}: Exiting")
@@ -74,7 +82,7 @@ def main():
     
     # Test parameters
     num_workers = 4
-    result_size = 5000  # Number of infosets to simulate
+    result_size = DEFAULT_RESULT_SIZE  # Number of infosets to simulate
     
     ctx = mp.get_context('spawn')
     task_queue = ctx.Queue()
@@ -103,15 +111,14 @@ def main():
     print("\nCollecting results...")
     results = []
     start_time = time.time()
-    timeout = 30
     
     while len(results) < num_workers:
-        if time.time() - start_time > timeout:
-            print(f"ERROR: Timeout after {timeout}s, only got {len(results)}/{num_workers} results")
+        if time.time() - start_time > TEST_TIMEOUT_SECONDS:
+            print(f"ERROR: Timeout after {TEST_TIMEOUT_SECONDS}s, only got {len(results)}/{num_workers} results")
             break
         
         try:
-            result = result_queue.get(timeout=0.01)
+            result = result_queue.get(timeout=QUEUE_GET_TIMEOUT_SECONDS)
             results.append(result)
             if 'error' in result:
                 print(f"  Received ERROR from worker {result['worker_id']}: {result.get('error')}")

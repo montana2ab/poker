@@ -13,6 +13,13 @@ import queue
 import time
 from typing import List, Dict
 
+# Test configuration constants
+QUEUE_GET_TIMEOUT_OLD = 1.0  # Old timeout (1 second)
+QUEUE_GET_TIMEOUT_NEW = 0.01  # New timeout (10 milliseconds)
+CPU_WORK_RANGE_SIZE = 10000  # Range size for CPU-intensive work simulation
+WORK_DURATION_SECONDS = 0.5  # Duration of work per task
+TEST_TIMEOUT_SECONDS = 30  # Maximum time to wait for test completion
+
 
 def worker_with_short_timeout(worker_id: int, task_queue: mp.Queue, result_queue: mp.Queue):
     """Worker with short timeout (0.01s) to minimize idle time."""
@@ -86,13 +93,13 @@ def collect_results_short_timeout(result_queue: mp.Queue, num_workers: int) -> L
     start_time = time.time()
     
     while len(results) < num_workers:
-        if time.time() - start_time > 30:  # 30s timeout
-            print(f"ERROR: Timeout waiting for results after 30s")
+        if time.time() - start_time > TEST_TIMEOUT_SECONDS:
+            print(f"ERROR: Timeout waiting for results after {TEST_TIMEOUT_SECONDS}s")
             break
         
         try:
             # Short timeout to minimize idle time
-            result = result_queue.get(timeout=0.01)
+            result = result_queue.get(timeout=QUEUE_GET_TIMEOUT_NEW)
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
         except queue.Empty:
@@ -107,13 +114,13 @@ def collect_results_long_timeout(result_queue: mp.Queue, num_workers: int) -> Li
     start_time = time.time()
     
     while len(results) < num_workers:
-        if time.time() - start_time > 30:  # 30s timeout
-            print(f"ERROR: Timeout waiting for results after 30s")
+        if time.time() - start_time > TEST_TIMEOUT_SECONDS:
+            print(f"ERROR: Timeout waiting for results after {TEST_TIMEOUT_SECONDS}s")
             break
         
         try:
             # Long timeout causes idle time
-            result = result_queue.get(timeout=1.0)
+            result = result_queue.get(timeout=QUEUE_GET_TIMEOUT_OLD)
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
         except queue.Empty:
@@ -148,7 +155,7 @@ def test_scenario(use_short_timeout: bool, num_workers: int = 2):
     # Send tasks to workers
     print(f"\nSending tasks to {num_workers} workers...")
     for i in range(num_workers):
-        task_queue.put({'work_duration': 0.5})  # 0.5s of work per task
+        task_queue.put({'work_duration': WORK_DURATION_SECONDS})
     
     # Collect results
     collect_func = collect_results_short_timeout if use_short_timeout else collect_results_long_timeout
