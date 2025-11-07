@@ -7,6 +7,15 @@ Run this to verify you have the updated code before starting training.
 import sys
 from pathlib import Path
 
+# Constants
+BRANCH_NAME = 'copilot/optimize-training-performance'
+UPDATE_INSTRUCTIONS = f"""
+You are running the OLD code. Please:
+  1. git pull origin {BRANCH_NAME}
+  2. pip install -e . --force-reinstall --no-deps
+  3. Clear Python cache and restart training
+"""
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
@@ -31,11 +40,8 @@ try:
         print("✓ persistent_worker_process function found in source")
     else:
         print("✗ persistent_worker_process function NOT found in source")
-        print("\n❌ VERIFICATION FAILED: You are running the OLD code")
-        print("\nPlease:")
-        print("  1. git pull origin copilot/optimize-training-performance")
-        print("  2. pip install -e . --force-reinstall --no-deps")
-        print("  3. Clear Python cache and restart training")
+        print(f"\n❌ VERIFICATION FAILED: You are running the OLD code")
+        print(UPDATE_INSTRUCTIONS)
         sys.exit(1)
     
     # Check for new methods
@@ -52,10 +58,7 @@ try:
     
     if missing_methods:
         print(f"\n❌ VERIFICATION FAILED: Missing methods")
-        print("\nYou are running the OLD code. Please:")
-        print("  1. git pull origin copilot/optimize-training-performance")
-        print("  2. pip install -e . --force-reinstall --no-deps")
-        print("  3. Clear Python cache and restart training")
+        print(UPDATE_INSTRUCTIONS)
         sys.exit(1)
     
     # Check for old worker_process function (should be removed)
@@ -67,12 +70,12 @@ try:
         sys.exit(1)
     
     # Check for key log messages
-    if '"Worker {worker_id} started and ready for tasks"' in content:
+    if 'Worker {worker_id} started and ready for tasks' in content:
         print("✓ New log message found: 'Worker started and ready for tasks'")
     else:
         print("⚠ Warning: Expected log message not found")
     
-    if 'Starting worker pool with {self.num_workers} persistent worker' in content:
+    if 'Starting worker pool with {self.num_workers} persistent worker(s)' in content:
         print("✓ New log message found: 'Starting worker pool with persistent workers'")
     else:
         print("⚠ Warning: Expected log message not found")
