@@ -359,8 +359,8 @@ class ParallelMCCFRSolver:
                     result = result_queue.get(timeout=1.0)
                     results.append(result)
                     logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
-                except:
-                    # Queue empty, continue waiting
+                except Exception:
+                    # Queue empty or timeout, continue waiting
                     pass
                 
                 # Check if any worker has died unexpectedly

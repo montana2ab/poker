@@ -56,7 +56,7 @@ def test_queue_no_deadlock_with_large_results():
         try:
             result = result_queue.get(timeout=1.0)
             results.append(result)
-        except:
+        except Exception:
             pass
     
     # Join workers (should be quick since they already finished)
@@ -156,7 +156,7 @@ def test_worker_result_collection_order():
         try:
             result = result_queue.get(timeout=1.0)
             results.append(result)
-        except:
+        except Exception:
             pass
     
     # Join workers

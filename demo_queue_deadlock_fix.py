@@ -121,7 +121,7 @@ def demonstrate_fixed_approach():
             result = result_queue.get(timeout=1.0)
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
-        except:
+        except Exception:
             # Queue empty, keep waiting
             pass
     
