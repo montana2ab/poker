@@ -26,15 +26,54 @@ class SubgameResolver:
         self.regret_tracker = RegretTracker()
         self.rng = get_rng()
     
+    def warm_start_from_blueprint(self, infoset: str, actions: List[AbstractAction]):
+        """Warm-start regrets from blueprint strategy.
+        
+        This initializes the regret tracker with values that bias the search
+        toward the blueprint strategy, improving convergence speed and quality.
+        
+        Args:
+            infoset: Information set to warm-start
+            actions: Available actions at this infoset
+        """
+        blueprint_strategy = self.blueprint.get_strategy(infoset)
+        
+        # Initialize regrets to favor blueprint actions
+        # Higher blueprint probability -> higher initial regret
+        total_prob = sum(blueprint_strategy.values())
+        if total_prob > 0:
+            for action in actions:
+                prob = blueprint_strategy.get(action, 0.0)
+                # Scale regrets to reasonable initial values
+                initial_regret = prob * 10.0  # Tunable warm-start strength
+                self.regret_tracker.update_regret(infoset, action, initial_regret, weight=1.0)
+            
+            logger.debug(f"Warm-started infoset {infoset} from blueprint")
+    
     def solve(
         self,
         subgame: SubgameTree,
         infoset: str,
         time_budget_ms: int = None
     ) -> Dict[AbstractAction, float]:
-        """Solve subgame and return strategy."""
+        """Solve subgame and return strategy.
+        
+        Args:
+            subgame: Subgame tree to solve
+            infoset: Information set to solve for
+            time_budget_ms: Time budget in milliseconds (overrides config)
+            
+        Returns:
+            Strategy (probability distribution over actions)
+        """
         if time_budget_ms is None:
             time_budget_ms = self.config.time_budget_ms
+        
+        # Get actions for this infoset
+        actions = subgame.get_actions(infoset)
+        
+        # Warm-start from blueprint strategy
+        self.warm_start_from_blueprint(infoset, actions)
         
         # Get blueprint strategy for regularization
         blueprint_strategy = self.blueprint.get_strategy(infoset)
@@ -54,7 +93,6 @@ class SubgameResolver:
                 break
         
         # Get solution strategy
-        actions = subgame.get_actions(infoset)
         strategy = self.regret_tracker.get_average_strategy(infoset, actions)
         
         logger.debug(f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms)")
@@ -67,10 +105,26 @@ class SubgameResolver:
         infoset: str,
         blueprint_strategy: Dict[AbstractAction, float]
     ):
-        """Run one CFR iteration with KL regularization."""
+        """Run one CFR iteration with KL regularization.
+        
+        LIMITATION: This is a simplified utility calculation that does not fully
+        traverse the subgame tree. In production, this should:
+        1. Perform a complete recursive traversal of the subgame
+        2. Sample opponent actions and board outcomes
+        3. Calculate exact expected utilities at terminal nodes
+        4. Use warm-start regrets from the blueprint strategy
+        
+        The current placeholder implementation limits decision quality until
+        proper subgame traversal is implemented.
+        
+        Args:
+            subgame: Subgame tree to solve
+            infoset: Current information set
+            blueprint_strategy: Blueprint strategy for KL regularization
+        """
         actions = subgame.get_actions(infoset)
         
-        # Get current strategy
+        # Get current strategy (warm-started from blueprint if available)
         current_strategy = self.regret_tracker.get_strategy(infoset, actions)
         
         # Sample action
@@ -83,10 +137,15 @@ class SubgameResolver:
         
         sampled_action = self.rng.choice(actions, p=action_probs)
         
-        # Simplified utility calculation
+        # PLACEHOLDER: Simplified utility calculation
+        # TODO: Replace with proper subgame traversal:
+        # - Recursively traverse game tree from current state
+        # - Sample opponent ranges and board outcomes
+        # - Compute exact utilities at terminal nodes (showdown/fold)
+        # - Backpropagate values through the tree
         utility = self.rng.uniform(-1.0, 1.0)
         
-        # Add KL divergence penalty
+        # Add KL divergence penalty to stay close to blueprint
         kl_penalty = self._kl_divergence(current_strategy, blueprint_strategy)
         utility -= self.config.kl_divergence_weight * kl_penalty
         

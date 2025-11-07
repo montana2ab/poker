@@ -24,13 +24,20 @@ def worker_cfr_iteration(
     num_iterations: int,
     result_queue: mp.Queue
 ):
-    """Worker process that runs CFR iterations.
+    """Worker process that runs CFR iterations with warm-start from blueprint.
+    
+    Each worker starts with regrets initialized from the blueprint strategy,
+    then runs independent CFR iterations. This improves convergence speed
+    and solution quality.
+    
+    LIMITATION: Uses simplified utility calculation (placeholder).
+    Production implementation should perform complete subgame traversal.
     
     Args:
         worker_id: ID of this worker
         subgame: Subgame tree
         infoset: Information set
-        blueprint_strategy: Blueprint strategy for regularization
+        blueprint_strategy: Blueprint strategy for regularization and warm-start
         kl_weight: KL divergence weight
         num_iterations: Number of iterations to run
         result_queue: Queue to put results
@@ -38,8 +45,16 @@ def worker_cfr_iteration(
     regret_tracker = RegretTracker()
     rng = get_rng()
     
+    # Warm-start regrets from blueprint
+    actions = subgame.get_actions(infoset)
+    total_prob = sum(blueprint_strategy.values())
+    if total_prob > 0:
+        for action in actions:
+            prob = blueprint_strategy.get(action, 0.0)
+            initial_regret = prob * 10.0  # Warm-start strength
+            regret_tracker.update_regret(infoset, action, initial_regret, weight=1.0)
+    
     for _ in range(num_iterations):
-        actions = subgame.get_actions(infoset)
         current_strategy = regret_tracker.get_strategy(infoset, actions)
         
         # Sample action
@@ -52,14 +67,15 @@ def worker_cfr_iteration(
         
         sampled_action = rng.choice(actions, p=action_probs)
         
-        # NOTE: This is a simplified utility calculation for demonstration.
-        # In production, this should perform actual game tree traversal and 
-        # proper CFR utility calculation based on the subgame structure.
-        # The current implementation serves as a placeholder that shows the
-        # basic structure of parallel CFR iterations.
+        # PLACEHOLDER: Simplified utility calculation
+        # TODO: Implement proper subgame traversal:
+        # - Recursive game tree traversal from current state
+        # - Sample opponent actions and board outcomes
+        # - Calculate exact utilities at terminal nodes
+        # - Backpropagate counterfactual values
         utility = rng.uniform(-1.0, 1.0)
         
-        # Add KL divergence penalty
+        # Add KL divergence penalty to regularize toward blueprint
         kl_penalty = 0.0
         for action in current_strategy:
             p_val = current_strategy.get(action, 1e-10)
@@ -80,7 +96,6 @@ def worker_cfr_iteration(
         regret_tracker.add_strategy(infoset, current_strategy, 1.0)
     
     # Get final strategy
-    actions = subgame.get_actions(infoset)
     final_strategy = regret_tracker.get_average_strategy(infoset, actions)
     
     # Put result in queue
@@ -118,6 +133,17 @@ class ParallelSubgameResolver:
     ) -> Dict[AbstractAction, float]:
         """Solve subgame using parallel workers and return strategy.
         
+        Workers run independent CFR iterations in parallel, each starting with
+        warm-started regrets from the blueprint. Results are averaged to get
+        the final strategy.
+        
+        LIMITATION: Current implementation uses simplified utility calculation.
+        For production use, implement proper subgame traversal with:
+        - Complete recursive game tree traversal
+        - Opponent range sampling
+        - Board outcome sampling
+        - Exact terminal node utilities
+        
         Args:
             subgame: Subgame tree
             infoset: Information set
@@ -126,10 +152,16 @@ class ParallelSubgameResolver:
         Returns:
             Strategy dictionary mapping actions to probabilities
         """
+        # Force 'spawn' start method for cross-platform compatibility
+        try:
+            mp.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass  # Already set
+        
         if time_budget_ms is None:
             time_budget_ms = self.config.time_budget_ms
         
-        # Get blueprint strategy for regularization
+        # Get blueprint strategy for regularization and warm-start
         blueprint_strategy = self.blueprint.get_strategy(infoset)
         
         # If only one worker, fall back to sequential
@@ -212,12 +244,12 @@ class ParallelSubgameResolver:
         blueprint_strategy: Dict[AbstractAction, float],
         time_budget_ms: int
     ) -> Dict[AbstractAction, float]:
-        """Sequential solving (fallback for single worker).
+        """Sequential solving (fallback for single worker) with warm-start.
         
         Args:
             subgame: Subgame tree
             infoset: Information set
-            blueprint_strategy: Blueprint strategy for regularization
+            blueprint_strategy: Blueprint strategy for regularization and warm-start
             time_budget_ms: Time budget in milliseconds
             
         Returns:
@@ -226,11 +258,19 @@ class ParallelSubgameResolver:
         regret_tracker = RegretTracker()
         rng = get_rng()
         
+        # Warm-start regrets from blueprint
+        actions = subgame.get_actions(infoset)
+        total_prob = sum(blueprint_strategy.values())
+        if total_prob > 0:
+            for action in actions:
+                prob = blueprint_strategy.get(action, 0.0)
+                initial_regret = prob * 10.0  # Warm-start strength
+                regret_tracker.update_regret(infoset, action, initial_regret, weight=1.0)
+        
         start_time = time.time()
         iterations = 0
         
         while iterations < self.config.min_iterations:
-            actions = subgame.get_actions(infoset)
             current_strategy = regret_tracker.get_strategy(infoset, actions)
             
             # Sample action
@@ -243,7 +283,7 @@ class ParallelSubgameResolver:
             
             sampled_action = rng.choice(actions, p=action_probs)
             
-            # NOTE: Simplified utility calculation (placeholder).
+            # PLACEHOLDER: Simplified utility calculation
             # Should be replaced with proper game tree traversal and CFR utility calculation.
             utility = rng.uniform(-1.0, 1.0)
             
@@ -275,7 +315,6 @@ class ParallelSubgameResolver:
                 break
         
         # Get solution strategy
-        actions = subgame.get_actions(infoset)
         strategy = regret_tracker.get_average_strategy(infoset, actions)
         
         elapsed_ms = (time.time() - start_time) * 1000

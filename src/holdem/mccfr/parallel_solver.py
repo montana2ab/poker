@@ -123,14 +123,19 @@ class ParallelMCCFRSolver:
     def _merge_worker_results(self, results: List[Dict]):
         """Merge regret and strategy updates from workers.
         
+        Workers compute independent samples of the game tree. We sum (not average)
+        their cumulative regrets and strategy sums, as each worker's contribution
+        represents additional iterations of the algorithm. All values are stored
+        as Python floats (float64) for numerical precision.
+        
         Args:
-            results: List of worker results
+            results: List of worker results containing regret_updates and strategy_updates
         """
         for result in results:
             regret_updates = result['regret_updates']
             strategy_updates = result['strategy_updates']
             
-            # Merge regret updates
+            # Merge regret updates by summing cumulative regrets
             for infoset, actions_dict in regret_updates.items():
                 if infoset not in self.regret_tracker.regrets:
                     self.regret_tracker.regrets[infoset] = {}
@@ -138,10 +143,11 @@ class ParallelMCCFRSolver:
                 for action, regret in actions_dict.items():
                     if action not in self.regret_tracker.regrets[infoset]:
                         self.regret_tracker.regrets[infoset][action] = 0.0
-                    # Sum regrets from workers (each worker's regrets are independent samples)
+                    # Sum cumulative regrets (not averages) - each worker ran independent iterations
+                    # Python float is already float64, no explicit conversion needed
                     self.regret_tracker.regrets[infoset][action] += regret
             
-            # Merge strategy updates
+            # Merge strategy updates by summing cumulative strategy sums
             for infoset, actions_dict in strategy_updates.items():
                 if infoset not in self.regret_tracker.strategy_sum:
                     self.regret_tracker.strategy_sum[infoset] = {}
@@ -149,7 +155,8 @@ class ParallelMCCFRSolver:
                 for action, weight in actions_dict.items():
                     if action not in self.regret_tracker.strategy_sum[infoset]:
                         self.regret_tracker.strategy_sum[infoset][action] = 0.0
-                    # Sum strategy weights from workers
+                    # Sum cumulative strategy weights (not averages)
+                    # Python float is already float64, no explicit conversion needed
                     self.regret_tracker.strategy_sum[infoset][action] += weight
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
@@ -159,6 +166,15 @@ class ParallelMCCFRSolver:
             logdir: Directory for logs and checkpoints
             use_tensorboard: Enable TensorBoard logging (requires tensorboard package)
         """
+        # Force 'spawn' start method for cross-platform compatibility (Mac/Linux)
+        # This ensures consistent behavior across platforms
+        try:
+            mp.set_start_method('spawn', force=True)
+            logger.info("Set multiprocessing start method to 'spawn' for cross-platform compatibility")
+        except RuntimeError:
+            # Already set, which is fine
+            logger.info(f"Multiprocessing start method already set to '{mp.get_start_method()}'")
+        
         # Import solver for non-parallel metrics and save methods
         from holdem.mccfr.solver import MCCFRSolver
         
@@ -172,7 +188,7 @@ class ParallelMCCFRSolver:
             logger.info(f"Starting parallel MCCFR training for {self.config.num_iterations} iterations")
         
         logger.info(f"Using {self.num_workers} worker process(es)")
-        logger.info(f"Batch size: {self.config.batch_size} iterations per worker")
+        logger.info(f"Batch size: {self.config.batch_size} iterations (merge period between workers)")
         
         # Initialize TensorBoard writer if requested and available
         if logdir and use_tensorboard and TENSORBOARD_AVAILABLE:
@@ -398,7 +414,13 @@ class ParallelMCCFRSolver:
         logger.info(f"Saved snapshot at iteration {iteration} (elapsed: {elapsed_seconds:.1f}s)")
     
     def _save_checkpoint(self, logdir: Path, iteration: int, elapsed_seconds: float):
-        """Save training checkpoint."""
+        """Save training checkpoint with complete metadata.
+        
+        Args:
+            logdir: Directory for checkpoints
+            iteration: Current iteration number
+            elapsed_seconds: Time elapsed since training start
+        """
         from holdem.utils.serialization import save_json
         
         checkpoint_dir = logdir / "checkpoints"
@@ -410,15 +432,27 @@ class ParallelMCCFRSolver:
             checkpoint_name += f"_t{int(elapsed_seconds)}s"
         policy_store.save(checkpoint_dir / f"{checkpoint_name}.pkl")
         
+        # Save complete metadata including epsilon, discount params, and bucket info
         metadata = {
             'iteration': iteration,
             'elapsed_seconds': elapsed_seconds,
             'num_workers': self.num_workers,
-            'batch_size': self.config.batch_size
+            'batch_size': self.config.batch_size,
+            'epsilon': self._current_epsilon,
+            'regret_discount_alpha': self.config.regret_discount_alpha,
+            'strategy_discount_beta': self.config.strategy_discount_beta,
+            'bucket_metadata': {
+                'k_preflop': self.bucketing.config.k_preflop,
+                'k_flop': self.bucketing.config.k_flop,
+                'k_turn': self.bucketing.config.k_turn,
+                'k_river': self.bucketing.config.k_river,
+                'num_samples': self.bucketing.config.num_samples,
+                'seed': self.bucketing.config.seed
+            }
         }
         save_json(metadata, checkpoint_dir / f"{checkpoint_name}_metadata.json")
         
-        logger.info(f"Saved checkpoint at iteration {iteration}")
+        logger.info(f"Saved checkpoint at iteration {iteration} with complete metadata")
     
     def save_policy(self, logdir: Path):
         """Save final average policy."""
@@ -433,3 +467,85 @@ class ParallelMCCFRSolver:
     def get_policy(self) -> PolicyStore:
         """Get current policy store."""
         return PolicyStore(self.regret_tracker)
+    
+    def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True) -> int:
+        """Load checkpoint and restore training state.
+        
+        For parallel solver, this loads the checkpoint created by either single-process
+        or parallel training and restores the regret tracker state.
+        
+        Args:
+            checkpoint_path: Path to checkpoint .pkl file
+            validate_buckets: If True, validate bucket configuration matches
+            
+        Returns:
+            Iteration number from checkpoint (0 if metadata not found)
+            
+        Raises:
+            ValueError: If bucket validation fails or checkpoint incompatible
+        """
+        from holdem.utils.serialization import load_json, load_pickle
+        
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
+        
+        # Load metadata
+        metadata_path = checkpoint_path.parent / f"{checkpoint_path.stem}_metadata.json"
+        if not metadata_path.exists():
+            logger.warning(f"Metadata file not found: {metadata_path}")
+            logger.warning("Cannot restore training state without metadata")
+            return 0
+        
+        metadata = load_json(metadata_path)
+        
+        # Validate bucket configuration
+        if validate_buckets and 'bucket_metadata' in metadata:
+            bucket_meta = metadata['bucket_metadata']
+            
+            # Compare bucket parameters
+            if (bucket_meta.get('k_preflop') != self.bucketing.config.k_preflop or
+                bucket_meta.get('k_flop') != self.bucketing.config.k_flop or
+                bucket_meta.get('k_turn') != self.bucketing.config.k_turn or
+                bucket_meta.get('k_river') != self.bucketing.config.k_river):
+                raise ValueError(
+                    f"Bucket configuration mismatch!\n"
+                    f"Checkpoint: preflop={bucket_meta.get('k_preflop')}, "
+                    f"flop={bucket_meta.get('k_flop')}, "
+                    f"turn={bucket_meta.get('k_turn')}, "
+                    f"river={bucket_meta.get('k_river')}\n"
+                    f"Current: preflop={self.bucketing.config.k_preflop}, "
+                    f"flop={self.bucketing.config.k_flop}, "
+                    f"turn={self.bucketing.config.k_turn}, "
+                    f"river={self.bucketing.config.k_river}\n"
+                    f"Cannot safely resume training with different bucket configuration."
+                )
+            
+            logger.info("Bucket configuration validated successfully")
+        
+        # Restore epsilon if available
+        if 'epsilon' in metadata:
+            self._current_epsilon = metadata['epsilon']
+            logger.info(f"Restored epsilon: {self._current_epsilon:.3f}")
+        
+        # Load regret tracker state from checkpoint
+        # Note: PolicyStore contains the regret tracker data
+        policy_data = load_pickle(checkpoint_path)
+        
+        # The checkpoint contains a dictionary with 'regrets' and 'strategy_sum'
+        if isinstance(policy_data, dict):
+            if 'regrets' in policy_data:
+                self.regret_tracker.regrets = policy_data['regrets']
+                logger.info(f"Loaded {len(self.regret_tracker.regrets)} infosets (regrets)")
+            
+            if 'strategy_sum' in policy_data:
+                self.regret_tracker.strategy_sum = policy_data['strategy_sum']
+                logger.info(f"Loaded {len(self.regret_tracker.strategy_sum)} infosets (strategy_sum)")
+        
+        # Get iteration number
+        iteration = metadata.get('iteration', 0)
+        self.iteration = iteration
+        
+        logger.info(f"Successfully loaded checkpoint from iteration {iteration}")
+        logger.info("Parallel training will continue from this state")
+        
+        return iteration

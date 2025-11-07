@@ -462,13 +462,16 @@ class MCCFRSolver:
         # Calculate bucket file hash for validation
         bucket_sha = self._calculate_bucket_hash()
         
-        # Save checkpoint metadata with metrics, RNG state, and bucket metadata
+        # Save checkpoint metadata with metrics, RNG state, epsilon, discount params, and bucket metadata
         metrics = self._calculate_metrics(iteration, elapsed_seconds)
         metadata = {
             'iteration': iteration,
             'elapsed_seconds': elapsed_seconds,
             'metrics': metrics,
             'rng_state': rng_state,
+            'epsilon': self._current_epsilon,
+            'regret_discount_alpha': self.config.regret_discount_alpha,
+            'strategy_discount_beta': self.config.strategy_discount_beta,
             'bucket_metadata': {
                 'bucket_file_sha': bucket_sha,
                 'k_preflop': self.bucketing.config.k_preflop,
@@ -483,7 +486,7 @@ class MCCFRSolver:
         metadata_path = checkpoint_dir / f"{checkpoint_name}_metadata.json"
         save_json(metadata, metadata_path)
         
-        logger.info(f"Saved checkpoint at iteration {iteration} with metrics and RNG state")
+        logger.info(f"Saved checkpoint at iteration {iteration} with complete metadata and RNG state")
     
     def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True) -> int:
         """Load checkpoint and restore training state.
@@ -535,13 +538,26 @@ class MCCFRSolver:
         else:
             logger.warning("No RNG state found in checkpoint, randomness will not be exactly reproducible")
         
+        # Restore epsilon if available
+        if 'epsilon' in metadata:
+            self._current_epsilon = metadata['epsilon']
+            # Update sampler epsilon
+            if hasattr(self.sampler, 'set_epsilon'):
+                self.sampler.set_epsilon(self._current_epsilon)
+            else:
+                self.sampler.epsilon = self._current_epsilon
+            logger.info(f"Restored epsilon: {self._current_epsilon:.3f}")
+        else:
+            logger.warning("No epsilon found in checkpoint metadata")
+        
         # Get iteration number
         iteration = metadata.get('iteration', 0)
+        self.iteration = iteration
         
         # Note about full state restoration
         logger.info(f"Loaded checkpoint metadata from iteration {iteration}")
         logger.warning("Note: Full regret tracker state restoration not yet implemented")
-        logger.warning("Training will continue from current regret state with restored RNG")
+        logger.warning("Training will continue from current regret state with restored RNG and epsilon")
         
         return iteration
     
