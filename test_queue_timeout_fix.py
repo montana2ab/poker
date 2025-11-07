@@ -103,6 +103,7 @@ def collect_results_short_timeout(result_queue: mp.Queue, num_workers: int) -> L
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
         except queue.Empty:
+            # No result available yet; continue polling
             pass
     
     return results
