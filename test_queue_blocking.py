@@ -23,7 +23,7 @@ TEST_TIMEOUT_SECONDS = 30  # Maximum time to wait for test completion
 
 
 def worker_with_large_result(worker_id: int, task_queue: mp.Queue, result_queue: mp.Queue, 
-                              result_size: int = 10000):
+                              result_size: int = DEFAULT_RESULT_SIZE):
     """Worker that produces large results to stress-test queue handling."""
     print(f"Worker {worker_id}: Started")
     
@@ -64,7 +64,12 @@ def worker_with_large_result(worker_id: int, task_queue: mp.Queue, result_queue:
             print(f"Worker {worker_id}: Successfully sent result (put took {put_duration:.3f}s)")
         except queue.Full:
             print(f"Worker {worker_id}: ERROR - Queue full after {RESULT_PUT_TIMEOUT_SECONDS}s timeout!")
-            result_queue.put({'worker_id': worker_id, 'error': 'Queue full'}, block=False)
+            # Try to send error result with try-except to handle case where queue is still full
+            error_result = {'worker_id': worker_id, 'error': 'Queue full'}
+            try:
+                result_queue.put(error_result, block=False)
+            except queue.Full:
+                print(f"Worker {worker_id}: Could not send error result - queue still full")
     
     print(f"Worker {worker_id}: Exiting")
 

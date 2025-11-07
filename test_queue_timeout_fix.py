@@ -43,7 +43,7 @@ def worker_with_short_timeout(worker_id: int, task_queue: mp.Queue, result_queue
         # Do some CPU-intensive work
         result = 0
         while time.time() - start_time < work_duration:
-            result += sum(range(10000))
+            result += sum(range(CPU_WORK_RANGE_SIZE))
         
         # Send result back
         result_queue.put({
@@ -76,7 +76,7 @@ def worker_with_long_timeout(worker_id: int, task_queue: mp.Queue, result_queue:
         # Do some CPU-intensive work
         result = 0
         while time.time() - start_time < work_duration:
-            result += sum(range(10000))
+            result += sum(range(CPU_WORK_RANGE_SIZE))
         
         # Send result back
         result_queue.put({
