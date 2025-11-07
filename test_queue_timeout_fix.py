@@ -125,6 +125,7 @@ def collect_results_long_timeout(result_queue: mp.Queue, num_workers: int) -> Li
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
         except queue.Empty:
+            # No result available yet; continue waiting for results
             pass
     
     return results
