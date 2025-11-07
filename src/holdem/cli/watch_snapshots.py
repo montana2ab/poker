@@ -1,6 +1,7 @@
 """CLI: Watch for new snapshots and trigger evaluation."""
 
 import argparse
+import sys
 import time
 from pathlib import Path
 from typing import Set, Optional
@@ -24,12 +25,12 @@ class SnapshotWatcher:
         
         Args:
             snapshot_dir: Directory to watch for snapshots
-            eval_script: Path to evaluation script (default: holdem-eval-blueprint)
+            eval_script: [DEPRECATED] Path to evaluation script (ignored, kept for compatibility)
             eval_episodes: Number of episodes for evaluation
             check_interval: Check interval in seconds
         """
         self.snapshot_dir = snapshot_dir
-        self.eval_script = eval_script or "holdem-eval-blueprint"
+        self.eval_script = eval_script  # Kept for backward compatibility but not used
         self.eval_episodes = eval_episodes
         self.check_interval = check_interval
         self.seen_snapshots: Set[str] = set()
@@ -113,8 +114,10 @@ class SnapshotWatcher:
         logger.info(f"Results will be saved to: {results_file}")
         
         # Build evaluation command
+        # Use sys.executable to ensure subprocess uses same Python environment
         cmd = [
-            str(self.eval_script) if isinstance(self.eval_script, Path) else self.eval_script,
+            sys.executable,
+            "-m", "holdem.cli.eval_blueprint",
             "--policy", str(policy_file),
             "--episodes", str(self.eval_episodes),
             "--out", str(results_file)
