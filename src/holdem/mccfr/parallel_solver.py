@@ -130,7 +130,8 @@ def persistent_worker_process(
             
             worker_logger.debug(f"Worker {worker_id} completed batch: {len(utilities)} iterations, {len(regret_updates)} infosets")
             
-            # Put results in queue
+            # Put results in queue with timeout to avoid indefinite blocking
+            # This prevents workers from getting stuck if the result queue is full
             result = {
                 'worker_id': worker_id,
                 'utilities': utilities,
@@ -139,7 +140,27 @@ def persistent_worker_process(
                 'success': True,
                 'error': None
             }
-            result_queue.put(result)
+            
+            # Use a timeout to avoid indefinite blocking on large results
+            # The main process should be actively consuming results, but this provides a safeguard
+            put_timeout = 60  # 60 second timeout for putting results
+            try:
+                result_queue.put(result, timeout=put_timeout)
+                worker_logger.debug(f"Worker {worker_id} successfully sent results to main process")
+            except queue.Full:
+                # This should rarely happen if main process is consuming results properly
+                error_msg = f"Worker {worker_id}: Result queue full after {put_timeout}s timeout!"
+                worker_logger.error(error_msg)
+                # Send error result instead
+                error_result = {
+                    'worker_id': worker_id,
+                    'utilities': [],
+                    'regret_updates': {},
+                    'strategy_updates': {},
+                    'success': False,
+                    'error': error_msg
+                }
+                result_queue.put(error_result, block=False)
         
         worker_logger.info(f"Worker {worker_id} shutting down gracefully")
         
@@ -423,6 +444,8 @@ class ParallelMCCFRSolver:
                 logger.debug(f"Dispatching batch to workers: {self.num_workers} workers, {iterations_per_worker} iterations each")
                 
                 # Send tasks to workers via task queue
+                # Add slight staggering to worker start iterations to reduce queue contention
+                # when workers complete and try to put results simultaneously
                 for worker_id in range(self.num_workers):
                     worker_start_iter = self.iteration + worker_id * iterations_per_worker
                     
@@ -433,6 +456,10 @@ class ParallelMCCFRSolver:
                     }
                     self._task_queue.put(task)
                     logger.debug(f"Dispatched task to worker queue: iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
+                    # Small delay to stagger task dispatch and reduce simultaneous queue writes
+                    # This helps prevent all workers from finishing at exactly the same time
+                    if worker_id < self.num_workers - 1:  # Don't delay after last worker
+                        time.sleep(0.001)  # 1ms stagger between worker dispatches
                 
                 # Collect results from workers
                 # Use a very short timeout to minimize main process idle time and maintain high CPU usage
