@@ -151,7 +151,7 @@ def persistent_worker_process(
                 # This should rarely happen if main process is consuming results properly
                 error_msg = f"Worker {worker_id}: Result queue full after {put_timeout}s timeout!"
                 worker_logger.error(error_msg)
-                # Send error result instead
+                # Try to send error result with shorter timeout
                 error_result = {
                     'worker_id': worker_id,
                     'utilities': [],
@@ -160,7 +160,12 @@ def persistent_worker_process(
                     'success': False,
                     'error': error_msg
                 }
-                result_queue.put(error_result, block=False)
+                try:
+                    result_queue.put(error_result, timeout=5)
+                except queue.Full:
+                    worker_logger.error(f"Worker {worker_id}: Failed to send error result - queue still full")
+                    # At this point, worker will continue to next iteration or shutdown
+                    # The main process should detect the missing result via timeout
         
         worker_logger.info(f"Worker {worker_id} shutting down gracefully")
         
@@ -480,10 +485,9 @@ class ParallelMCCFRSolver:
                         # Very short timeout means we check again almost immediately
                         pass
                     
-                    # Check if any worker has died unexpectedly (check less frequently to reduce overhead)
-                    # Only check periodically to avoid excessive process status checks
-                    # Use a counter-based approach instead of floating-point modulo for reliability
-                    if len(results) % 10 == 0:  # Check every 10 results collected
+                    # Check if any worker has died unexpectedly
+                    # Check on first result and then periodically to balance overhead vs responsiveness
+                    if len(results) == 1 or len(results) % 10 == 0:
                         for p in self._workers:
                             if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
                                 logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")
