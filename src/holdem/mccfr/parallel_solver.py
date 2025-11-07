@@ -51,42 +51,82 @@ def worker_process(
         num_iterations: Number of iterations to run
         result_queue: Queue to put results
     """
-    # Create sampler for this worker
-    sampler = OutcomeSampler(
-        bucketing=bucketing,
-        num_players=num_players,
-        epsilon=epsilon,
-        use_linear_weighting=use_linear_weighting,
-        enable_pruning=enable_pruning,
-        pruning_threshold=pruning_threshold,
-        pruning_probability=pruning_probability
-    )
-    
-    # Run iterations
-    utilities = []
-    regret_updates = {}  # Track regret updates: {infoset: {action: regret}}
-    strategy_updates = {}  # Track strategy updates: {infoset: {action: weight}}
-    
-    for i in range(num_iterations):
-        iteration = iteration_start + i
-        utility = sampler.sample_iteration(iteration)
-        utilities.append(utility)
-    
-    # Collect regret and strategy updates from this worker
-    for infoset in sampler.regret_tracker.regrets:
-        regret_updates[infoset] = dict(sampler.regret_tracker.regrets[infoset])
-    
-    for infoset in sampler.regret_tracker.strategy_sum:
-        strategy_updates[infoset] = dict(sampler.regret_tracker.strategy_sum[infoset])
-    
-    # Put results in queue
-    result = {
-        'worker_id': worker_id,
-        'utilities': utilities,
-        'regret_updates': regret_updates,
-        'strategy_updates': strategy_updates
-    }
-    result_queue.put(result)
+    try:
+        # Log worker startup
+        import sys
+        worker_logger = get_logger(f"mccfr.worker_{worker_id}")
+        worker_logger.info(f"Worker {worker_id} starting: iterations {iteration_start} to {iteration_start + num_iterations - 1}")
+        
+        # Create sampler for this worker
+        sampler = OutcomeSampler(
+            bucketing=bucketing,
+            num_players=num_players,
+            epsilon=epsilon,
+            use_linear_weighting=use_linear_weighting,
+            enable_pruning=enable_pruning,
+            pruning_threshold=pruning_threshold,
+            pruning_probability=pruning_probability
+        )
+        
+        worker_logger.info(f"Worker {worker_id} sampler initialized successfully")
+        
+        # Run iterations
+        utilities = []
+        regret_updates = {}  # Track regret updates: {infoset: {action: regret}}
+        strategy_updates = {}  # Track strategy updates: {infoset: {action: weight}}
+        
+        for i in range(num_iterations):
+            iteration = iteration_start + i
+            utility = sampler.sample_iteration(iteration)
+            utilities.append(utility)
+            
+            # Log progress every 10 iterations
+            if (i + 1) % 10 == 0:
+                worker_logger.debug(f"Worker {worker_id} progress: {i + 1}/{num_iterations} iterations")
+        
+        # Collect regret and strategy updates from this worker
+        for infoset in sampler.regret_tracker.regrets:
+            regret_updates[infoset] = dict(sampler.regret_tracker.regrets[infoset])
+        
+        for infoset in sampler.regret_tracker.strategy_sum:
+            strategy_updates[infoset] = dict(sampler.regret_tracker.strategy_sum[infoset])
+        
+        worker_logger.info(f"Worker {worker_id} completed: {len(utilities)} iterations, {len(regret_updates)} infosets")
+        
+        # Put results in queue
+        result = {
+            'worker_id': worker_id,
+            'utilities': utilities,
+            'regret_updates': regret_updates,
+            'strategy_updates': strategy_updates,
+            'success': True,
+            'error': None
+        }
+        result_queue.put(result)
+        
+    except Exception as e:
+        # Capture and report any errors
+        import traceback
+        error_msg = f"Worker {worker_id} failed: {str(e)}\n{traceback.format_exc()}"
+        try:
+            worker_logger = get_logger(f"mccfr.worker_{worker_id}")
+            worker_logger.error(error_msg)
+        except:
+            print(f"ERROR in worker {worker_id}: {error_msg}", file=sys.stderr)
+        
+        # Send error result to main process
+        result = {
+            'worker_id': worker_id,
+            'utilities': [],
+            'regret_updates': {},
+            'strategy_updates': {},
+            'success': False,
+            'error': error_msg
+        }
+        try:
+            result_queue.put(result)
+        except:
+            print(f"ERROR: Worker {worker_id} failed to put error result in queue", file=sys.stderr)
 
 
 class ParallelMCCFRSolver:
@@ -174,6 +214,30 @@ class ParallelMCCFRSolver:
         # This was initialized in __init__ to avoid conflicts with already-used context
         logger.info(f"Using multiprocessing context: 'spawn' for cross-platform compatibility")
         
+        # Verify multiprocessing is working by running a simple test
+        logger.info("Running multiprocessing diagnostic test...")
+        try:
+            test_queue = self.mp_context.Queue()
+            def test_worker(q):
+                q.put("test_success")
+            test_proc = self.mp_context.Process(target=test_worker, args=(test_queue,))
+            test_proc.start()
+            test_proc.join(timeout=5)
+            if test_proc.is_alive():
+                logger.error("Multiprocessing test timed out!")
+                test_proc.terminate()
+                test_proc.join()
+                raise RuntimeError("Multiprocessing test failed: test worker timed out")
+            test_result = test_queue.get(timeout=1) if not test_queue.empty() else None
+            if test_result != "test_success":
+                raise RuntimeError(f"Multiprocessing test failed: expected 'test_success', got {test_result}")
+            logger.info("✓ Multiprocessing diagnostic test passed")
+        except Exception as e:
+            logger.error(f"Multiprocessing diagnostic test failed: {e}")
+            logger.error("Your system may not support multiprocessing properly.")
+            logger.error("Try running with --num-workers 1 for single-process mode.")
+            raise
+        
         # Import solver for non-parallel metrics and save methods
         from holdem.mccfr.solver import MCCFRSolver
         
@@ -227,6 +291,8 @@ class ParallelMCCFRSolver:
             batch_size = self.config.batch_size
             iterations_per_worker = batch_size // self.num_workers
             
+            logger.debug(f"Starting batch: {self.num_workers} workers, {iterations_per_worker} iterations each")
+            
             # Create result queue using the spawn context
             result_queue = self.mp_context.Queue()
             
@@ -234,6 +300,8 @@ class ParallelMCCFRSolver:
             workers = []
             for worker_id in range(self.num_workers):
                 worker_start_iter = self.iteration + worker_id * iterations_per_worker
+                
+                logger.debug(f"Spawning worker {worker_id} for iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
                 
                 p = self.mp_context.Process(
                     target=worker_process,
@@ -253,15 +321,52 @@ class ParallelMCCFRSolver:
                 )
                 p.start()
                 workers.append(p)
+                logger.debug(f"Worker {worker_id} started with PID {p.pid}")
             
-            # Wait for all workers to complete
+            logger.debug(f"All {self.num_workers} workers started, waiting for completion...")
+            
+            # Wait for all workers to complete with timeout
+            timeout_seconds = max(60, iterations_per_worker * 2)  # Adaptive timeout based on batch size
+            all_workers_completed = True
             for p in workers:
-                p.join()
+                p.join(timeout=timeout_seconds)
+                if p.is_alive():
+                    logger.error(f"Worker process {p.pid} timed out after {timeout_seconds}s, terminating...")
+                    p.terminate()
+                    p.join(timeout=5)
+                    if p.is_alive():
+                        logger.error(f"Worker process {p.pid} did not terminate, killing...")
+                        p.kill()
+                        p.join()
+                    all_workers_completed = False
             
             # Collect results from all workers
             results = []
             while not result_queue.empty():
                 results.append(result_queue.get())
+            
+            # Check for worker errors
+            failed_workers = []
+            for result in results:
+                if not result.get('success', True):
+                    failed_workers.append(result['worker_id'])
+                    logger.error(f"Worker {result['worker_id']} failed with error:\n{result.get('error', 'Unknown error')}")
+            
+            # Check if we got results from all workers
+            if len(results) < self.num_workers:
+                missing_workers = self.num_workers - len(results)
+                logger.error(f"Only received results from {len(results)}/{self.num_workers} workers ({missing_workers} missing)")
+                if not all_workers_completed:
+                    logger.error("Some workers timed out or failed to start. Check logs above for errors.")
+                logger.error("Training cannot continue reliably. Please check:")
+                logger.error("  1. Worker logs above for specific errors")
+                logger.error("  2. System resources (RAM, CPU)")
+                logger.error("  3. Try reducing --num-workers or --batch-size")
+                raise RuntimeError(f"Parallel training failed: {missing_workers} workers did not complete")
+            
+            if failed_workers:
+                logger.error(f"Training failed due to {len(failed_workers)} worker failure(s)")
+                raise RuntimeError(f"Workers {failed_workers} failed during execution")
             
             # Merge worker results
             self._merge_worker_results(results)
