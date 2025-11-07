@@ -16,8 +16,10 @@ logger = get_logger("mccfr.parallel_solver")
 
 # Worker timeout configuration
 # Adaptive timeout is calculated as max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
-WORKER_TIMEOUT_MIN_SECONDS = 60  # Minimum timeout in seconds
-WORKER_TIMEOUT_MULTIPLIER = 2  # Multiplier for adaptive timeout based on batch size
+# Each MCCFR iteration can take several seconds depending on game tree complexity,
+# so we need generous timeouts to avoid false positives
+WORKER_TIMEOUT_MIN_SECONDS = 300  # Minimum timeout in seconds (5 minutes)
+WORKER_TIMEOUT_MULTIPLIER = 10  # Multiplier for adaptive timeout based on batch size (seconds per iteration)
 
 # Optional TensorBoard support
 try:
