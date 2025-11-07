@@ -11,6 +11,7 @@ The fix is to read from the queue WHILE workers are running.
 """
 
 import multiprocessing as mp
+import queue
 import time
 import sys
 
@@ -121,7 +122,7 @@ def demonstrate_fixed_approach():
             result = result_queue.get(timeout=1.0)
             results.append(result)
             print(f"Main: Collected result from worker {result['worker_id']} ({len(results)}/{num_workers})")
-        except Exception:
+        except queue.Empty:
             # Queue empty, keep waiting
             pass
     

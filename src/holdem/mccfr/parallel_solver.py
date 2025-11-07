@@ -2,6 +2,7 @@
 
 import time
 import multiprocessing as mp
+import queue
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 from holdem.types import MCCFRConfig, Street
@@ -359,7 +360,7 @@ class ParallelMCCFRSolver:
                     result = result_queue.get(timeout=1.0)
                     results.append(result)
                     logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
-                except Exception:
+                except queue.Empty:
                     # Queue empty or timeout, continue waiting
                     pass
                 

@@ -5,6 +5,7 @@ putting large results in the queue, which previously caused deadlock.
 """
 
 import multiprocessing as mp
+import queue
 import time
 import pytest
 from pathlib import Path
@@ -56,7 +57,7 @@ def test_queue_no_deadlock_with_large_results():
         try:
             result = result_queue.get(timeout=1.0)
             results.append(result)
-        except Exception:
+        except queue.Empty:
             pass
     
     # Join workers (should be quick since they already finished)
@@ -156,7 +157,7 @@ def test_worker_result_collection_order():
         try:
             result = result_queue.get(timeout=1.0)
             results.append(result)
-        except Exception:
+        except queue.Empty:
             pass
     
     # Join workers
