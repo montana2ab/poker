@@ -1,11 +1,12 @@
 """CLI: Watch for new snapshots and trigger evaluation."""
 
 import argparse
+import subprocess
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Set, Optional
-import subprocess
 from holdem.utils.logging import setup_logger
 
 logger = setup_logger("watch_snapshots")
@@ -36,14 +37,12 @@ class SnapshotWatcher:
         
         # Issue deprecation warning if eval_script is provided
         if eval_script is not None:
-            import warnings
             warnings.warn(
                 "The 'eval_script' parameter is deprecated and will be removed in a future version. "
                 "The evaluation now always uses 'python -m holdem.cli.eval_blueprint'.",
                 DeprecationWarning,
                 stacklevel=2
             )
-        self.eval_script = eval_script  # Kept for backward compatibility but not used
     
     def watch(self):
         """Start watching for new snapshots."""
