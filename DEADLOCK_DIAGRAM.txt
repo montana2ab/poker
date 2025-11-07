@@ -1,0 +1,104 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                   MULTIPROCESSING QUEUE DEADLOCK - VISUAL EXPLANATION          ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          OLD APPROACH (DEADLOCK)                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Main Process                    Queue                   Worker 1         Worker 2
+────────────                   ──────                   ────────         ────────
+    │                                                        │                │
+    │ 1. Start workers                                      │                │
+    ├──────────────────────────────────────────────────────>│                │
+    ├────────────────────────────────────────────────────────────────────────>│
+    │                                                        │                │
+    │                                                        │ Do work        │ Do work
+    │                                                        │                │
+    │                                                        │ Done!          │ Done!
+    │                           ┌─────┐                      │                │
+    │                           │     │<─────────────────────┤ put(result1)   │
+    │                           │ [1] │                      │                │
+    │                           │     │<──────────────────────────────────────┤ put(result2)
+    │                           │ [2] │                      │                │
+    │                           │     │                      │                │
+    │                           │FULL!│                      │                │
+    │ 2. Join workers (WAIT)    │     │                      │                │
+    │ ⏳ Waiting for Worker 1... └─────┘                     ⏳ BLOCKED!      ⏳ BLOCKED!
+    │                                                         │ waiting for   │ waiting for
+    │                                                         │ queue space   │ queue space
+    │                                                         │               │
+    ⏳ DEADLOCK! Main waits for workers, workers wait for queue space!
+    
+    Never reads from queue because stuck in join()!
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          NEW APPROACH (FIXED)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Main Process                    Queue                   Worker 1         Worker 2
+────────────                   ──────                   ────────         ────────
+    │                                                        │                │
+    │ 1. Start workers                                      │                │
+    ├──────────────────────────────────────────────────────>│                │
+    ├────────────────────────────────────────────────────────────────────────>│
+    │                                                        │                │
+    │ 2. Start collecting                                   │ Do work        │ Do work
+    │    (WHILE workers run)                                │                │
+    │                           ┌─────┐                      │                │
+    │                           │     │<─────────────────────┤ put(result1)   │
+    │                           │ [1] │                      ✓ Success!       │
+    │<──────────────────────────│     │                      │                │
+    │ get(result1) ✓            │empty│                      │                │ Done!
+    │                           │     │<──────────────────────────────────────┤ put(result2)
+    │                           │ [2] │                      │                ✓ Success!
+    │<──────────────────────────│     │                      │                │
+    │ get(result2) ✓            │empty│                      │                │
+    │                           └─────┘                      │                │
+    │                                                        │ (exited)       │ (exited)
+    │ 3. All results collected!                             │                │
+    │    Now join workers...                                │                │
+    ├───────────────────────────────────────────────────────X (quick join)   │
+    ├────────────────────────────────────────────────────────────────────────X (quick join)
+    │                                                        
+    ✓ Done! No deadlock!
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                  KEY INSIGHT                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+OLD: Wait for workers → THEN collect results
+     ❌ Workers can't finish because queue is full
+     ❌ Main can't collect because it's waiting for workers
+     ❌ DEADLOCK!
+
+NEW: Collect results → WHILE workers are running
+     ✓ Workers can finish because queue space is freed as main reads
+     ✓ Main collects results as they arrive
+     ✓ No blocking, no deadlock!
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                  THE FIX                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+# BEFORE (deadlock risk):
+for p in workers:
+    p.join()  # ← PROBLEM: Waiting here while queue might be full!
+
+results = []
+while not queue.empty():
+    results.append(queue.get())
+
+# AFTER (no deadlock):
+results = []
+while len(results) < num_workers:
+    try:
+        result = queue.get(timeout=1.0)  # ← Read while workers run!
+        results.append(result)
+    except queue.Empty:
+        pass  # Keep waiting
+
+for p in workers:
+    p.join(timeout=10)  # Quick join, workers already done

@@ -1,9 +1,11 @@
 """Parallel MCCFR solver using multiprocessing."""
 
-import time
 import multiprocessing as mp
+import queue
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
+
 from holdem.types import MCCFRConfig, Street
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.mccfr_os import OutcomeSampler
@@ -341,13 +343,39 @@ class ParallelMCCFRSolver:
             
             logger.debug(f"All {self.num_workers} workers started, waiting for completion...")
             
-            # Wait for all workers to complete with timeout
+            # Collect results while workers are running to avoid queue deadlock
+            # If we wait for workers to join before reading the queue, workers may block
+            # on queue.put() when the queue buffer is full, causing a deadlock
+            results = []
             timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
+            start_wait_time = time.time()
+            
+            while len(results) < self.num_workers:
+                # Check if timeout exceeded
+                if time.time() - start_wait_time > timeout_seconds:
+                    logger.error(f"Timeout waiting for worker results after {timeout_seconds}s")
+                    break
+                
+                # Try to get result from queue with short timeout
+                try:
+                    result = result_queue.get(timeout=1.0)
+                    results.append(result)
+                    logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
+                except queue.Empty:
+                    # Queue empty or timeout, continue waiting
+                    pass
+                
+                # Check if any worker has died unexpectedly
+                for p in workers:
+                    if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
+                        logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")
+            
+            # Now join all workers (they should be done or nearly done)
             all_workers_completed = True
             for p in workers:
-                p.join(timeout=timeout_seconds)
+                p.join(timeout=10)  # Short timeout since workers should be done
                 if p.is_alive():
-                    logger.error(f"Worker process {p.pid} timed out after {timeout_seconds}s, terminating...")
+                    logger.error(f"Worker process {p.pid} still alive after results collected, terminating...")
                     p.terminate()
                     p.join(timeout=5)
                     if p.is_alive():
@@ -355,11 +383,6 @@ class ParallelMCCFRSolver:
                         p.kill()
                         p.join()
                     all_workers_completed = False
-            
-            # Collect results from all workers
-            results = []
-            while not result_queue.empty():
-                results.append(result_queue.get())
             
             # Check for worker errors
             failed_workers = []
