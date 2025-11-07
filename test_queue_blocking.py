@@ -131,6 +131,7 @@ def main():
                 data_size = len(result.get('large_data', {}))
                 print(f"  Received result from worker {result['worker_id']} (data size: {data_size} items)")
         except queue.Empty:
+            # No result available yet; continue polling until timeout or all results are collected
             pass
     
     collection_time = time.time() - start_time
