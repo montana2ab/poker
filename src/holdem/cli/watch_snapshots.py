@@ -1,10 +1,12 @@
 """CLI: Watch for new snapshots and trigger evaluation."""
 
 import argparse
+import subprocess
+import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Set, Optional
-import subprocess
 from holdem.utils.logging import setup_logger
 
 logger = setup_logger("watch_snapshots")
@@ -24,15 +26,25 @@ class SnapshotWatcher:
         
         Args:
             snapshot_dir: Directory to watch for snapshots
-            eval_script: Path to evaluation script (default: holdem-eval-blueprint)
+            eval_script: Path to evaluation script. **Deprecated:** This parameter is 
+                ignored and kept for backward compatibility only. The evaluation now 
+                uses the current Python interpreter with `-m holdem.cli.eval_blueprint`.
             eval_episodes: Number of episodes for evaluation
             check_interval: Check interval in seconds
         """
         self.snapshot_dir = snapshot_dir
-        self.eval_script = eval_script or "holdem-eval-blueprint"
         self.eval_episodes = eval_episodes
         self.check_interval = check_interval
         self.seen_snapshots: Set[str] = set()
+        
+        # Issue deprecation warning if eval_script is provided
+        if eval_script is not None:
+            warnings.warn(
+                "The 'eval_script' parameter is deprecated and will be removed in a future version. "
+                "The evaluation now uses the current Python interpreter to run 'holdem.cli.eval_blueprint'.",
+                DeprecationWarning,
+                stacklevel=2
+            )
     
     def watch(self):
         """Start watching for new snapshots."""
@@ -113,8 +125,10 @@ class SnapshotWatcher:
         logger.info(f"Results will be saved to: {results_file}")
         
         # Build evaluation command
+        # Use sys.executable to ensure subprocess uses same Python environment
         cmd = [
-            str(self.eval_script) if isinstance(self.eval_script, Path) else self.eval_script,
+            sys.executable,
+            "-m", "holdem.cli.eval_blueprint",
             "--policy", str(policy_file),
             "--episodes", str(self.eval_episodes),
             "--out", str(results_file)
@@ -150,7 +164,7 @@ def main():
     parser.add_argument("--snapshot-dir", type=Path, required=True,
                        help="Directory containing snapshots to watch")
     parser.add_argument("--eval-script", type=Path,
-                       help="Path to evaluation script (default: holdem-eval-blueprint)")
+                       help="[DEPRECATED] Path to evaluation script (ignored, kept for compatibility)")
     parser.add_argument("--episodes", type=int, default=10000,
                        help="Number of evaluation episodes (default: 10000)")
     parser.add_argument("--check-interval", type=int, default=60,
