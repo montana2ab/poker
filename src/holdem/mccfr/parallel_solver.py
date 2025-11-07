@@ -494,7 +494,9 @@ class ParallelMCCFRSolver:
                     
                     # Check if any worker has died unexpectedly
                     # Check on first result and then periodically to balance overhead vs responsiveness
-                    if len(results) == 1 or len(results) % WORKER_STATUS_CHECK_INTERVAL == 0:
+                    # For small batches, check more frequently to ensure we catch worker failures
+                    check_interval = min(WORKER_STATUS_CHECK_INTERVAL, self.num_workers)
+                    if len(results) == 1 or len(results) % check_interval == 0:
                         for p in self._workers:
                             if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
                                 logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")

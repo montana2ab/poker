@@ -10,6 +10,7 @@ This test simulates workers sending large results to verify that:
 
 import multiprocessing as mp
 import queue
+import sys
 import time
 from typing import Dict
 
@@ -170,4 +171,4 @@ def main():
 
 if __name__ == "__main__":
     success = main()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)
