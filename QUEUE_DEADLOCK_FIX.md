@@ -83,7 +83,7 @@ while len(results) < num_workers:
     try:
         result = result_queue.get(timeout=1.0)
         results.append(result)
-    except:
+    except queue.Empty:
         pass  # Queue empty, keep waiting
 
 # 3. Join workers (should be quick since they already finished)
@@ -135,7 +135,7 @@ while len(results) < self.num_workers:
         result = result_queue.get(timeout=1.0)
         results.append(result)
         logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
-    except:
+    except queue.Empty:
         pass
     
     # Check if any worker has died unexpectedly
