@@ -98,6 +98,29 @@ With the persistent worker pool:
 
 ## Troubleshooting
 
+### Multiprocessing Diagnostic Test Timeout on macOS
+
+**Error:**
+```
+ERROR    Multiprocessing test timed out!
+ERROR    Multiprocessing diagnostic test failed: Multiprocessing test failed: test worker timed out
+```
+
+**This was fixed in the latest update!** The issue was caused by Rich logger initialization hanging in spawned child processes on macOS.
+
+**Solution:** Update to the latest code which includes:
+- Lazy logger initialization (no module-level execution)
+- Automatic detection of child processes with simple logging
+- Increased timeout (30s) for slow imports
+- Better error messages
+
+If you still see this error after updating:
+1. Make sure you have the latest code: `git pull`
+2. Reinstall: `pip install -e . --force-reinstall --no-deps`
+3. Clear Python cache: `find . -type d -name __pycache__ -exec rm -rf {} +`
+4. Check if heavy dependencies (numpy, torch) are installed: `pip list | grep -E "(numpy|torch)"`
+5. Try with single worker first: `--num-workers 1`
+
 ### Still Seeing "Worker X starting: iterations..." Messages?
 
 You're still running the old code. Make sure to:
