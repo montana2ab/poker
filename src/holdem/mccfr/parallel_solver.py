@@ -144,8 +144,8 @@ class ParallelMCCFRSolver:
                     if action not in self.regret_tracker.regrets[infoset]:
                         self.regret_tracker.regrets[infoset][action] = 0.0
                     # Sum cumulative regrets (not averages) - each worker ran independent iterations
-                    # Python float is float64 by default, ensuring numerical precision
-                    self.regret_tracker.regrets[infoset][action] += float(regret)
+                    # Python float is already float64, no explicit conversion needed
+                    self.regret_tracker.regrets[infoset][action] += regret
             
             # Merge strategy updates by summing cumulative strategy sums
             for infoset, actions_dict in strategy_updates.items():
@@ -156,8 +156,8 @@ class ParallelMCCFRSolver:
                     if action not in self.regret_tracker.strategy_sum[infoset]:
                         self.regret_tracker.strategy_sum[infoset][action] = 0.0
                     # Sum cumulative strategy weights (not averages)
-                    # Python float is float64 by default, ensuring numerical precision
-                    self.regret_tracker.strategy_sum[infoset][action] += float(weight)
+                    # Python float is already float64, no explicit conversion needed
+                    self.regret_tracker.strategy_sum[infoset][action] += weight
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
         """Run parallel MCCFR training.
