@@ -30,7 +30,14 @@ class SearchController:
         self.encoder = StateEncoder(bucketing)
         self.belief = BeliefState()
         self.subgame_builder = SubgameBuilder(depth_limit=config.depth_limit)
-        self.resolver = SubgameResolver(config, blueprint)
+        
+        # Choose resolver based on num_workers
+        if config.num_workers > 1 or config.num_workers == 0:
+            from holdem.realtime.parallel_resolver import ParallelSubgameResolver
+            self.resolver = ParallelSubgameResolver(config, blueprint)
+            logger.info(f"Using parallel resolver with {config.num_workers} worker(s)")
+        else:
+            self.resolver = SubgameResolver(config, blueprint)
     
     def get_action(
         self,

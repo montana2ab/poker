@@ -115,10 +115,19 @@ python -m holdem.cli.build_buckets --hands 500000 \
 Run MCCFR training to build the base strategy:
 
 ```bash
+# Single-process training
 python -m holdem.cli.train_blueprint --iters 2500000 \
   --buckets assets/abstraction/precomputed_buckets.pkl \
   --logdir runs/blueprint
+
+# Multi-core parallel training (recommended for faster training)
+python -m holdem.cli.train_blueprint --iters 2500000 \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/blueprint \
+  --num-workers 0 --batch-size 100
 ```
+
+💡 **Tip**: Use `--num-workers 0` to automatically use all available CPU cores for faster training. See [PARALLEL_TRAINING.md](PARALLEL_TRAINING.md) for details.
 
 ### 4. Evaluate Blueprint
 
@@ -415,6 +424,7 @@ Individual test modules:
 ## Documentation
 
 - **[Getting Started](GETTING_STARTED.md)** - Quick setup guide for new users
+- **[Parallel Training](PARALLEL_TRAINING.md)** - Guide to multi-core training and real-time solving
 - **[Feature Extraction](FEATURE_EXTRACTION.md)** - Detailed guide to the 10-dimensional preflop and 34-dimensional postflop feature extraction system
 - **[Real-time Re-Solving](REALTIME_RESOLVING.md)** - Complete guide to real-time search integration
 - **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)

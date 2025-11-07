@@ -143,6 +143,10 @@ class MCCFRConfig:
     # Preflop equity optimization
     preflop_equity_samples: int = 100  # Number of equity samples for preflop (0 to disable during training)
     
+    # Multiprocessing parameters
+    num_workers: int = 1  # Number of parallel worker processes (1 = single process, 0 = use all CPU cores)
+    batch_size: int = 100  # Number of iterations per worker batch
+    
 
 @dataclass
 class SearchConfig:
@@ -152,6 +156,7 @@ class SearchConfig:
     kl_divergence_weight: float = 1.0
     depth_limit: int = 1  # Number of streets to look ahead
     fallback_to_blueprint: bool = True
+    num_workers: int = 1  # Number of parallel worker processes for real-time solving (1 = single process)
 
 
 @dataclass
