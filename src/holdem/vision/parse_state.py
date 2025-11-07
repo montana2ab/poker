@@ -81,8 +81,56 @@ class StateParser:
             # Extract pot
             pot = self._parse_pot(screenshot)
             
+            # Parse button position (dealer button)
+            button_position = self._parse_button_position(screenshot)
+            
             # Extract player states
             players = self._parse_players(screenshot)
+            
+            # Calculate current_bet (highest bet this round)
+            current_bet = max([p.bet_this_round for p in players], default=0.0)
+            
+            # Get hero position from profile
+            hero_position = self.profile.hero_position
+            
+            # Calculate hero-specific values if hero is known
+            is_in_position = False
+            to_call = 0.0
+            effective_stack = 0.0
+            spr = 0.0
+            
+            if hero_position is not None and 0 <= hero_position < len(players):
+                hero = players[hero_position]
+                
+                # Calculate to_call (amount hero needs to call)
+                to_call = max(0.0, current_bet - hero.bet_this_round)
+                
+                # Calculate is_in_position for heads-up (2 players)
+                # In HU: Button (BTN) is Small Blind (SB) and has position postflop
+                # Big Blind (BB) is out of position postflop
+                num_active = len([p for p in players if not p.folded])
+                if num_active == 2:
+                    # Heads-up position logic
+                    if street == Street.PREFLOP:
+                        # Preflop: BB has position (acts last), BTN (SB) is OOP
+                        is_in_position = (hero_position != button_position)
+                    else:
+                        # Postflop: BTN (SB) has position, BB is OOP
+                        is_in_position = (hero_position == button_position)
+                else:
+                    # Multi-way: need to determine based on button and active players
+                    # For simplicity, assume hero is IP if acting after most players postflop
+                    # This is a simplification and may need refinement for 6-max
+                    is_in_position = self._calculate_multiway_position(hero_position, button_position, players, street)
+                
+                # Calculate effective_stack (min of hero stack and largest opponent stack)
+                opponent_stacks = [p.stack for p in players if p.position != hero_position and not p.folded]
+                max_opponent_stack = max(opponent_stacks, default=0.0)
+                effective_stack = min(hero.stack, max_opponent_stack)
+                
+                # Calculate SPR (stack-to-pot ratio)
+                # Use small epsilon to avoid division by zero while minimizing impact on calculation
+                spr = effective_stack / max(pot, 0.01)
             
             # Create table state
             state = TableState(
@@ -90,13 +138,21 @@ class StateParser:
                 pot=pot,
                 board=[c for c in board if c is not None],
                 players=players,
-                current_bet=0.0,  # Would need to parse from UI
+                current_bet=current_bet,
                 small_blind=1.0,
                 big_blind=2.0,
-                button_position=0
+                button_position=button_position,
+                hero_position=hero_position,
+                is_in_position=is_in_position,
+                to_call=to_call,
+                effective_stack=effective_stack,
+                spr=spr
             )
             
-            logger.debug(f"Parsed state: {street.name}, pot={pot}, {len(players)} players")
+            logger.debug(f"Parsed state: {street.name}, pot={pot}, current_bet={current_bet}, "
+                        f"button={button_position}, hero_pos={hero_position}, is_IP={is_in_position}, "
+                        f"to_call={to_call:.2f}, eff_stack={effective_stack:.2f}, SPR={spr:.2f}, "
+                        f"{len(players)} players")
             return state
             
         except Exception as e:
@@ -196,6 +252,22 @@ class StateParser:
                     name = parsed_name.strip()
                     logger.info(f"Player {table_position} name OCR: {name}")
 
+            # Extract bet amount for this round
+            bet_this_round = 0.0
+            bet_reg = player_region.get('bet_region', {})
+            x, y, w, h = bet_reg.get('x', 0), bet_reg.get('y', 0), \
+                         bet_reg.get('width', 0), bet_reg.get('height', 0)
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                bet_img = img[y:y+h, x:x+w]
+                parsed_bet = self.ocr_engine.extract_number(bet_img)
+                if parsed_bet is None:
+                    # Fallback: OCR raw text then parse locale-aware
+                    raw_txt = self.ocr_engine.read_text(bet_img) or ""
+                    parsed_bet = _parse_amount_from_text(raw_txt)
+                if parsed_bet is not None:
+                    bet_this_round = parsed_bet
+                    logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
+
             # Extract hole cards
             hole_cards = None
             if hero_pos is not None and table_position == hero_pos:
@@ -210,7 +282,7 @@ class StateParser:
                 name=name,
                 stack=stack,
                 position=table_position,
-                bet_this_round=0.0,
+                bet_this_round=bet_this_round,
                 folded=False,
                 all_in=False,
                 hole_cards=hole_cards
@@ -260,3 +332,74 @@ class StateParser:
             logger.error(f"Player {player_pos} card region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")
         
         return None
+    
+    def _parse_button_position(self, img: np.ndarray) -> int:
+        """Parse dealer button position from image.
+        
+        If dealer_button_region is defined in profile, use OCR or template matching
+        to detect which player has the button. Otherwise, return default position 0.
+        
+        Returns:
+            Position index (0-based) of the player with the dealer button.
+        """
+        if not hasattr(self.profile, 'dealer_button_region') or self.profile.dealer_button_region is None:
+            logger.debug("No dealer_button_region defined, defaulting to position 0")
+            return 0
+        
+        region = self.profile.dealer_button_region
+        x, y, w, h = region.get('x', 0), region.get('y', 0), \
+                     region.get('width', 0), region.get('height', 0)
+        
+        if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            button_region = img[y:y+h, x:x+w]
+            
+            # TODO: Implement button detection logic
+            # This could use template matching for a dealer button icon,
+            # or OCR if the button shows text like "D" or "DEALER"
+            # For now, we return position 0 as default
+            logger.debug("Button detection not yet implemented, defaulting to position 0")
+            return 0
+        
+        return 0
+    
+    def _calculate_multiway_position(
+        self, 
+        hero_pos: int, 
+        button_pos: int, 
+        players: List, 
+        street: Street
+    ) -> bool:
+        """Calculate if hero is in position in a multiway pot.
+        
+        Args:
+            hero_pos: Hero's position index
+            button_pos: Button position index
+            players: List of PlayerState objects
+            street: Current street
+            
+        Returns:
+            True if hero is in position, False otherwise
+        """
+        # For multiway pots, hero is in position if:
+        # - Hero is on the button, OR
+        # - Hero acts after most active players
+        
+        # Simplification: Consider hero IP if hero is button or within 2 positions of button
+        # This is a heuristic and may need refinement based on actual table dynamics
+        
+        num_players = len(players)
+        if num_players == 0:
+            return False
+        
+        # Normalize positions (button is position 0 in action order postflop)
+        # Calculate relative position from button
+        relative_pos = (hero_pos - button_pos) % num_players
+        
+        if street == Street.PREFLOP:
+            # Preflop: later positions have advantage (closer to button has position)
+            # Hero is IP if in late position (within last 1/3 of players)
+            return relative_pos >= (num_players * 2 // 3)
+        else:
+            # Postflop: button acts last, so earlier relative positions are better
+            # Hero is IP if within first 1/3 of players after button
+            return relative_pos <= (num_players // 3)

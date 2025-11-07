@@ -22,6 +22,7 @@ class TableProfile:
         self.pot_region: Optional[Dict[str, int]] = None
         self.bet_regions: List[Dict[str, int]] = []
         self.button_regions: Dict[str, Dict[str, int]] = {}  # Fold, Call, Raise, etc.
+        self.dealer_button_region: Optional[Dict[str, int]] = None  # Region to detect dealer button position
         self.reference_image: Optional[np.ndarray] = None
         self.keypoints: List = []
         self.descriptors: Optional[np.ndarray] = None
@@ -40,6 +41,7 @@ class TableProfile:
             "pot_region": self.pot_region,
             "bet_regions": self.bet_regions,
             "button_regions": self.button_regions,
+            "dealer_button_region": self.dealer_button_region,
             "hero_position": self.hero_position,
             "hero_templates_dir": self.hero_templates_dir,
         }
@@ -71,6 +73,7 @@ class TableProfile:
         profile.pot_region = data.get("pot_region")
         profile.bet_regions = data.get("bet_regions", [])
         profile.button_regions = data.get("button_regions", {})
+        profile.dealer_button_region = data.get("dealer_button_region")
         profile.hero_position = data.get("hero_position")
         profile.hero_templates_dir = data.get("hero_templates_dir")
         
