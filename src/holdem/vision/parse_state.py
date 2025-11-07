@@ -110,11 +110,13 @@ class StateParser:
                 # Big Blind (BB) is out of position postflop
                 num_active = len([p for p in players if not p.folded])
                 if num_active == 2:
-                    # Heads-up: hero is in position if hero is button
-                    is_in_position = (hero_position == button_position) and (street != Street.PREFLOP)
-                    # Preflop: position is reversed (BB acts last preflop)
+                    # Heads-up position logic
                     if street == Street.PREFLOP:
+                        # Preflop: BB has position (acts last), BTN (SB) is OOP
                         is_in_position = (hero_position != button_position)
+                    else:
+                        # Postflop: BTN (SB) has position, BB is OOP
+                        is_in_position = (hero_position == button_position)
                 else:
                     # Multi-way: need to determine based on button and active players
                     # For simplicity, assume hero is IP if acting after most players postflop
@@ -127,7 +129,8 @@ class StateParser:
                 effective_stack = min(hero.stack, max_opponent_stack)
                 
                 # Calculate SPR (stack-to-pot ratio)
-                spr = effective_stack / max(pot, 1.0)  # Use epsilon=1.0 to avoid division by zero
+                # Use small epsilon to avoid division by zero while minimizing impact on calculation
+                spr = effective_stack / max(pot, 0.01)
             
             # Create table state
             state = TableState(

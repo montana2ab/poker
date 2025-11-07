@@ -135,7 +135,7 @@ class TestStateParserCalculations:
         assert state is not None
         assert state.street == Street.PREFLOP
         # Preflop: hero (button) should be OOP (is_in_position should be False)
-        assert state.is_in_position == False, "Hero (button) should be OOP preflop"
+        assert not state.is_in_position, "Hero (button) should be OOP preflop"
     
     def test_heads_up_position_postflop(self):
         """Test heads-up position determination postflop."""
@@ -184,7 +184,7 @@ class TestStateParserCalculations:
         assert state is not None
         assert state.street == Street.FLOP
         # Postflop: hero (button) should be IP
-        assert state.is_in_position == True, "Hero (button) should be IP postflop"
+        assert state.is_in_position, "Hero (button) should be IP postflop"
     
     def test_button_position_parsing(self):
         """Test that button position is parsed correctly."""
