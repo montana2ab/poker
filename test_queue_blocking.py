@@ -12,7 +12,6 @@ import multiprocessing as mp
 import queue
 import sys
 import time
-from typing import Dict
 
 # Test configuration constants
 RESULT_PUT_TIMEOUT_SECONDS = 10.0  # Timeout for workers to put results in queue
