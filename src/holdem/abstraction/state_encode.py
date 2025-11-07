@@ -1,6 +1,6 @@
 """State encoding for MCCFR."""
 
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 from holdem.types import Card, Street, TableState
 from holdem.abstraction.bucketing import HandBucketing
 
@@ -16,7 +16,10 @@ class StateEncoder:
         hole_cards: List[Card],
         board: List[Card],
         street: Street,
-        betting_history: str
+        betting_history: str,
+        pot: float = 100.0,
+        stack: float = 200.0,
+        is_in_position: bool = True
     ) -> Tuple[str, Street]:
         """Encode information set as a string key.
         
@@ -25,16 +28,57 @@ class StateEncoder:
             board: Community cards
             street: Current street
             betting_history: Encoded betting history
+            pot: Current pot size (for SPR calculation, default 100.0)
+            stack: Player's stack (for SPR calculation, default 200.0)
+            is_in_position: Whether player is in position (default True)
             
         Returns:
             Tuple of (infoset_key, street) to avoid fragile string parsing
         """
-        # Get bucket for current hand
-        bucket = self.bucketing.get_bucket(hole_cards, board, street)
+        # Get bucket for current hand with context
+        bucket = self.bucketing.get_bucket(
+            hole_cards, 
+            board, 
+            street,
+            pot=pot,
+            stack=stack,
+            is_in_position=is_in_position
+        )
         
         # Create infoset key
         infoset = f"{street.name}:{bucket}:{betting_history}"
         return infoset, street
+    
+    def encode_infoset_from_state(
+        self,
+        hole_cards: List[Card],
+        state: TableState,
+        betting_history: str
+    ) -> Tuple[str, Street]:
+        """Encode information set from a complete TableState.
+        
+        This is a convenience method that extracts necessary values from TableState.
+        
+        Args:
+            hole_cards: Player's hole cards
+            state: Complete table state
+            betting_history: Encoded betting history
+            
+        Returns:
+            Tuple of (infoset_key, street)
+        """
+        # Use effective_stack if available, otherwise use pot-based SPR estimation
+        stack = state.effective_stack if state.effective_stack > 0 else state.pot * 2.0
+        
+        return self.encode_infoset(
+            hole_cards=hole_cards,
+            board=state.board,
+            street=state.street,
+            betting_history=betting_history,
+            pot=state.pot,
+            stack=stack,
+            is_in_position=state.is_in_position
+        )
     
     def encode_history(self, actions: List[str]) -> str:
         """Encode betting history as a string."""
