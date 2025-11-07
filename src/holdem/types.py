@@ -75,6 +75,11 @@ class TableState:
     small_blind: float = 1.0
     big_blind: float = 2.0
     button_position: int = 0
+    hero_position: Optional[int] = None  # Position of hero player (0-N)
+    is_in_position: bool = False  # Whether hero is in position postflop
+    to_call: float = 0.0  # Amount hero needs to call
+    effective_stack: float = 0.0  # Min(hero_stack, max_opponent_stack)
+    spr: float = 0.0  # Stack-to-pot ratio (effective_stack / pot)
     
     @property
     def num_players(self) -> int:
