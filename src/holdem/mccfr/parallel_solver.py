@@ -327,13 +327,31 @@ class ParallelMCCFRSolver:
             test_queue = self.mp_context.Queue()
             test_proc = self.mp_context.Process(target=_diagnostic_test_worker, args=(test_queue,))
             test_proc.start()
-            test_proc.join(timeout=5)
+            # Wait up to 30 seconds for process to complete (generous timeout for slow imports on spawn)
+            test_proc.join(timeout=30)
             if test_proc.is_alive():
                 logger.error("Multiprocessing test timed out!")
+                logger.error("This usually means the child process is hanging during module import.")
+                logger.error("Common causes on macOS:")
+                logger.error("  - Heavy dependencies (torch, numpy, etc.) taking long to import")
+                logger.error("  - Terminal/console initialization issues with 'rich' library")
+                logger.error("  - Module path or sys.path issues")
                 test_proc.terminate()
-                test_proc.join()
+                test_proc.join(timeout=5)
+                if test_proc.is_alive():
+                    test_proc.kill()
+                    test_proc.join()
                 raise RuntimeError("Multiprocessing test failed: test worker timed out")
-            test_result = test_queue.get(timeout=1) if not test_queue.empty() else None
+            # Check process exit code
+            if test_proc.exitcode != 0:
+                logger.error(f"Multiprocessing test process exited with code {test_proc.exitcode}")
+                raise RuntimeError(f"Multiprocessing test failed: process exited with code {test_proc.exitcode}")
+            # Try to get result from queue
+            try:
+                test_result = test_queue.get(timeout=2)
+            except queue.Empty:
+                logger.error("Multiprocessing test: process completed but no result in queue")
+                raise RuntimeError("Multiprocessing test failed: no result received from worker")
             if test_result != "test_success":
                 raise RuntimeError(f"Multiprocessing test failed: expected 'test_success', got {test_result}")
             logger.info("✓ Multiprocessing diagnostic test passed")
