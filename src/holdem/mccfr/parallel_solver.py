@@ -80,8 +80,9 @@ def persistent_worker_process(
         
         while True:
             # Wait for task from main process
+            # Use shorter timeout to keep worker responsive and maintain CPU usage
             try:
-                task = task_queue.get(timeout=1.0)
+                task = task_queue.get(timeout=0.01)
             except queue.Empty:
                 continue
             
@@ -434,6 +435,8 @@ class ParallelMCCFRSolver:
                     logger.debug(f"Dispatched task to worker queue: iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
                 
                 # Collect results from workers
+                # Use a very short timeout to minimize main process idle time and maintain high CPU usage
+                # This prevents the cyclic 100% -> 0% CPU pattern that occurs with long blocking waits
                 results = []
                 timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
                 start_wait_time = time.time()
@@ -444,19 +447,24 @@ class ParallelMCCFRSolver:
                         logger.error(f"Timeout waiting for worker results after {timeout_seconds}s")
                         break
                     
-                    # Try to get result from queue with short timeout
+                    # Try to get result from queue with very short timeout (0.01s instead of 1.0s)
+                    # This keeps the main process actively checking the queue instead of blocking,
+                    # which maintains consistent CPU usage and prevents the sawtooth pattern
                     try:
-                        result = self._result_queue.get(timeout=1.0)
+                        result = self._result_queue.get(timeout=0.01)
                         results.append(result)
                         logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
                     except queue.Empty:
                         # Queue empty or timeout, continue waiting
+                        # Very short timeout means we check again almost immediately
                         pass
                     
-                    # Check if any worker has died unexpectedly
-                    for p in self._workers:
-                        if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
-                            logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")
+                    # Check if any worker has died unexpectedly (check less frequently to reduce overhead)
+                    # Only check every 100ms to avoid excessive process status checks
+                    if len(results) == 0 or (time.time() - start_wait_time) % 0.1 < 0.02:
+                        for p in self._workers:
+                            if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
+                                logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")
                 
                 # Check for worker errors
                 failed_workers = []
