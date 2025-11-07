@@ -390,6 +390,7 @@ class ParallelMCCFRSolver:
         last_snapshot_time = start_time
         last_checkpoint_time = start_time
         last_log_time = start_time
+        last_logged_iteration = 0  # Track iterations at last log for accurate rate calculation
         timer = Timer()
         timer.start()
         
@@ -532,8 +533,10 @@ class ParallelMCCFRSolver:
                     elapsed = timer.stop()
                     timer.start()
                     
-                    iter_count = batch_size
+                    # Calculate iterations since last log for accurate rate
+                    iter_count = self.iteration - last_logged_iteration
                     iter_per_sec = iter_count / elapsed if elapsed > 0 else 0
+                    last_logged_iteration = self.iteration
                     
                     recent_utility = sum(utility_history[-100:]) / min(100, len(utility_history)) if utility_history else 0.0
                     
