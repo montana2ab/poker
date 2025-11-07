@@ -160,6 +160,7 @@ def main():
             print(f"✗ FAILED: {len(errors)} workers reported errors")
             for r in errors:
                 print(f"    Worker {r['worker_id']}: {r['error']}")
+            return False
         else:
             print(f"✓ SUCCESS: All {num_workers} workers completed successfully")
             print(f"  Collection time: {collection_time:.3f}s")
