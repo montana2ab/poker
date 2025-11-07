@@ -6,6 +6,15 @@ import multiprocessing as mp
 from pathlib import Path
 
 
+def _is_main_process() -> bool:
+    """Check if we're in the main process (not a spawned child).
+    
+    Returns:
+        True if in main process, False if in a spawned child process
+    """
+    return mp.current_process().name == 'MainProcess'
+
+
 def setup_logger(
     name: str = "holdem",
     level: int = logging.INFO,
@@ -25,7 +34,7 @@ def setup_logger(
     
     # Detect if we're in a spawned child process
     # In child processes, use simple logging to avoid Rich initialization issues
-    is_main_process = mp.current_process().name == 'MainProcess'
+    is_main_process = _is_main_process()
     use_rich = use_rich and is_main_process
     
     # Console handler
@@ -85,8 +94,9 @@ def get_logger(name: str = None) -> logging.Logger:
         # Initialize if it has no handlers
         if not logger.handlers:
             # In child processes, use simple logging
-            is_main_process = mp.current_process().name == 'MainProcess'
-            setup_logger(logger_name, use_rich=is_main_process)
+            is_main_process = _is_main_process()
+            # setup_logger modifies the logger in-place and also returns it
+            logger = setup_logger(logger_name, use_rich=is_main_process)
         
         return logger
     
