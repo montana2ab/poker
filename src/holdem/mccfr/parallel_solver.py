@@ -14,6 +14,11 @@ from holdem.utils.timers import Timer
 
 logger = get_logger("mccfr.parallel_solver")
 
+# Worker timeout configuration
+# Adaptive timeout is calculated as max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
+WORKER_TIMEOUT_MIN_SECONDS = 60  # Minimum timeout in seconds
+WORKER_TIMEOUT_MULTIPLIER = 2  # Multiplier for adaptive timeout based on batch size
+
 # Optional TensorBoard support
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -53,7 +58,6 @@ def worker_process(
     """
     try:
         # Log worker startup
-        import sys
         worker_logger = get_logger(f"mccfr.worker_{worker_id}")
         worker_logger.info(f"Worker {worker_id} starting: iterations {iteration_start} to {iteration_start + num_iterations - 1}")
         
@@ -106,10 +110,10 @@ def worker_process(
         
     except Exception as e:
         # Capture and report any errors
+        import sys
         import traceback
         error_msg = f"Worker {worker_id} failed: {str(e)}\n{traceback.format_exc()}"
         try:
-            worker_logger = get_logger(f"mccfr.worker_{worker_id}")
             worker_logger.error(error_msg)
         except:
             print(f"ERROR in worker {worker_id}: {error_msg}", file=sys.stderr)
@@ -326,7 +330,7 @@ class ParallelMCCFRSolver:
             logger.debug(f"All {self.num_workers} workers started, waiting for completion...")
             
             # Wait for all workers to complete with timeout
-            timeout_seconds = max(60, iterations_per_worker * 2)  # Adaptive timeout based on batch size
+            timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
             all_workers_completed = True
             for p in workers:
                 p.join(timeout=timeout_seconds)

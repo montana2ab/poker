@@ -6,6 +6,9 @@ from pathlib import Path
 from holdem.types import MCCFRConfig
 from holdem.abstraction.bucketing import HandBucketing, BucketConfig
 
+# Test timeout constant used across all tests
+TEST_TIMEOUT_SECONDS = 5
+
 
 def test_multiprocessing_context_creation():
     """Test that multiprocessing context can be created."""
@@ -24,7 +27,7 @@ def test_simple_worker_spawn():
     test_queue = mp_context.Queue()
     proc = mp_context.Process(target=simple_worker, args=(test_queue,))
     proc.start()
-    proc.join(timeout=5)
+    proc.join(timeout=TEST_TIMEOUT_SECONDS)
     
     assert not proc.is_alive(), "Worker process should have completed"
     assert not test_queue.empty(), "Worker should have put result in queue"
@@ -46,7 +49,7 @@ def test_worker_error_handling():
     test_queue = mp_context.Queue()
     proc = mp_context.Process(target=failing_worker, args=(test_queue,))
     proc.start()
-    proc.join(timeout=5)
+    proc.join(timeout=TEST_TIMEOUT_SECONDS)
     
     assert not proc.is_alive(), "Worker process should have completed"
     assert not test_queue.empty(), "Worker should have put error result in queue"
