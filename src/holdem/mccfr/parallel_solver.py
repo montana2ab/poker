@@ -481,8 +481,9 @@ class ParallelMCCFRSolver:
                         pass
                     
                     # Check if any worker has died unexpectedly (check less frequently to reduce overhead)
-                    # Only check every 100ms to avoid excessive process status checks
-                    if len(results) == 0 or (time.time() - start_wait_time) % 0.1 < 0.02:
+                    # Only check periodically to avoid excessive process status checks
+                    # Use a counter-based approach instead of floating-point modulo for reliability
+                    if len(results) % 10 == 0:  # Check every 10 results collected
                         for p in self._workers:
                             if not p.is_alive() and p.exitcode is not None and p.exitcode != 0:
                                 logger.error(f"Worker process {p.pid} died with exit code {p.exitcode}")

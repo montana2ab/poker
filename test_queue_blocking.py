@@ -150,14 +150,6 @@ def main():
         else:
             print(f"✓ SUCCESS: All {num_workers} workers completed successfully")
             print(f"  Collection time: {collection_time:.3f}s")
-            
-            # Show average put duration
-            put_durations = []
-            for r in results:
-                if 'work_duration' in r:
-                    # Estimate put duration from total time
-                    pass
-            
             return True
     else:
         print(f"✗ FAILED: Only collected {len(results)}/{num_workers} results")
