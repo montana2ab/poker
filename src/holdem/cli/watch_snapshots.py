@@ -30,10 +30,20 @@ class SnapshotWatcher:
             check_interval: Check interval in seconds
         """
         self.snapshot_dir = snapshot_dir
-        self.eval_script = eval_script  # Kept for backward compatibility but not used
         self.eval_episodes = eval_episodes
         self.check_interval = check_interval
         self.seen_snapshots: Set[str] = set()
+        
+        # Issue deprecation warning if eval_script is provided
+        if eval_script is not None:
+            import warnings
+            warnings.warn(
+                "The 'eval_script' parameter is deprecated and will be removed in a future version. "
+                "The evaluation now always uses 'python -m holdem.cli.eval_blueprint'.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        self.eval_script = eval_script  # Kept for backward compatibility but not used
     
     def watch(self):
         """Start watching for new snapshots."""
@@ -153,7 +163,7 @@ def main():
     parser.add_argument("--snapshot-dir", type=Path, required=True,
                        help="Directory containing snapshots to watch")
     parser.add_argument("--eval-script", type=Path,
-                       help="Path to evaluation script (default: holdem-eval-blueprint)")
+                       help="[DEPRECATED] Path to evaluation script (ignored, kept for compatibility)")
     parser.add_argument("--episodes", type=int, default=10000,
                        help="Number of evaluation episodes (default: 10000)")
     parser.add_argument("--check-interval", type=int, default=60,
