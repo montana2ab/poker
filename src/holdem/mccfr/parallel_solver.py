@@ -444,8 +444,6 @@ class ParallelMCCFRSolver:
                 logger.debug(f"Dispatching batch to workers: {self.num_workers} workers, {iterations_per_worker} iterations each")
                 
                 # Send tasks to workers via task queue
-                # Add slight staggering to worker start iterations to reduce queue contention
-                # when workers complete and try to put results simultaneously
                 for worker_id in range(self.num_workers):
                     worker_start_iter = self.iteration + worker_id * iterations_per_worker
                     
@@ -456,10 +454,6 @@ class ParallelMCCFRSolver:
                     }
                     self._task_queue.put(task)
                     logger.debug(f"Dispatched task to worker queue: iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
-                    # Small delay to stagger task dispatch and reduce simultaneous queue writes
-                    # This helps prevent all workers from finishing at exactly the same time
-                    if worker_id < self.num_workers - 1:  # Don't delay after last worker
-                        time.sleep(0.001)  # 1ms stagger between worker dispatches
                 
                 # Collect results from workers
                 # Use a very short timeout to minimize main process idle time and maintain high CPU usage
