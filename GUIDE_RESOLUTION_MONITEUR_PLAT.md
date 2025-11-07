@@ -101,6 +101,8 @@ ERROR: Training cannot continue reliably. Please check:
   3. Try reducing --num-workers or --batch-size
 ```
 
+**Note**: Worker timeout has been increased from 60 seconds to 5 minutes (300 seconds) to allow workers sufficient time to complete MCCFR iterations, which can be computationally intensive.
+
 ## Dépannage
 
 ### Si le Problème Persiste

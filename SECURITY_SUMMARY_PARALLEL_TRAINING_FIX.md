@@ -75,10 +75,10 @@ This fix addresses the issue where parallel training with `--num-workers` would 
 - ✅ No credential or secret exposure
 
 ### Configuration Constants
-**Added Constants**:
+**Added Constants** (Updated 2025-11-07):
 ```python
-WORKER_TIMEOUT_MIN_SECONDS = 60
-WORKER_TIMEOUT_MULTIPLIER = 2
+WORKER_TIMEOUT_MIN_SECONDS = 300  # Increased from 60 to 300 (5 minutes)
+WORKER_TIMEOUT_MULTIPLIER = 10    # Increased from 2 to 10
 TEST_TIMEOUT_SECONDS = 5
 ```
 
