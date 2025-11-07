@@ -117,9 +117,13 @@ class ParallelSubgameResolver:
         self.config = config
         self.blueprint = blueprint
         
+        # Create multiprocessing context with 'spawn' for cross-platform compatibility
+        # Use get_context() instead of set_start_method() to avoid conflicts
+        self.mp_context = mp.get_context('spawn')
+        
         # Determine number of workers
         if self.config.num_workers == 0:
-            self.num_workers = mp.cpu_count()
+            self.num_workers = self.mp_context.cpu_count()
         else:
             self.num_workers = max(1, self.config.num_workers)
         
@@ -152,11 +156,7 @@ class ParallelSubgameResolver:
         Returns:
             Strategy dictionary mapping actions to probabilities
         """
-        # Force 'spawn' start method for cross-platform compatibility
-        try:
-            mp.set_start_method('spawn', force=True)
-        except RuntimeError:
-            pass  # Already set
+        # Using 'spawn' context initialized in __init__
         
         if time_budget_ms is None:
             time_budget_ms = self.config.time_budget_ms
@@ -172,8 +172,8 @@ class ParallelSubgameResolver:
         total_iterations = self.config.min_iterations
         iterations_per_worker = total_iterations // self.num_workers
         
-        # Create result queue
-        result_queue = mp.Queue()
+        # Create result queue using the spawn context
+        result_queue = self.mp_context.Queue()
         
         # Start time
         start_time = time.time()
@@ -181,7 +181,7 @@ class ParallelSubgameResolver:
         # Start workers
         workers = []
         for worker_id in range(self.num_workers):
-            p = mp.Process(
+            p = self.mp_context.Process(
                 target=worker_cfr_iteration,
                 args=(
                     worker_id,

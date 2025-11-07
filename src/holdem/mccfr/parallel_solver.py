@@ -102,10 +102,14 @@ class ParallelMCCFRSolver:
         self.bucketing = bucketing
         self.num_players = num_players
         
+        # Create multiprocessing context with 'spawn' for cross-platform compatibility
+        # Use get_context() instead of set_start_method() to avoid conflicts
+        self.mp_context = mp.get_context('spawn')
+        
         # Determine number of workers
         if self.config.num_workers == 0:
             # Use all available CPU cores
-            self.num_workers = mp.cpu_count()
+            self.num_workers = self.mp_context.cpu_count()
         else:
             self.num_workers = max(1, self.config.num_workers)
         
@@ -166,14 +170,9 @@ class ParallelMCCFRSolver:
             logdir: Directory for logs and checkpoints
             use_tensorboard: Enable TensorBoard logging (requires tensorboard package)
         """
-        # Force 'spawn' start method for cross-platform compatibility (Mac/Linux)
-        # This ensures consistent behavior across platforms
-        try:
-            mp.set_start_method('spawn', force=True)
-            logger.info("Set multiprocessing start method to 'spawn' for cross-platform compatibility")
-        except RuntimeError:
-            # Already set, which is fine
-            logger.info(f"Multiprocessing start method already set to '{mp.get_start_method()}'")
+        # Using 'spawn' context for cross-platform compatibility (Mac/Linux)
+        # This was initialized in __init__ to avoid conflicts with already-used context
+        logger.info(f"Using multiprocessing context: 'spawn' for cross-platform compatibility")
         
         # Import solver for non-parallel metrics and save methods
         from holdem.mccfr.solver import MCCFRSolver
@@ -228,15 +227,15 @@ class ParallelMCCFRSolver:
             batch_size = self.config.batch_size
             iterations_per_worker = batch_size // self.num_workers
             
-            # Create result queue
-            result_queue = mp.Queue()
+            # Create result queue using the spawn context
+            result_queue = self.mp_context.Queue()
             
             # Start workers
             workers = []
             for worker_id in range(self.num_workers):
                 worker_start_iter = self.iteration + worker_id * iterations_per_worker
                 
-                p = mp.Process(
+                p = self.mp_context.Process(
                     target=worker_process,
                     args=(
                         worker_id,
