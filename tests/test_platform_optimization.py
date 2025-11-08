@@ -1,6 +1,5 @@
 """Test platform-specific optimizations for parallel training."""
 
-import platform
 import pytest
 
 
