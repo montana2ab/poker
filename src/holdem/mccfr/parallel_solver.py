@@ -531,6 +531,20 @@ class ParallelMCCFRSolver:
                         current_timeout = QUEUE_GET_TIMEOUT_SECONDS
                         consecutive_empty_polls = 0
                         
+                        # Batch collection: When we get one result, drain any other immediately available
+                        # results from the queue without waiting. This reduces synchronization overhead
+                        # when multiple workers complete around the same time (common pattern).
+                        while len(results) < self.num_workers:
+                            try:
+                                # Use very short timeout (non-blocking) to drain available results
+                                extra_result = self._result_queue.get(timeout=0.001)
+                                results.append(extra_result)
+                                logger.debug(f"Batch collected result from worker {extra_result['worker_id']} "
+                                           f"({len(results)}/{self.num_workers})")
+                            except queue.Empty:
+                                # No more results immediately available, break inner loop
+                                break
+                        
                     except queue.Empty:
                         # Queue empty - apply exponential backoff to reduce CPU overhead
                         consecutive_empty_polls += 1
