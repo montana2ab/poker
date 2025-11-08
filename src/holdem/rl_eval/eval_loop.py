@@ -26,7 +26,7 @@ class Evaluator:
         Args:
             policy: The policy to evaluate
             use_aivat: Whether to use AIVAT for variance reduction
-            num_players: Number of players (for AIVAT)
+            num_players: Number of players (for AIVAT). Use 2 for heads-up evaluation.
             confidence_level: Confidence level for CI (default: 0.95 for 95% CI)
             target_margin: Target margin of error for evaluation (optional)
         """
@@ -43,10 +43,14 @@ class Evaluator:
         ]
         
         # Initialize AIVAT if enabled
+        # For heads-up evaluation (policy vs baseline), use num_players=2
         self.aivat: Optional[AIVATEvaluator] = None
         if use_aivat:
-            self.aivat = AIVATEvaluator(num_players=num_players)
-            logger.info("AIVAT variance reduction enabled")
+            # In simplified evaluation, we're doing heads-up against each baseline
+            # So we only need to track 2 players (player 0 = our policy, player 1 = baseline)
+            actual_num_players = 2 if num_players == 9 else num_players
+            self.aivat = AIVATEvaluator(num_players=actual_num_players)
+            logger.info(f"AIVAT variance reduction enabled (heads-up mode: {actual_num_players} players)")
     
     def evaluate(self, num_episodes: int = 10000, warmup_episodes: int = 1000) -> Dict[str, Any]:
         """Evaluate policy against baselines.
@@ -77,6 +81,13 @@ class Evaluator:
                         player_id=0,
                         state_key=state_key,
                         payoff=result
+                    )
+                    # Add sample for player 1 (baseline opponent) with opposite payoff
+                    # In zero-sum games, opponent gets the negative of our result
+                    self.aivat.add_sample(
+                        player_id=1,
+                        state_key=state_key,
+                        payoff=-result
                     )
                 
                 # Train value functions
