@@ -172,6 +172,51 @@ class SearchConfig:
     fallback_to_blueprint: bool = True
     num_workers: int = 1  # Number of parallel worker processes for real-time solving (1 = single process)
     
+    # Street-based kl_weight configuration (flop/turn/river)
+    kl_weight_flop: float = 0.30
+    kl_weight_turn: float = 0.50
+    kl_weight_river: float = 0.70
+    kl_weight_oop_bonus: float = 0.10  # Additional weight when Out Of Position
+    
+    # Blueprint policy clipping (minimum probability before KL calculation)
+    blueprint_clip_min: float = 1e-6
+    
+    # KL divergence statistics tracking
+    track_kl_stats: bool = True
+    kl_high_threshold: float = 0.3  # Threshold for "high KL" tracking
+    
+    # Optional: adaptive kl_weight to target KL divergence
+    adaptive_kl_weight: bool = False
+    target_kl_flop: float = 0.12
+    target_kl_turn: float = 0.18
+    target_kl_river: float = 0.25
+    
+    def get_kl_weight(self, street: Street, is_oop: bool = False) -> float:
+        """Get kl_weight for a specific street and position.
+        
+        Args:
+            street: Current game street
+            is_oop: Whether player is out of position
+            
+        Returns:
+            KL weight for the given street and position
+        """
+        # Use street-specific weights if on postflop streets
+        if street == Street.FLOP:
+            weight = self.kl_weight_flop
+        elif street == Street.TURN:
+            weight = self.kl_weight_turn
+        elif street == Street.RIVER:
+            weight = self.kl_weight_river
+        else:  # PREFLOP
+            weight = self.kl_weight
+        
+        # Add bonus if out of position
+        if is_oop:
+            weight += self.kl_weight_oop_bonus
+        
+        return weight
+    
     # Backward compatibility alias
     @property
     def kl_divergence_weight(self) -> float:

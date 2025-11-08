@@ -25,6 +25,14 @@ class SubgameResolver:
         self.blueprint = blueprint
         self.regret_tracker = RegretTracker()
         self.rng = get_rng()
+        
+        # KL divergence statistics tracking
+        self.kl_history = {
+            'preflop': {'IP': [], 'OOP': []},
+            'flop': {'IP': [], 'OOP': []},
+            'turn': {'IP': [], 'OOP': []},
+            'river': {'IP': [], 'OOP': []}
+        }
     
     def warm_start_from_blueprint(self, infoset: str, actions: List[AbstractAction]):
         """Warm-start regrets from blueprint strategy.
@@ -54,7 +62,9 @@ class SubgameResolver:
         self,
         subgame: SubgameTree,
         infoset: str,
-        time_budget_ms: int = None
+        time_budget_ms: int = None,
+        street: Street = None,
+        is_oop: bool = False
     ) -> Dict[AbstractAction, float]:
         """Solve subgame and return strategy.
         
@@ -62,12 +72,21 @@ class SubgameResolver:
             subgame: Subgame tree to solve
             infoset: Information set to solve for
             time_budget_ms: Time budget in milliseconds (overrides config)
+            street: Current game street (for KL weight calculation)
+            is_oop: Whether player is out of position (for KL weight calculation)
             
         Returns:
             Strategy (probability distribution over actions)
         """
         if time_budget_ms is None:
             time_budget_ms = self.config.time_budget_ms
+        
+        # Determine street from subgame if not provided
+        if street is None:
+            street = subgame.state.street if hasattr(subgame, 'state') else Street.FLOP
+        
+        # Get dynamic KL weight based on street and position
+        kl_weight = self.config.get_kl_weight(street, is_oop)
         
         # Get actions for this infoset
         actions = subgame.get_actions(infoset)
@@ -82,11 +101,11 @@ class SubgameResolver:
         import time
         start_time = time.time()
         iterations = 0
-        total_kl = 0.0
+        kl_values = []  # Track KL values for statistics
         
         while iterations < self.config.min_iterations:
-            kl_div = self._cfr_iteration(subgame, infoset, blueprint_strategy)
-            total_kl += kl_div
+            kl_div = self._cfr_iteration(subgame, infoset, blueprint_strategy, kl_weight)
+            kl_values.append(kl_div)
             iterations += 1
             
             # Check time budget
@@ -97,9 +116,31 @@ class SubgameResolver:
         # Get solution strategy
         strategy = self.regret_tracker.get_average_strategy(infoset, actions)
         
-        # Log final statistics including KL divergence
-        avg_kl = total_kl / iterations if iterations > 0 else 0.0
-        logger.debug(f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms), avg KL divergence: {avg_kl:.6f}")
+        # Track and log KL divergence statistics
+        if self.config.track_kl_stats and kl_values:
+            # Store KL values for later analysis
+            street_name = street.name.lower()
+            position = 'OOP' if is_oop else 'IP'
+            self.kl_history[street_name][position].extend(kl_values)
+            
+            # Calculate statistics
+            kl_array = np.array(kl_values)
+            avg_kl = np.mean(kl_array)
+            p50_kl = np.percentile(kl_array, 50)
+            p90_kl = np.percentile(kl_array, 90)
+            p99_kl = np.percentile(kl_array, 99)
+            pct_high_kl = np.mean(kl_array > self.config.kl_high_threshold) * 100
+            
+            logger.info(
+                f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms) | "
+                f"Street: {street_name} | Position: {position} | "
+                f"KL weight: {kl_weight:.2f} | "
+                f"KL stats - avg: {avg_kl:.4f}, p50: {p50_kl:.4f}, p90: {p90_kl:.4f}, p99: {p99_kl:.4f} | "
+                f"KL>{self.config.kl_high_threshold}: {pct_high_kl:.1f}%"
+            )
+        else:
+            avg_kl = np.mean(kl_values) if kl_values else 0.0
+            logger.debug(f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms), avg KL divergence: {avg_kl:.6f}")
         
         return strategy
     
@@ -107,7 +148,8 @@ class SubgameResolver:
         self,
         subgame: SubgameTree,
         infoset: str,
-        blueprint_strategy: Dict[AbstractAction, float]
+        blueprint_strategy: Dict[AbstractAction, float],
+        kl_weight: float
     ) -> float:
         """Run one CFR iteration with KL regularization.
         
@@ -125,6 +167,7 @@ class SubgameResolver:
             subgame: Subgame tree to solve
             infoset: Current information set
             blueprint_strategy: Blueprint strategy for KL regularization
+            kl_weight: KL regularization weight for this iteration
             
         Returns:
             KL divergence from blueprint strategy
@@ -156,7 +199,7 @@ class SubgameResolver:
         utility = self.rng.uniform(-1.0, 1.0)
         
         # Apply KL divergence penalty to stay close to blueprint
-        utility -= self.config.kl_weight * kl_divergence
+        utility -= kl_weight * kl_divergence
         
         # Update regrets
         for action in actions:
@@ -175,11 +218,52 @@ class SubgameResolver:
         p: Dict[AbstractAction, float],
         q: Dict[AbstractAction, float]
     ) -> float:
-        """Calculate KL divergence KL(p||q)."""
+        """Calculate KL divergence KL(p||q) with blueprint clipping.
+        
+        Blueprint probabilities (q) are clipped to a minimum value to prevent
+        numerical instability and ensure well-defined KL divergence.
+        
+        Args:
+            p: Current strategy distribution
+            q: Blueprint strategy distribution (will be clipped)
+            
+        Returns:
+            KL divergence KL(p||q)
+        """
         kl = 0.0
+        clip_min = self.config.blueprint_clip_min
+        
         for action in p:
             p_val = p.get(action, 1e-10)
-            q_val = q.get(action, 1e-10)
+            # Clip blueprint probability to minimum value
+            q_val = max(q.get(action, clip_min), clip_min)
             if p_val > 0:
                 kl += p_val * np.log(p_val / q_val)
         return kl
+    
+    def get_kl_statistics(self) -> Dict[str, Dict[str, Dict[str, float]]]:
+        """Get KL divergence statistics aggregated by street and position.
+        
+        Returns:
+            Dictionary with structure: {street: {position: {stat_name: value}}}
+            Stats include: avg, p50, p90, p99, pct_high
+        """
+        stats = {}
+        
+        for street, positions in self.kl_history.items():
+            stats[street] = {}
+            for position, kl_values in positions.items():
+                if not kl_values:
+                    continue
+                
+                kl_array = np.array(kl_values)
+                stats[street][position] = {
+                    'avg': float(np.mean(kl_array)),
+                    'p50': float(np.percentile(kl_array, 50)),
+                    'p90': float(np.percentile(kl_array, 90)),
+                    'p99': float(np.percentile(kl_array, 99)),
+                    'pct_high': float(np.mean(kl_array > self.config.kl_high_threshold) * 100),
+                    'count': len(kl_values)
+                }
+        
+        return stats

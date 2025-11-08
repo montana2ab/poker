@@ -120,7 +120,7 @@ def test_cfr_iteration_returns_kl():
     }
     
     # Run one iteration and check it returns a float (KL divergence)
-    kl_div = resolver._cfr_iteration(subgame, infoset, blueprint_strategy)
+    kl_div = resolver._cfr_iteration(subgame, infoset, blueprint_strategy, kl_weight=1.0)
     
     assert isinstance(kl_div, (float, np.floating)), f"_cfr_iteration should return float, got {type(kl_div)}"
     assert kl_div >= 0, f"KL divergence should be non-negative, got {kl_div}"
