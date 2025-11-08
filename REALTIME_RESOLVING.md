@@ -113,7 +113,7 @@ from holdem.types import SearchConfig
 config = SearchConfig(
     time_budget_ms=80,        # Maximum time for search (milliseconds)
     min_iterations=100,        # Minimum MCCFR iterations
-    kl_divergence_weight=1.0,  # KL regularization strength
+    kl_weight=1.0,             # KL regularization strength
     depth_limit=1,             # Streets to look ahead (1 = current + next)
     fallback_to_blueprint=True # Use blueprint if search fails
 )
@@ -129,14 +129,113 @@ config = SearchConfig(
   - Ensures a baseline quality even if time budget expires
   - Higher = better quality but may exceed time budget
   
-- **`kl_divergence_weight`**: Regularization toward blueprint (default: 1.0)
+- **`kl_weight`**: KL regularization weight toward blueprint (default: 1.0)
+  - Controls how closely the subgame strategy stays to the blueprint
   - Higher = stay closer to blueprint (more balanced/safe)
   - Lower = allow more deviation (potentially exploitative)
+  - 0.0 = no regularization, allow full deviation
+  - See [KL Regularization](#kl-regularization) section for details
   
 - **`depth_limit`**: How many streets ahead to solve (default: 1)
   - 0 = current street only
   - 1 = current + next street (recommended)
   - 2+ = deeper lookahead (expensive)
+
+## KL Regularization
+
+KL regularization is a critical component that prevents the real-time search from deviating too far from the blueprint strategy. This ensures the subgame solutions remain balanced and unexploitable.
+
+### What is KL Divergence?
+
+KL divergence (Kullback-Leibler divergence) measures the difference between two probability distributions. In our case:
+- `π_subgame`: The strategy being computed in real-time for the subgame
+- `π_blueprint`: The pre-computed blueprint strategy
+
+The KL divergence KL(π_subgame || π_blueprint) quantifies how much the subgame strategy diverges from the blueprint.
+
+### How It Works
+
+During each CFR iteration in the resolver:
+
+1. **Calculate KL Divergence**: For the current information set, compute:
+   ```
+   KL(π_subgame || π_blueprint) = Σ π_subgame(a) * log(π_subgame(a) / π_blueprint(a))
+   ```
+
+2. **Apply Penalty**: The utility is adjusted with a KL penalty:
+   ```
+   utility_adjusted = utility - kl_weight * KL(π_subgame || π_blueprint)
+   ```
+
+3. **Log Statistics**: The average KL divergence across all iterations is logged:
+   ```
+   Resolved subgame in 100 iterations (45.2ms), avg KL divergence: 0.123456
+   ```
+
+### Tuning kl_weight
+
+The `kl_weight` parameter controls the strength of regularization:
+
+- **`kl_weight = 0.0`**: No regularization
+  - Allows unrestricted search
+  - May find exploitative strategies but risks imbalance
+  - Use for heads-up or when blueprint is known to be suboptimal
+
+- **`kl_weight = 0.1`**: Light regularization
+  - Permits significant deviation from blueprint
+  - Good for situations where adaptation is important
+  - May be less safe in multi-way pots
+
+- **`kl_weight = 0.5`**: Moderate regularization
+  - Balanced between exploration and safety
+  - Reasonable choice for most situations
+  - Good starting point for experimentation
+
+- **`kl_weight = 1.0`**: Strong regularization (default)
+  - Stays close to blueprint strategy
+  - Maximum safety and balance
+  - Recommended for multi-way pots and unknown opponents
+
+- **`kl_weight > 1.0`**: Very strong regularization
+  - Nearly replicates blueprint
+  - Use when blueprint quality is critical
+  - May limit adaptability
+
+### Example Usage
+
+```python
+# Conservative play - stay close to blueprint
+config = SearchConfig(kl_weight=1.0)
+
+# Exploitative play - allow more deviation
+config = SearchConfig(kl_weight=0.1)
+
+# No regularization - pure subgame optimization
+config = SearchConfig(kl_weight=0.0)
+```
+
+### Validation
+
+To verify KL regularization is working:
+
+1. Run the test suite:
+   ```bash
+   python tests/test_kl_regularization.py
+   ```
+
+2. Check logs for KL divergence values:
+   ```
+   [resolver] Resolved subgame in 150 iterations (62.3ms), avg KL divergence: 0.089234
+   ```
+
+3. Higher `kl_weight` should result in lower average KL divergence values
+
+### References
+
+- [Pluribus: Superhuman AI for multiplayer poker](https://science.sciencemag.org/content/365/6456/885) - Uses KL regularization in depth-limited solving
+- [ReBeL: Self-Play via Self-Modifying Recursive Reasoning](https://arxiv.org/abs/2007.13544) - Discusses regularization in subgame solving
+
+
 
 ## Action History Tracking
 

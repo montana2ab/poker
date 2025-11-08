@@ -167,10 +167,16 @@ class SearchConfig:
     """Configuration for real-time search."""
     time_budget_ms: int = 80
     min_iterations: int = 100
-    kl_divergence_weight: float = 1.0
+    kl_weight: float = 1.0  # KL regularization weight toward blueprint strategy
     depth_limit: int = 1  # Number of streets to look ahead
     fallback_to_blueprint: bool = True
     num_workers: int = 1  # Number of parallel worker processes for real-time solving (1 = single process)
+    
+    # Backward compatibility alias
+    @property
+    def kl_divergence_weight(self) -> float:
+        """Alias for kl_weight (backward compatibility)."""
+        return self.kl_weight
 
 
 @dataclass
