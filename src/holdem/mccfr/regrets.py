@@ -136,3 +136,48 @@ class RegretTracker:
                 return False  # At least one action above threshold
         
         return True  # All actions below threshold
+    
+    def get_state(self) -> Dict:
+        """Get complete regret tracker state for checkpointing.
+        
+        Returns:
+            Dictionary containing regrets and strategy_sum with serializable keys
+        """
+        # Convert AbstractAction keys to string values for serialization
+        regrets_serializable = {}
+        for infoset, action_dict in self.regrets.items():
+            regrets_serializable[infoset] = {
+                action.value: regret for action, regret in action_dict.items()
+            }
+        
+        strategy_sum_serializable = {}
+        for infoset, action_dict in self.strategy_sum.items():
+            strategy_sum_serializable[infoset] = {
+                action.value: prob for action, prob in action_dict.items()
+            }
+        
+        return {
+            'regrets': regrets_serializable,
+            'strategy_sum': strategy_sum_serializable
+        }
+    
+    def set_state(self, state: Dict):
+        """Restore regret tracker state from checkpoint.
+        
+        Args:
+            state: Dictionary containing regrets and strategy_sum
+        """
+        # Convert string keys back to AbstractAction
+        self.regrets = {}
+        for infoset, action_dict in state['regrets'].items():
+            self.regrets[infoset] = {
+                AbstractAction(action_str): regret 
+                for action_str, regret in action_dict.items()
+            }
+        
+        self.strategy_sum = {}
+        for infoset, action_dict in state['strategy_sum'].items():
+            self.strategy_sum[infoset] = {
+                AbstractAction(action_str): prob 
+                for action_str, prob in action_dict.items()
+            }

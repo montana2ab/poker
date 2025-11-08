@@ -127,8 +127,23 @@ class MCCFRConfig:
     # Linear MCCFR parameters
     use_linear_weighting: bool = True  # Use Linear MCCFR (weighting ∝ t)
     discount_interval: int = 1000  # Apply discounting every N iterations
+    
+    # Discount mode: "none", "static", or "dcfr"
+    # - "none": No discounting (α=1.0, β=1.0)
+    # - "static": Use fixed regret_discount_alpha and strategy_discount_beta
+    # - "dcfr": Use DCFR/CFR+ adaptive discounting (recommended)
+    discount_mode: str = "dcfr"
+    
+    # Static discount factors (used when discount_mode="static")
     regret_discount_alpha: float = 1.0  # Regret discount factor (α)
     strategy_discount_beta: float = 1.0  # Strategy discount factor (β)
+    
+    # DCFR parameters (used when discount_mode="dcfr")
+    # Based on CFR+ paper: https://arxiv.org/abs/1407.5042
+    # α = (t + discount_interval) / (t + 2*discount_interval)  for regrets
+    # β = t / (t + discount_interval)  for strategy
+    # Additionally, reset negative regrets to 0 (CFR+ property)
+    dcfr_reset_negative_regrets: bool = True  # Reset negative regrets to 0 on discount (CFR+ behavior)
     
     # Dynamic pruning parameters (Pluribus paper values)
     enable_pruning: bool = True  # Enable dynamic pruning

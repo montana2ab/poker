@@ -64,6 +64,11 @@ class MCCFRSolver:
         # Track timing for adaptive IPS calculation
         self._last_batch_time = None
         self._last_iteration = 0
+        
+        # Track regret history for validation metrics (L2 norm slope)
+        # Store history as list of (iteration, regret_norms_by_street)
+        self._regret_history = []
+        self._regret_history_window = 10000  # Keep last 10k iterations
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
         """Run MCCFR training.
@@ -124,12 +129,40 @@ class MCCFRSolver:
             self._update_epsilon_schedule()
             
             # Linear MCCFR discount at regular intervals
-            if (self.iteration % self.config.discount_interval == 0 and 
-                (self.config.regret_discount_alpha < 1.0 or self.config.strategy_discount_beta < 1.0)):
-                self.sampler.regret_tracker.discount(
-                    regret_factor=self.config.regret_discount_alpha,
-                    strategy_factor=self.config.strategy_discount_beta
-                )
+            if self.iteration % self.config.discount_interval == 0:
+                # Calculate discount factors based on mode
+                if self.config.discount_mode == "dcfr":
+                    # DCFR/CFR+ adaptive discounting
+                    t = float(self.iteration)
+                    d = float(self.config.discount_interval)
+                    
+                    # α = (t + d) / (t + 2d) for regrets
+                    alpha = (t + d) / (t + 2 * d)
+                    
+                    # β = t / (t + d) for strategy
+                    beta = t / (t + d) if t > 0 else 0.0
+                    
+                    # Apply discounting
+                    self.sampler.regret_tracker.discount(
+                        regret_factor=alpha,
+                        strategy_factor=beta
+                    )
+                    
+                    # CFR+: Reset negative regrets to 0
+                    if self.config.dcfr_reset_negative_regrets:
+                        self.sampler.regret_tracker.reset_regrets()
+                    
+                    logger.debug(f"DCFR discount at iteration {self.iteration}: α={alpha:.4f}, β={beta:.4f}")
+                    
+                elif self.config.discount_mode == "static":
+                    # Static discount factors
+                    if (self.config.regret_discount_alpha < 1.0 or 
+                        self.config.strategy_discount_beta < 1.0):
+                        self.sampler.regret_tracker.discount(
+                            regret_factor=self.config.regret_discount_alpha,
+                            strategy_factor=self.config.strategy_discount_beta
+                        )
+                # else: discount_mode == "none", no discounting
             
             # Snapshot saving (time-based)
             if logdir and use_time_budget:
@@ -461,14 +494,14 @@ class MCCFRSolver:
         return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
     
     def save_checkpoint(self, logdir: Path, iteration: int, elapsed_seconds: float = 0):
-        """Save training checkpoint with enhanced metrics and RNG state.
+        """Save training checkpoint with enhanced metrics, RNG state, and full regret state.
         
         Args:
             logdir: Directory for checkpoints
             iteration: Current iteration number
             elapsed_seconds: Time elapsed since training start (for time-budget mode)
         """
-        from holdem.utils.serialization import save_json
+        from holdem.utils.serialization import save_json, save_pickle
         
         checkpoint_dir = logdir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -482,6 +515,9 @@ class MCCFRSolver:
         
         # Get RNG state
         rng_state = self.sampler.rng.get_state()
+        
+        # Get full regret tracker state for warm-start
+        regret_state = self.sampler.regret_tracker.get_state()
         
         # Calculate bucket file hash for validation
         bucket_sha = self._calculate_bucket_hash()
@@ -510,24 +546,25 @@ class MCCFRSolver:
         metadata_path = checkpoint_dir / f"{checkpoint_name}_metadata.json"
         save_json(metadata, metadata_path)
         
-        logger.info(f"Saved checkpoint at iteration {iteration} with complete metadata and RNG state")
-    
-    def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True) -> int:
-        """Load checkpoint and restore training state.
+        # Save full regret state for warm-start (separate file for better organization)
+        regret_state_path = checkpoint_dir / f"{checkpoint_name}_regrets.pkl"
+        save_pickle(regret_state, regret_state_path)
         
-        Note: Currently only loads metadata and validates configuration.
-        Full regret tracker state restoration is not yet implemented.
+        logger.info(f"Saved checkpoint at iteration {iteration} with complete metadata, RNG state, and regret state")
+    
+    def load_checkpoint(self, checkpoint_path: Path, validate_buckets: bool = True, warm_start: bool = True) -> int:
+        """Load checkpoint and restore training state with optional warm-start.
         
         Args:
             checkpoint_path: Path to checkpoint .pkl file
             validate_buckets: If True, validate bucket configuration matches
+            warm_start: If True, fully restore regret tracker state for warm-start
             
         Returns:
             Iteration number from checkpoint (0 if metadata not found)
             
         Raises:
             ValueError: If bucket validation fails
-            NotImplementedError: If trying to load policy data (not yet supported)
         """
         from holdem.utils.serialization import load_json, load_pickle
         
@@ -574,14 +611,30 @@ class MCCFRSolver:
         else:
             logger.warning("No epsilon found in checkpoint metadata")
         
+        # Restore full regret state for warm-start
+        if warm_start:
+            regret_state_path = checkpoint_path.parent / f"{checkpoint_path.stem}_regrets.pkl"
+            if regret_state_path.exists():
+                try:
+                    regret_state = load_pickle(regret_state_path)
+                    self.sampler.regret_tracker.set_state(regret_state)
+                    logger.info("✓ Warm-start: Full regret tracker state restored")
+                    logger.info(f"  - Restored {len(self.sampler.regret_tracker.regrets)} infosets with regrets")
+                    logger.info(f"  - Restored {len(self.sampler.regret_tracker.strategy_sum)} infosets with strategy")
+                except Exception as e:
+                    logger.error(f"Failed to restore regret state: {e}")
+                    logger.warning("Training will continue with fresh regret state")
+            else:
+                logger.warning(f"Regret state file not found: {regret_state_path}")
+                logger.warning("Training will continue with fresh regret state (not a warm-start)")
+        else:
+            logger.info("Warm-start disabled, training will continue with fresh regret state")
+        
         # Get iteration number
         iteration = metadata.get('iteration', 0)
         self.iteration = iteration
         
-        # Note about full state restoration
-        logger.info(f"Loaded checkpoint metadata from iteration {iteration}")
-        logger.warning("Note: Full regret tracker state restoration not yet implemented")
-        logger.warning("Training will continue from current regret state with restored RNG and epsilon")
+        logger.info(f"Loaded checkpoint from iteration {iteration}")
         
         return iteration
     
@@ -623,6 +676,9 @@ class MCCFRSolver:
     
     def _calculate_policy_entropy_metrics(self) -> Dict[str, float]:
         """Calculate policy entropy metrics per street and position.
+        
+        Tracks entropy over time to validate that policy entropy decreases post-river,
+        indicating convergence to a more deterministic strategy.
         
         Returns:
             Dictionary of metric names to values
@@ -670,11 +726,19 @@ class MCCFRSolver:
         metrics = {}
         for street, entropies in entropy_by_street.items():
             if entropies:
-                metrics[f'policy_entropy/{street}'] = sum(entropies) / len(entropies)
+                avg_entropy = sum(entropies) / len(entropies)
+                metrics[f'policy_entropy/{street}'] = avg_entropy
+                
+                # Track max entropy (most uncertain) for comparison
+                metrics[f'policy_entropy_max/{street}'] = max(entropies)
         
         for position, entropies in entropy_by_position.items():
             if entropies:
                 metrics[f'policy_entropy/{position}'] = sum(entropies) / len(entropies)
+        
+        # Validation metric: River entropy should decrease over training
+        # This is checked implicitly by logging river entropy over time
+        # User can verify monotonic decrease in TensorBoard
         
         return metrics
     
@@ -707,10 +771,10 @@ class MCCFRSolver:
         return None
     
     def _calculate_regret_norm_metrics(self) -> Dict[str, float]:
-        """Calculate normalized regret metrics per street.
+        """Calculate normalized regret metrics per street with L2 slope validation.
         
         Returns:
-            Dictionary of metric names to values
+            Dictionary of metric names to values, including L2 norms and slopes
         """
         import numpy as np
         
@@ -734,11 +798,56 @@ class MCCFRSolver:
             regret_norm = np.linalg.norm(regret_values)
             regrets_by_street[street].append(regret_norm)
         
-        # Calculate averages
+        # Calculate average L2 norms
         metrics = {}
+        current_norms = {}
         for street, regret_norms in regrets_by_street.items():
             if regret_norms:
-                metrics[f'avg_regret_norm/{street}'] = sum(regret_norms) / len(regret_norms)
+                avg_norm = sum(regret_norms) / len(regret_norms)
+                metrics[f'avg_regret_norm/{street}'] = avg_norm
+                current_norms[street] = avg_norm
+        
+        # Store current regret norms in history
+        if current_norms:
+            self._regret_history.append((self.iteration, current_norms))
+            # Keep only recent history
+            if len(self._regret_history) > self._regret_history_window:
+                self._regret_history = self._regret_history[-self._regret_history_window:]
+        
+        # Calculate L2 regret slope (should be monotonically decreasing)
+        # Use linear regression on recent history
+        if len(self._regret_history) >= 2:
+            for street in ['preflop', 'flop', 'turn', 'river']:
+                # Extract data for this street
+                iterations = []
+                norms = []
+                for iter_num, norms_dict in self._regret_history:
+                    if street in norms_dict:
+                        iterations.append(iter_num)
+                        norms.append(norms_dict[street])
+                
+                if len(iterations) >= 2:
+                    # Fit linear regression: norm = slope * iteration + intercept
+                    iterations_arr = np.array(iterations)
+                    norms_arr = np.array(norms)
+                    
+                    # Normalize iterations to avoid numerical issues
+                    iter_mean = iterations_arr.mean()
+                    iter_std = iterations_arr.std()
+                    if iter_std > 0:
+                        iterations_normalized = (iterations_arr - iter_mean) / iter_std
+                        
+                        # Fit line
+                        slope_normalized, intercept = np.polyfit(iterations_normalized, norms_arr, 1)
+                        
+                        # Convert slope back to original scale
+                        slope = slope_normalized / iter_std
+                        
+                        metrics[f'regret_slope/{street}'] = slope
+                        
+                        # Validation: slope should be negative (decreasing regrets)
+                        # We expect monotonically decreasing L2 norm
+                        metrics[f'regret_slope_ok/{street}'] = 1.0 if slope < 0 else 0.0
         
         return metrics
     

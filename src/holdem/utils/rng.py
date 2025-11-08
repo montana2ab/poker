@@ -43,10 +43,19 @@ class RNG:
         Returns:
             Dictionary containing RNG state information
         """
+        python_state = random.getstate()
+        # Convert tuple to list for JSON serialization
+        # Format: (version, tuple_of_ints, gauss_next)
+        python_state_serializable = (
+            python_state[0],
+            list(python_state[1]),  # Convert inner tuple to list
+            python_state[2] if len(python_state) > 2 else None
+        )
+        
         return {
             'seed': self.seed,
             'numpy_state': self.rng.__getstate__(),
-            'python_random_state': random.getstate()
+            'python_random_state': python_state_serializable
         }
     
     def set_state(self, state: Dict[str, Any]):
@@ -57,7 +66,17 @@ class RNG:
         """
         self.seed = state['seed']
         self.rng.__setstate__(state['numpy_state'])
-        random.setstate(state['python_random_state'])
+        
+        # Restore python random state
+        python_state = state['python_random_state']
+        # Convert list back to tuple for setstate
+        # Format: (version, tuple_of_ints, gauss_next)
+        python_state_tuple = (
+            python_state[0],
+            tuple(python_state[1]),  # Convert inner list back to tuple
+            python_state[2] if len(python_state) > 2 else None
+        )
+        random.setstate(python_state_tuple)
 
 
 # Global RNG instance
