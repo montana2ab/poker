@@ -1,0 +1,782 @@
+================================================================================
+PLAN D'ACTION DÉTAILLÉ POUR ATTEINDRE LE NIVEAU PLURIBUS
+================================================================================
+
+Ce document présente un plan séquencé et priorisé pour combler les écarts entre
+l'implémentation actuelle et le niveau Pluribus. Les actions sont organisées par
+phases et incluent des critères d'acceptation précis.
+
+================================================================================
+RÉFÉRENCES PLURIBUS
+================================================================================
+
+Sources principales à consulter :
+1. Brown & Sandholm (2019). "Superhuman AI for multiplayer poker" 
+   Science 365(6456):885-890
+   DOI: 10.1126/science.aay2400
+   
+2. Supplément technique Science 2019 :
+   - Algorithme de recherche en profondeur limitée
+   - Détails abstraction d'information
+   - Paramètres d'entraînement (pruning threshold, epsilon, etc.)
+   
+3. Pages techniques Noam Brown / CMU / FAIR :
+   - https://www.cs.cmu.edu/~noamb/
+   - Documentation algorithme Monte Carlo CFR
+   - Techniques de réduction de variance
+
+4. Notes internes projet (disponibles dans ce dépôt) :
+   - FEATURE_EXTRACTION.md : système de features 34-dim
+   - LINEAR_MCCFR_IMPLEMENTATION.md : pondération linéaire
+   - PARALLEL_TRAINING.md : parallélisation multi-core
+   - REALTIME_RESOLVING.md : recherche temps réel
+
+================================================================================
+PREUVES TRAÇABLES - ÉTAT ACTUEL
+================================================================================
+
+Fichiers clés implémentés :
+- src/holdem/mccfr/solver.py : solveur MCCFR principal avec Linear CFR
+- src/holdem/mccfr/mccfr_os.py : outcome sampling avec pruning -300M
+- src/holdem/mccfr/parallel_solver.py : parallélisation spawn multi-platform
+- src/holdem/mccfr/adaptive_epsilon.py : scheduler epsilon adaptatif
+- src/holdem/abstraction/bucketing.py : k-means 24/80/80/64 buckets
+- src/holdem/abstraction/preflop_features.py : 10 features préflop
+- src/holdem/abstraction/postflop_features.py : 34 features postflop
+- src/holdem/abstraction/actions.py : sizing adaptatif par street/position
+- src/holdem/realtime/resolver.py : subgame resolver avec warm-start blueprint
+- src/holdem/realtime/belief.py : belief state tracking
+- src/holdem/vision/parse_state.py : parsing state complet avec SPR/IP/to_call
+
+Commits récents (vérifiables) :
+- f63b096 : Initial plan (HEAD)
+- 3a13034 : Merge adaptive epsilon schedule
+
+Lignes de code actuel : ~8566 lignes Python (src/holdem/)
+
+================================================================================
+PHASE 1 : CORRECTIFS CRITIQUES (PRIORITÉ HAUTE)
+================================================================================
+
+Durée estimée : 2-3 semaines
+Objectif : Combler les gaps bloquants pour atteindre qualité production
+
+────────────────────────────────────────────────────────────────────────────────
+1.1 - AIVAT / VARIANCE REDUCTION
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Manquant (Sévérité: Haute)
+ÉVIDENCE : src/holdem/rl_eval/ ne contient pas d'implémentation AIVAT
+
+OBJECTIF :
+  Implémenter AIVAT (Actor-Independent Variance-reduced Advantage Technique) 
+  pour réduction de variance dans l'évaluation multi-joueurs
+
+ACTIONS :
+  1. Créer src/holdem/rl_eval/aivat.py
+     - Implémenter calcul value functions par joueur
+     - Calculer baselines conditionnelles aux actions adversaires
+     - Formule : advantage = actual_payoff - baseline_value
+     
+  2. Intégrer dans eval_loop.py
+     - Wrapper évaluation avec AIVAT
+     - Calculer variance reduction ratio
+     - Logger metrics AIVAT vs vanilla
+     
+  3. Tests et validation
+     - tests/test_aivat.py : vérifier variance < vanilla
+     - Comparer sur 10k+ mains vs baselines
+     - Documenter gains en sample efficiency
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Variance réduite d'au moins 30% vs évaluation standard
+  ✓ Tests passent avec CI < 95% vs théorique
+  ✓ Documentation ajoutée dans EVAL_PROTOCOL.md
+
+FICHIERS MODIFIÉS :
+  + src/holdem/rl_eval/aivat.py (nouveau, ~300 lignes)
+  M src/holdem/rl_eval/eval_loop.py (ajouter wrapper AIVAT)
+  + tests/test_aivat.py (nouveau, ~150 lignes)
+  M EVAL_PROTOCOL.md (documenter usage)
+
+RÉFÉRENCES :
+  - Brown & Sandholm (2019), Section "Evaluation" dans supplément
+  - "Variance Reduction in Monte Carlo Counterfactual Regret Minimization"
+
+────────────────────────────────────────────────────────────────────────────────
+1.2 - KL REGULARIZATION EXPLICITE
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Haute)
+ÉVIDENCE : src/holdem/realtime/resolver.py:79-80 utilise blueprint mais sans 
+           calcul KL explicite
+
+OBJECTIF :
+  Ajouter terme de régularisation KL explicite dans le resolver pour éviter
+  dérive excessive par rapport à la blueprint strategy
+
+ACTIONS :
+  1. Implémenter fonction KL divergence
+     - KL(π_subgame || π_blueprint) pour chaque infoset
+     - Weighted by reach probability
+     
+  2. Modifier SubgameResolver._cfr_iteration()
+     - Ajouter paramètre kl_weight (ex: 0.1-1.0)
+     - Pénaliser regrets proportionnellement au KL
+     - Formule : regret_penalized = regret - kl_weight * KL(π || π_blueprint)
+     
+  3. Configuration et tuning
+     - Ajouter SearchConfig.kl_weight
+     - Tests avec différents kl_weight [0, 0.1, 0.5, 1.0]
+     - Logging KL divergence à chaque iteration
+     
+  4. Validation empirique
+     - Vérifier stratégies restent proches blueprint
+     - Mesurer exploitability avec et sans KL
+
+CRITÈRES D'ACCEPTATION :
+  ✓ KL divergence calculé et loggé explicitement
+  ✓ kl_weight configurable dans SearchConfig
+  ✓ Tests montrent convergence stable avec KL
+  ✓ Documentation dans REALTIME_RESOLVING.md
+
+FICHIERS MODIFIÉS :
+  M src/holdem/realtime/resolver.py (ajouter calcul KL, ~50 lignes)
+  M src/holdem/types.py (ajouter SearchConfig.kl_weight)
+  + tests/test_kl_regularization.py (nouveau, ~100 lignes)
+  M REALTIME_RESOLVING.md (documenter KL)
+
+RÉFÉRENCES :
+  - Pluribus paper Section "Real-time search"
+  - "Solving Imperfect-Information Games via Discounted Regret Minimization"
+
+────────────────────────────────────────────────────────────────────────────────
+1.3 - REPRISE DÉTERMINISTE COMPLÈTE
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Moyenne)
+ÉVIDENCE : src/holdem/utils/rng.py seedable mais état RNG pas sauvegardé dans
+           checkpoints
+
+OBJECTIF :
+  Assurer reprise déterministe exacte après checkpoint (RNG state, epsilon, 
+  iteration, hash abstraction)
+
+ACTIONS :
+  1. Sauvegarder état RNG dans checkpoints
+     - Capturer np.random.get_state()
+     - Sauvegarder dans checkpoint metadata
+     
+  2. Ajouter hash abstraction
+     - Hash MD5/SHA256 de buckets_config.yaml + version sklearn
+     - Valider à la reprise : erreur si mismatch
+     
+  3. Sauvegarder epsilon schedule state
+     - Index courant dans schedule
+     - Historique transitions epsilon
+     
+  4. Tests de reprise
+     - Entraîner 1000 iter, checkpoint, reprendre
+     - Vérifier trajectoires identiques (même séquence mains)
+     - Comparer stratégies finales : doit être identique
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Reprise après checkpoint donne résultats bit-exact
+  ✓ Hash abstraction validé à la reprise
+  ✓ Erreur claire si incompatibilité abstraction
+  ✓ Tests de reprise déterministe passent
+
+FICHIERS MODIFIÉS :
+  M src/holdem/mccfr/solver.py (sauvegarder état RNG/epsilon)
+  M src/holdem/mccfr/policy_store.py (ajouter metadata hash)
+  M src/holdem/abstraction/bucketing.py (méthode compute_hash)
+  + tests/test_deterministic_resume.py (nouveau, ~100 lignes)
+
+────────────────────────────────────────────────────────────────────────────────
+1.4 - MÉTRIQUES OCR ET ERROR TRACKING
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Manquant (Sévérité: Haute)
+ÉVIDENCE : Pas de logging automatique taux erreur OCR
+
+OBJECTIF :
+  Tracking automatique de la précision OCR/vision avec alertes si dégradation
+
+ACTIONS :
+  1. Créer src/holdem/vision/metrics.py
+     - Classe VisionMetrics pour accumuler stats
+     - Métriques : taux succès card recognition, OCR accuracy, parse errors
+     
+  2. Intégrer dans parse_state.py
+     - Logger chaque tentative recognition/OCR
+     - Calculer rolling averages (fenêtre 100 hands)
+     
+  3. Ground truth validation
+     - Mode --validate-vision avec ground truth manuel
+     - Comparer parsed state vs expected
+     - Calculer précision globale
+     
+  4. Alerting
+     - Warning si taux erreur > 3%
+     - Sauvegarde screenshots problématiques
+     - Rapport quotidien avec statistiques
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Taux erreur OCR < 3% sur dataset test
+  ✓ Métriques loggées automatiquement
+  ✓ Alertes fonctionnelles si dégradation
+  ✓ Rapport de précision dans dry-run mode
+
+FICHIERS MODIFIÉS :
+  + src/holdem/vision/metrics.py (nouveau, ~200 lignes)
+  M src/holdem/vision/parse_state.py (intégrer metrics)
+  M src/holdem/cli/run_dry_run.py (ajouter --validate-vision)
+  + tests/test_vision_accuracy.py (dataset test)
+
+================================================================================
+PHASE 2 : AMÉLIORATIONS IMPORTANTES (PRIORITÉ MOYENNE)
+================================================================================
+
+Durée estimée : 4-6 semaines
+Objectif : Améliorer qualité et robustesse composants clés
+
+────────────────────────────────────────────────────────────────────────────────
+2.1 - PUBLIC CARD SAMPLING (BOARD SAMPLING)
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Manquant (Sévérité: Moyenne)
+ÉVIDENCE : Pas d'échantillonnage boards publics dans realtime search
+
+OBJECTIF :
+  Implémenter public card sampling pour réduire variance dans subgame solving
+  (technique Pluribus pour gérer branches futures)
+
+ACTIONS :
+  1. Ajouter sampling de boards publics futurs
+     - Méthode sample_public_cards(num_samples, street)
+     - Échantillonner uniformément cartes restantes deck
+     
+  2. Intégrer dans SubgameResolver
+     - Résoudre subgame sur K boards échantillonnés
+     - Moyenner stratégies résultantes
+     - Configurer K (ex: 10-50 samples)
+     
+  3. Optimisation
+     - Paralléliser solving sur boards multiples
+     - Caching pour éviter recalculs
+     
+  4. Évaluation
+     - Comparer variance avec vs sans sampling
+     - Mesurer overhead compute
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Public card sampling implémenté
+  ✓ Variance réduite mesurable sur tests
+  ✓ Overhead compute < 2x vs sans sampling
+  ✓ Configuration samples_per_solve dans SearchConfig
+
+FICHIERS MODIFIÉS :
+  M src/holdem/realtime/resolver.py (ajouter board sampling)
+  M src/holdem/types.py (SearchConfig.num_public_samples)
+  + tests/test_public_sampling.py (nouveau)
+
+EFFORT : Moyen (2-3 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+2.2 - ACTION SEQUENCE DANS INFOSETS
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Moyenne)
+ÉVIDENCE : HandHistory existe mais pas propagé dans infoset strings
+
+OBJECTIF :
+  Encoder séquence complète d'actions dans les infoset strings pour meilleure
+  distinction entre situations de jeu
+
+ACTIONS :
+  1. Définir format infoset standardisé
+     - Format: "bucket:street:position:action_seq"
+     - action_seq: "F" (fold), "C" (call), "B50" (bet 50%), etc.
+     - Exemple: "12:FLOP:IP:C-B75-C"
+     
+  2. Modifier génération infosets
+     - Ajouter méthode encode_action_history()
+     - Intégrer dans game_tree et mccfr_os
+     
+  3. Versioning infosets
+     - Ajouter version prefix: "v2:bucket:..."
+     - Rejeter checkpoints incompatibles
+     
+  4. Tests backward compatibility
+     - Tester chargement anciens checkpoints
+     - Migration script si nécessaire
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Format infoset documenté précisément
+  ✓ Action history encodée dans tous infosets
+  ✓ Versioning empêche incompatibilités
+  ✓ Tests backward compat passent
+
+FICHIERS MODIFIÉS :
+  M src/holdem/mccfr/game_tree.py (encoder actions)
+  M src/holdem/mccfr/mccfr_os.py (utiliser nouveau format)
+  + src/holdem/abstraction/infoset_encoding.py (nouveau)
+  + docs/INFOSET_FORMAT.md (documentation)
+
+EFFORT : Moyen (3-4 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+2.3 - MEMORY OPTIMIZATION - STORAGE COMPACT
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Moyenne)
+ÉVIDENCE : Structures dict Python; storage non optimisé
+
+OBJECTIF :
+  Réduire empreinte mémoire regrets/strategies avec storage compact int16/float16
+
+ACTIONS :
+  1. Créer src/holdem/mccfr/compact_storage.py
+     - Classe CompactRegretTracker
+     - Storage numpy arrays float16 pour regrets < threshold
+     - Conversion dynamique float32 si needed
+     
+  2. Indexing efficace infosets
+     - Mapping infoset string -> index entier
+     - Arrays 2D : [num_infosets, max_actions]
+     
+  3. Benchmarking
+     - Mesurer mémoire avant/après
+     - Vérifier impact performance
+     - Tests convergence identique
+     
+  4. Configuration
+     - Flag use_compact_storage dans MCCFRConfig
+     - Fallback dict si désactivé
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Réduction mémoire ≥40% sur grands modèles
+  ✓ Performance training ±10% (acceptable)
+  ✓ Convergence équivalente
+  ✓ Tests passent avec compact storage
+
+FICHIERS MODIFIÉS :
+  + src/holdem/mccfr/compact_storage.py (nouveau, ~400 lignes)
+  M src/holdem/mccfr/regrets.py (intégrer compact option)
+  M src/holdem/types.py (MCCFRConfig.use_compact_storage)
+  + tests/test_compact_storage.py (nouveau)
+
+EFFORT : Élevé (5-7 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+2.4 - INTERVALLES DE CONFIANCE ET SAMPLE SIZE CALCULATOR
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Manquant (Sévérité: Moyenne)
+ÉVIDENCE : Pas de calcul automatique CI et taille échantillon
+
+OBJECTIF :
+  Calcul automatique d'intervalles de confiance 95% et recommandation taille
+  échantillon pour évaluation statistiquement valide
+
+ACTIONS :
+  1. Créer src/holdem/rl_eval/statistics.py
+     - Fonction compute_confidence_interval(results, confidence=0.95)
+     - Bootstrap resampling pour CI non-paramétriques
+     - Fonction required_sample_size(target_margin, estimated_variance)
+     
+  2. Intégrer dans eval_loop.py
+     - Calculer et reporter CI après évaluation
+     - Recommander taille échantillon si margin trop large
+     
+  3. Métriques enrichies
+     - Winrate ± CI
+     - bb/100 ± CI
+     - Variance mesurée
+     
+  4. Tests statistiques
+     - Vérifier coverage CI (95% empirique)
+     - Tests sample size calculator accuracy
+
+CRITÈRES D'ACCEPTATION :
+  ✓ CI 95% calculés automatiquement
+  ✓ Sample size recommandé si besoin
+  ✓ Documentation dans EVAL_PROTOCOL.md
+  ✓ Tests statistiques passent
+
+FICHIERS MODIFIÉS :
+  + src/holdem/rl_eval/statistics.py (nouveau, ~250 lignes)
+  M src/holdem/rl_eval/eval_loop.py (intégrer CI)
+  M EVAL_PROTOCOL.md (documenter statistiques)
+  + tests/test_statistics.py (nouveau)
+
+EFFORT : Moyen (2-3 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+2.5 - MULTI-TABLE SUPPORT
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Moyenne)
+ÉVIDENCE : Vision peut détecter une table mais pas multi-tables simultanées
+
+OBJECTIF :
+  Support multi-tables avec synchronisation et gestion priorités
+
+ACTIONS :
+  1. Créer src/holdem/vision/multi_table_manager.py
+     - Classe MultiTableManager
+     - Détection et tracking de N tables
+     - Priorisation selon urgence (time-to-act)
+     
+  2. Parallélisation parsing
+     - Parser chaque table dans thread séparé
+     - Pool de workers pour vision/OCR
+     
+  3. State aggregation
+     - Maintenir TableState par table
+     - Détecter table active (hero's turn)
+     
+  4. Autoplay coordination
+     - Jouer sur table la plus urgente
+     - Queue actions pour autres tables
+     - Time budgeting par table
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Support 2-4 tables simultanées
+  ✓ Overhead < 50% vs mono-table
+  ✓ Aucune action manquée (timeout)
+  ✓ Tests avec simulation multi-tables
+
+FICHIERS MODIFIÉS :
+  + src/holdem/vision/multi_table_manager.py (nouveau, ~300 lignes)
+  M src/holdem/cli/run_autoplay.py (intégrer multi-table)
+  + tests/test_multi_table.py (nouveau)
+
+EFFORT : Élevé (5-7 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+2.6 - BACK-MAPPING ACTIONS EXPLICITE
+────────────────────────────────────────────────────────────────────────────────
+
+STATUT ACTUEL : Partiel (Sévérité: Moyenne)
+ÉVIDENCE : Back-mapping présent dans abstraction mais pas testé explicitement
+
+OBJECTIF :
+  Fonction explicite et testée pour back-mapping tailles abstraites vers 
+  montants légaux du client
+
+ACTIONS :
+  1. Créer src/holdem/abstraction/backmapping.py
+     - Fonction backmap_action(abstract_action, pot, stack, to_call)
+     - Gérer arrondis clients (multiples blinds, min bet, etc.)
+     - Clamping aux limites légales
+     
+  2. Edge cases
+     - Micro-stacks (< 1bb)
+     - All-in forcé
+     - Min bet rules (2x BB, 2x previous raise)
+     
+  3. Tests exhaustifs
+     - tests/test_backmapping.py avec 100+ cas
+     - Validation contre règles poker réelles
+     
+  4. Intégration control
+     - Utiliser dans executor.py pour actions réelles
+
+CRITÈRES D'ACCEPTATION :
+  ✓ Fonction backmap_action documentée
+  ✓ Tests couvrent 100+ edge cases
+  ✓ Intégration dans executor validée
+  ✓ Documentation mapping dans IMPLEMENTATION.md
+
+FICHIERS MODIFIÉS :
+  + src/holdem/abstraction/backmapping.py (nouveau, ~200 lignes)
+  M src/holdem/control/executor.py (utiliser backmapping)
+  + tests/test_backmapping.py (nouveau, ~300 lignes)
+
+EFFORT : Faible (1-2 jours)
+
+================================================================================
+PHASE 3 : OPTIMISATIONS ET RAFFINEMENTS (PRIORITÉ BASSE)
+================================================================================
+
+Durée estimée : 4-6 semaines
+Objectif : Polir et optimiser performances
+
+────────────────────────────────────────────────────────────────────────────────
+3.1 - OPTIMISATIONS PERFORMANCE
+────────────────────────────────────────────────────────────────────────────────
+
+Liste d'optimisations diverses :
+
+A) Lissage temporel OCR/vision
+   - Moyenne glissante montants sur 3-5 frames
+   - Debounce changements stacks (éviter flicker)
+   - Fichier: src/holdem/vision/temporal_smoothing.py
+   - Effort: Faible (1 jour)
+
+B) Affinité CPU et thread pinning
+   - Configuration affinité CPU pour workers
+   - Réduire context switches
+   - Fichier: src/holdem/mccfr/parallel_solver.py
+   - Effort: Faible (1 jour)
+
+C) Profiling et instrumentation
+   - Intégrer cProfile/line_profiler
+   - Hotspots identification
+   - Metrics Prometheus/StatsD
+   - Fichier: src/holdem/utils/profiling.py
+   - Effort: Moyen (2-3 jours)
+
+D) Serialization msgpack
+   - Alternative pickle plus rapide
+   - Checkpoints I/O optimisé
+   - Fichier: src/holdem/utils/serialization.py
+   - Effort: Faible (1 jour)
+
+E) Memory profiling
+   - Tracking memory_profiler
+   - Alertes si memory leak
+   - Fichier: src/holdem/utils/memory.py
+   - Effort: Faible (1 jour)
+
+CRITÈRES GLOBAUX :
+  ✓ Gain perf ≥20% sur training
+  ✓ Latence realtime < 80ms stable
+  ✓ Empreinte mémoire -30%
+  ✓ Pas de régression qualité
+
+────────────────────────────────────────────────────────────────────────────────
+3.2 - DATASET ANNOTÉ ET ABLATION FRAMEWORK
+────────────────────────────────────────────────────────────────────────────────
+
+A) Dataset vision annoté
+   - 500+ screenshots annotés (cartes, stacks, pots, positions)
+   - Ground truth manuel
+   - Tests automatiques precision/recall
+   - Fichier: assets/samples/annotated/
+   - Effort: Moyen (3-4 jours)
+
+B) Framework ablation
+   - Scripts désactivation composants
+   - Tests ablation : vision only, policy only, search only
+   - Mesure contribution chaque composant
+   - Fichier: scripts/ablation_study.py
+   - Effort: Moyen (3 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+3.3 - MLOps ET INFRASTRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+A) CI/CD GitHub Actions
+   - Pipeline: lint → test → build → deploy
+   - Tests multi-platform (Windows/macOS/Linux)
+   - Code coverage report
+   - Fichier: .github/workflows/ci.yml
+   - Effort: Moyen (2-3 jours)
+
+B) Docker containerization
+   - Dockerfile multi-stage
+   - Image < 2GB
+   - docker-compose.yml avec services
+   - Effort: Moyen (2 jours)
+
+C) Model registry
+   - DVC ou MLflow pour versioning
+   - Tracking checkpoints et blueprints
+   - Metadata (config, metrics, hash)
+   - Effort: Moyen (3-4 jours)
+
+D) Experiment tracking
+   - Intégration MLflow ou Weights & Biases
+   - Logging hyperparams et metrics
+   - Comparaison runs
+   - Effort: Moyen (2-3 jours)
+
+────────────────────────────────────────────────────────────────────────────────
+3.4 - DOCUMENTATION ET CONSOLIDATION
+────────────────────────────────────────────────────────────────────────────────
+
+A) Consolidation docs
+   - Éviter duplication entre 50+ fichiers MD
+   - Structure docs/ claire
+   - Index central avec TOC
+   - Effort: Faible (2 jours)
+
+B) API documentation
+   - Docstrings complets tous modules
+   - Sphinx ou MkDocs pour API docs
+   - Effort: Moyen (3 jours)
+
+C) Tutoriels vidéo
+   - Quickstart screencast
+   - Training walkthrough
+   - Autoplay demo
+   - Effort: Moyen (2-3 jours)
+
+================================================================================
+ROADMAP PRIORISÉE - TIMELINE
+================================================================================
+
+SEMAINES 1-3 : PHASE 1 - Correctifs Critiques
+  Sprint 1 (sem 1)   : AIVAT + KL regularization
+  Sprint 2 (sem 2)   : Reprise déterministe + OCR metrics
+  Sprint 3 (sem 3)   : Tests et validation Phase 1
+
+SEMAINES 4-9 : PHASE 2 - Améliorations Importantes
+  Sprint 4 (sem 4)   : Public card sampling
+  Sprint 5 (sem 5)   : Action sequence infosets
+  Sprint 6 (sem 6-7) : Memory optimization
+  Sprint 7 (sem 8)   : CI/sample size calculator
+  Sprint 8 (sem 9)   : Multi-table + backmapping
+
+SEMAINES 10-15 : PHASE 3 - Optimisations
+  Sprint 9 (sem 10)  : Optimisations performance
+  Sprint 10 (sem 11-12) : Dataset annoté + ablation
+  Sprint 11 (sem 13-14) : MLOps infrastructure
+  Sprint 12 (sem 15) : Documentation consolidation
+
+TOTAL DURÉE ESTIMÉE : 15 semaines (~3.5 mois)
+
+================================================================================
+CRITÈRES D'ACCEPTATION GLOBAUX
+================================================================================
+
+□ QUALITÉ POKER AI
+  ✓ Exploitability mesurée ≤ Pluribus publié (si reproductible)
+  ✓ Winrate vs baselines connus (tight/loose/aggressive)
+  ✓ Variance avec AIVAT < 50% vs sans
+  ✓ Decisions time < 200ms 95th percentile
+
+□ ROBUSTESSE SYSTÈME
+  ✓ OCR precision ≥97% sur dataset test
+  ✓ Vision accuracy ≥98% (cartes + montants)
+  ✓ Uptime autoplay ≥99% (pas crash)
+  ✓ Tests coverage ≥80% code
+
+□ PERFORMANCE
+  ✓ Training 1M iters < 24h sur workstation (16 cores)
+  ✓ Realtime search < 80ms median, < 200ms p95
+  ✓ Memory footprint < 16GB RAM pour 10M iters
+  ✓ Disk space checkpoints < 5GB compressed
+
+□ REPRODUCTIBILITÉ
+  ✓ Seed control: mêmes résultats sur mêmes seeds
+  ✓ Checkpoints compatibles entre versions (avec migration)
+  ✓ CI/CD green sur 3 plateformes
+  ✓ Docker image reproductible
+
+□ DOCUMENTATION
+  ✓ README complet avec quickstart
+  ✓ API docs auto-générées
+  ✓ EVAL_PROTOCOL.md détaillé
+  ✓ RUNTIME_CHECKLIST.md à jour
+
+================================================================================
+PROTOCOLE DE VALIDATION
+================================================================================
+
+Chaque phase doit passer les validations suivantes avant merge :
+
+1. TESTS UNITAIRES
+   - pytest passe sur tous nouveaux modules
+   - Coverage ≥70% nouvelles fonctions
+   - Edge cases couverts
+
+2. TESTS INTÉGRATION
+   - End-to-end workflow fonctionne
+   - Pas de régression sur tests existants
+   - Performance ±10% baseline
+
+3. CODE REVIEW
+   - Review par au moins 1 contributeur
+   - Style guide respecté (PEP 8)
+   - Documentation inline présente
+
+4. BENCHMARK
+   - Performance mesurée et documentée
+   - Comparaison avant/après
+   - Acceptation si gains > coûts
+
+5. DOCUMENTATION
+   - README / guides mis à jour
+   - Exemples fonctionnels ajoutés
+   - CHANGELOG.md updated
+
+================================================================================
+MÉTRIQUES DE SUCCÈS - KPIs
+================================================================================
+
+KPI POKER STRATEGY :
+  - Exploitability (mbb/hand) vs baselines connus
+  - Winrate vs random/tight/loose agents
+  - Nash distance si calculable (Heads-up simplified)
+
+KPI ENGINEERING :
+  - Training throughput (iterations/sec)
+  - Realtime latency (ms) p50/p95/p99
+  - Memory usage (GB) steady state
+  - Disk I/O (MB/s) checkpointing
+  - CPU utilization (%) training
+
+KPI QUALITÉ :
+  - Test coverage (%)
+  - Vision accuracy (%)
+  - OCR precision (%)
+  - Uptime autoplay (%)
+  - Bug density (bugs/KLOC)
+
+KPI MLOps :
+  - CI/CD pipeline time (min)
+  - Deployment frequency (releases/month)
+  - Mean time to recovery (MTTR) (hours)
+  - Experiment reproducibility (%)
+
+================================================================================
+RISQUES ET MITIGATION
+================================================================================
+
+RISQUE : Dégradation qualité strategy avec modifications
+MITIGATION : Tests non-régression systématiques, baseline frozen, rollback rapide
+
+RISQUE : Overhead performance optimisations
+MITIGATION : Benchmarking avant/après, flags feature pour rollback
+
+RISQUE : Incompatibilité checkpoints
+MITIGATION : Versioning strict, migration scripts, tests backward compat
+
+RISQUE : Divergence formats entre composants
+MITIGATION : Schemas explicites (dataclasses), validation à l'init
+
+RISQUE : Dependencies conflicts multi-platform
+MITIGATION : Pinning versions requirements.txt, CI multi-platform
+
+================================================================================
+CONTACTS ET RESSOURCES
+================================================================================
+
+ÉQUIPE PROJET :
+  - Lead : montana2ab (GitHub)
+  - Contributors : voir CONTRIBUTORS.md
+
+RESSOURCES EXTERNES :
+  - Pluribus paper : https://science.sciencemag.org/content/365/6456/885
+  - Noam Brown : https://www.cs.cmu.edu/~noamb/
+  - CFR tutorials : http://modelai.gettysburg.edu/2013/cfr/
+
+SUPPORT :
+  - Issues : https://github.com/montana2ab/poker/issues
+  - Discussions : https://github.com/montana2ab/poker/discussions
+
+================================================================================
+FIN DU PLAN
+================================================================================
+
+Ce plan est un document vivant. Ajustements possibles selon :
+- Feedback utilisateurs
+- Découvertes pendant implémentation
+- Évolution état de l'art
+- Contraintes ressources
+
+Dernière mise à jour : 2025-11-08
+Version : 1.0

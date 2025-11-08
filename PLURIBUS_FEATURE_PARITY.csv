@@ -1,0 +1,86 @@
+Axe,Sous-composant,Comportement attendu (Pluribus),Statut dépôt (OK/Partiel/Manquant),Évidence (fichier:ligne),Écart (résumé),Sévérité (Haute/Moy/Low),Effort (H/M/L),Premiers correctifs suggérés
+Vision/OCR,Table Detection,Multi-table support avec feature matching robuste,Partiel,src/holdem/vision/detect_table.py:1-150,Manque gestion multi-tables simultanées,Moyenne,M,Ajouter gestionnaire multi-tables avec synchronisation
+Vision/OCR,Card Recognition,Template matching + CNN robuste multi-résolution,Partiel,src/holdem/vision/cards.py:1-300,CNN présent mais pas systématiquement utilisé; manque augmentation données,Moyenne,M,Améliorer pipeline CNN avec data augmentation et fallback systématique
+Vision/OCR,OCR Engine,PaddleOCR + fallback avec post-processing normalization,OK,src/holdem/vision/ocr.py:1-100,Post-processing basique présent; pourrait ajouter lissage temporel,Low,L,Ajouter lissage temporel des montants (moyenne glissante)
+Vision/OCR,Region Detection,Calibration automatique des régions par profil,OK,src/holdem/vision/calibrate.py:1-200,Système de profils JSON fonctionnel avec régions configurables,Low,L,Ajouter détection automatique des changements de résolution
+Vision/OCR,Position Detection,Détection bouton et positions IP/OOP,Partiel,src/holdem/vision/parse_state.py:85-115,Button position détecté; calcul IP/OOP basique; manque détection fiable multi-joueurs,Moyenne,M,Améliorer détection positions relatives avec historique
+Vision/OCR,Stack/Bet Parsing,Parsing robuste locale-aware avec debounce,Partiel,src/holdem/vision/parse_state.py:19-40,Parsing locale-aware présent; manque debounce temporel,Low,L,Ajouter debounce avec buffer temporel (3-5 frames)
+Vision/OCR,Board State Detection,Détection cartes communes par street,OK,src/holdem/vision/parse_state.py:59-80,Détection board + calcul street automatique fonctionnel,Low,L,Validation croisée avec historique des actions
+Vision/OCR,Error Handling,Taux erreur OCR < 3% avec métriques,Manquant,,Pas de métriques de taux d'erreur automatiques,Haute,M,Ajouter logging métriques OCR et validation automatique
+Vision/OCR,Multi-resolution,Support 6-max et 9-max avec scaling,OK,src/holdem/vision/calibrate.py:1-200,Profils multi-tables supportés (6-max/9-max),Low,L,Tests de régression pour résolutions multiples
+État & Infoset,Card Encoding,Encodage cartes privées/publiques par street,OK,src/holdem/abstraction/bucketing.py:91-110,Encodage cartes via bucketing k-means par street,Low,L,Validation encodages avec tests unitaires
+État & Infoset,Action Sequence,Historique actions complet avec montants,Partiel,src/holdem/types.py:94-102,HandHistory présent mais pas propagé dans infoset string,Moyenne,M,Intégrer séquence actions dans génération infoset
+État & Infoset,Position Encoding,Encodage position relative (IP/OOP BTN/BB),Partiel,src/holdem/types.py:78-79,Flags is_in_position présents; manque encodage riche (BTN/SB/BB/etc),Moyenne,M,Ajouter encodage position détaillé dans infoset
+État & Infoset,Pot & Stack State,Encodage pot/stacks/effective_stack/SPR,OK,src/holdem/types.py:71-82,Tous champs présents dans TableState,Low,L,Ajouter normalisation pour NN si besoin
+État & Infoset,Street Encoding,Flags de ronde (preflop/flop/turn/river),OK,src/holdem/types.py:8-13,Enum Street présent et utilisé partout,Low,L,Aucun changement requis
+État & Infoset,Métriques Dérivées,SPR/to_call/effective_stack calculés,OK,src/holdem/types.py:80-82,Tous calculés dans TableState,Low,L,Validation calculs dans tests
+État & Infoset,Infoset String Generation,Génération string unique par infoset avec abstractions,Partiel,Multiples fichiers MCCFR,Génération d'infosets présente; manque documentation format exact,Moyenne,M,Documenter format infoset et ajouter versioning
+Abstraction Cartes,Preflop Buckets,Buckets préflop lossless ou quasi-lossless (24),OK,src/holdem/abstraction/bucketing.py:82-89,24 buckets préflop avec features 10-dim,Low,L,Valider distribution statistique des buckets
+Abstraction Cartes,Postflop Buckets,Buckets postflop lossy (80/80/64),OK,src/holdem/abstraction/bucketing.py:82-89,80/80/64 buckets F/T/R avec features 34-dim,Low,L,Analyser collisions et coverage
+Abstraction Cartes,Feature Engineering,Features riches: equity/draws/texture/SPR,OK,src/holdem/abstraction/postflop_features.py:1-400,34 features postflop documentées (FEATURE_EXTRACTION.md),Low,L,Validation qualité features avec corrélations
+Abstraction Cartes,Clustering Algorithm,K-means avec distance euclidienne,OK,src/holdem/abstraction/bucketing.py:72-76,Sklearn KMeans utilisé avec seed fixe,Low,L,Expérimenter autres métriques (Earth Mover's Distance)
+Abstraction Cartes,Assignation Online,Assignation bucket en temps réel via predict,OK,src/holdem/abstraction/bucketing.py:120-150,Méthode get_bucket utilise kmeans.predict,Low,L,Optimiser latence predict si nécessaire
+Abstraction Cartes,Preflop Features,10-dim: strength/suitedness/connectivity/equity,OK,src/holdem/abstraction/preflop_features.py:1-200,10 features documentées,Low,L,Tests de non-régression features
+Abstraction Cartes,Postflop Features,34-dim: categories/draws/texture/equity/context,OK,src/holdem/abstraction/postflop_features.py:1-400,34 features documentées en détail,Low,L,Validation coverage edge cases
+Abstraction Actions,Bet Sizing Preflop,Tailles: 25%/50%/100%/200% pot,OK,src/holdem/abstraction/actions.py:1-200,Implémenté avec structure AbstractAction,Low,L,Validation cohérence avec sizing Pluribus
+Abstraction Actions,Bet Sizing Flop IP,Tailles: 33%/75%/100%/150% pot,OK,src/holdem/abstraction/actions.py:1-200,Sizing context-aware par street/position,Low,L,Tests de mapping sizing
+Abstraction Actions,Bet Sizing Flop OOP,Tailles: 33%/75%/100% pot,OK,src/holdem/abstraction/actions.py:1-200,Sizing position-aware,Low,L,Validation empirique
+Abstraction Actions,Bet Sizing Turn,Tailles: 66%/100%/150% pot,OK,src/holdem/abstraction/actions.py:1-200,Sizing adaptatif par street,Low,L,Tests unitaires
+Abstraction Actions,Bet Sizing River,Tailles: 75%/100%/150%/ALL-IN pot,OK,src/holdem/abstraction/actions.py:1-200,All-in géré explicitement,Low,L,Validation edge cases (micro-stacks)
+Abstraction Actions,Fold/Check/Call,Actions passives toujours disponibles,OK,src/holdem/abstraction/actions.py:1-200,Gérées dans get_available_actions,Low,L,Tests légalité actions
+Abstraction Actions,Back-mapping,Conversion tailles abstraites vers montants légaux,Partiel,,Présent dans abstraction mais pas explicitement testé,Moyenne,M,Ajouter fonction de back-mapping explicite et tests
+Entraînement MCCFR,Outcome Sampling,MCCFR avec outcome sampling,OK,src/holdem/mccfr/mccfr_os.py:1-300,OutcomeSampler implémenté,Low,L,Validation convergence
+Entraînement MCCFR,Linear Weighting,Pondération linéaire (Linear MCCFR),OK,src/holdem/mccfr/solver.py:128-131,use_linear_weighting flag présent,Low,L,Validation avantage vs CFR classique
+Entraînement MCCFR,CFR+ Discounting,Discount regrets/strategy avec alpha/beta,OK,src/holdem/types.py:129-131,discount_interval/alpha/beta configurables,Low,L,Tuning hyperparamètres
+Entraînement MCCFR,Negative Regret Pruning,Seuil -300M comme Pluribus,OK,src/holdem/types.py:134-139,PLURIBUS_PRUNING_THRESHOLD = -300M implémenté,Low,L,Validation gains perf avec metrics
+Entraînement MCCFR,Exploration Epsilon,Epsilon configurable avec schedule,OK,src/holdem/types.py:121-125,epsilon_schedule avec decay step-based,Low,L,Expérimenter schedules adaptifs
+Entraînement MCCFR,Adaptive Epsilon,Epsilon adaptatif selon IPS et coverage,OK,src/holdem/mccfr/adaptive_epsilon.py:1-200,AdaptiveEpsilonScheduler complet,Low,L,Tuning paramètres adaptatifs
+Entraînement MCCFR,Parallel Training,Multi-process avec persistent workers,OK,src/holdem/mccfr/parallel_solver.py:1-500,Parallélisation spawn-based multi-platform,Low,L,Optimiser latence queues
+Entraînement MCCFR,Checkpointing,Sauvegarde périodique avec snapshot,OK,src/holdem/mccfr/solver.py:150-250,Checkpoint + snapshot système présent,Low,L,Ajouter hash abstraction pour validation
+Entraînement MCCFR,Reprise Déterministe,Restauration exacte état RNG/epsilon/iteration,Partiel,src/holdem/utils/rng.py:1-50,RNG seedable; manque sauvegarde complète état dans checkpoint,Moyenne,M,Sauvegarder état RNG dans checkpoints
+Entraînement MCCFR,Blueprint Export,Export avg_policy en JSON/PyTorch,OK,src/holdem/mccfr/policy_store.py:1-200,Export JSON fonctionnel,Low,L,Ajouter export PyTorch natif
+Entraînement MCCFR,Stratégie Moyenne,Calcul stratégie moyenne pondérée,OK,src/holdem/mccfr/regrets.py:81-95,get_average_strategy implémenté,Low,L,Validation pondération linéaire
+Entraînement MCCFR,Time-Budget Training,Entraînement basé durée (ex: 8 jours),OK,src/holdem/types.py:142-143,time_budget_seconds configurable,Low,L,Tests de non-régression
+Entraînement MCCFR,Itérations Cible,Recommandation 10M+ itérations,Partiel,src/holdem/types.py:118,Défaut 2.5M; documentation suggère plus,Moyenne,L,Documenter recommandations selon hardware
+Recherche Temps Réel,Subgame Construction,Construction sous-jeu limité à current+1 street,OK,src/holdem/realtime/subgame.py:1-200,SubgameTree implémenté,Low,L,Validation profondeur subgame
+Recherche Temps Réel,Belief Update,Mise à jour ranges adversaires,OK,src/holdem/realtime/belief.py:1-150,BeliefState avec update fonctionnel,Low,L,Validation distribution probas
+Recherche Temps Réel,KL Regularization,Régularisation KL vers blueprint,Partiel,src/holdem/realtime/resolver.py:79-80,Blueprint strategy utilisée; KL pas explicitement calculée,Haute,M,Implémenter terme KL explicite dans objective
+Recherche Temps Réel,Warm-start,Initialisation regrets depuis blueprint,OK,src/holdem/realtime/resolver.py:29-51,warm_start_from_blueprint implémenté,Low,L,Tuning strength warm-start
+Recherche Temps Réel,Time Budget,Budget 80ms par défaut avec min iterations,OK,src/holdem/realtime/resolver.py:58-93,time_budget_ms + min_iterations,Low,L,Tests empiriques latence
+Recherche Temps Réel,Fallback Blueprint,Retour blueprint si timeout,OK,src/holdem/realtime/resolver.py:86-93,Fallback implicite via min_iterations,Low,L,Logging explicite fallbacks
+Recherche Temps Réel,Board Sampling,Échantillonnage boards publics futurs,Manquant,,Pas d'échantillonnage boards publics pour réduire variance,Moyenne,M,Implémenter public card sampling à la Pluribus
+Recherche Temps Réel,Unsafe Subgame,Gel actions passées + continuation strategies,Partiel,src/holdem/realtime/subgame.py:1-200,Construction subgame présente; stratégies continuation pas documentées,Moyenne,M,Documenter et tester stratégies continuation aux feuilles
+Recherche Temps Réel,Parallel Resolving,Multi-threads/process pour search,OK,src/holdem/realtime/parallel_resolver.py:1-150,ParallelResolver implémenté,Low,L,Benchmarking gains parallélisme
+Évaluation,AIVAT,Variance reduction multi-joueurs,Manquant,,Pas d'implémentation AIVAT ou équivalent,Haute,H,Implémenter AIVAT pour évaluation low-variance
+Évaluation,Baseline Agents,Adversaires de référence (random/tight/aggressive),OK,src/holdem/rl_eval/baselines.py:1-200,Baselines présents,Low,L,Ajouter plus de baselines (GTO approximations)
+Évaluation,Evaluation Loop,Boucle eval avec métriques bb/100,OK,src/holdem/rl_eval/eval_loop.py:1-150,Loop implémenté avec logging,Low,L,Ajouter intervalles confiance
+Évaluation,Sample Size,Taille échantillon statistiquement significative,Partiel,,Nb episodes configurable mais pas guidé statistiquement,Moyenne,M,Calculateur taille échantillon requis
+Évaluation,Seed Management,Seeds contrôlés pour reproductibilité,OK,src/holdem/utils/rng.py:1-50,RNG seedable global,Low,L,Documentation seeds dans protocole
+Évaluation,Confidence Intervals,Intervalles de confiance 95%,Manquant,,Pas de calcul CI automatique,Moyenne,M,Ajouter calcul bootstrap ou analytique CI
+Évaluation,Metrics Reporting,mbb/h main + variance + winrate,Partiel,src/holdem/rl_eval/eval_loop.py:1-150,Métriques basiques; manque variance formelle,Moyenne,M,Enrichir reporting avec variance et std
+Évaluation,Ablation Studies,Tests ablation composants (vision/policy/search),Manquant,,Pas de framework ablation automatisé,Moyenne,M,Créer scripts ablation pour composants clés
+Évaluation,Non-regression Tests,Tests non-régression blueprint vs baselines,Partiel,tests/test_*.py:multiple,Tests unitaires présents; manque tests intégration complets,Moyenne,M,Ajouter suite tests end-to-end
+Ingénierie,Multi-threading,Threads/process avec affinité CPU,Partiel,src/holdem/mccfr/parallel_solver.py:1-500,Multiprocessing spawn utilisé; pas d'affinité CPU explicite,Low,M,Ajouter configuration affinité CPU si perf gains
+Ingénierie,Memory Management,Empreinte mémoire regrets/stratégies optimisée,Partiel,,Structures dict Python; manque storage compact int16/float16,Moyenne,M,Implémenter storage compact avec numpy arrays
+Ingénierie,Serialization,Sérialisation efficace pickle/msgpack,Partiel,src/holdem/utils/serialization.py:1-100,Pickle utilisé; manque msgpack,Low,L,Ajouter option msgpack pour I/O plus rapide
+Ingénierie,Tracing & Metrics,Instrumentation logging/metrics/profiling,Partiel,src/holdem/utils/logging.py:1-50,Logging présent; manque metrics détaillées,Moyenne,M,Ajouter métriques Prometheus/StatsD
+Ingénierie,TensorBoard,Visualisation training TensorBoard,OK,src/holdem/mccfr/solver.py:16-21,Support TensorBoard optionnel,Low,L,Enrichir visualisations (regrets/strategies)
+Ingénierie,Checkpointing Format,Format checkpoint versionné avec hash abstraction,Partiel,src/holdem/mccfr/policy_store.py:1-200,Checkpoints fonctionnels; manque hash versioning,Moyenne,M,Ajouter hash abstraction dans metadata checkpoint
+Ingénierie,Platform Support,Cross-platform Windows/macOS/Linux,OK,src/holdem/mccfr/parallel_solver.py:21-57,Détection plateforme + optimisations,Low,L,Tests CI multi-plateformes
+Runtime/Latence,Per-hand Budget,Limite temps par décision (80-200ms),OK,src/holdem/realtime/resolver.py:58-93,time_budget_ms configurable,Low,L,Tuning selon hardware
+Runtime/Latence,Latency Target,Mesure et respect cible latence,Partiel,,Timer présent; manque enforcement strict + alertes,Moyenne,M,Ajouter monitoring latence avec alertes
+Runtime/Latence,Thread Affinity,Affinité CPU pour réduire context switch,Manquant,,Pas d'affinité CPU configurée,Low,M,Tester impact affinité sur latence
+Runtime/Latence,Instrumentation,Profiling et tracing pour debug perf,Partiel,src/holdem/utils/timers.py:1-100,Timer basique; manque profiling fin,Moyenne,M,Intégrer cProfile/line_profiler
+Runtime/Latence,Memory Footprint,Surveillance empreinte RAM,Manquant,,Pas de monitoring mémoire,Moyenne,M,Ajouter tracking memory_profiler
+Données/Profils,Table Profiles,Profils JSON multi-tables/résolutions,OK,assets/table_profiles/*.json,Plusieurs profils fournis,Low,L,Documentation création profils
+Données/Profils,Template Cards,Templates cartes multi-sets,OK,assets/templates/ + hero_templates/,Templates fournis,Low,L,Augmenter diversité templates
+Données/Profils,Bucketing Data,Buckets précomputés sérialisés,OK,assets/abstraction/buckets_config.yaml,Config + storage pkl,Low,L,Versionner buckets avec hash
+Données/Profils,Captured Samples,Échantillons annotés pour validation,Partiel,assets/samples/,Quelques samples; manque annotations riches,Moyenne,M,Créer dataset annoté pour tests vision
+Outils & MLOps,CLI Commands,Commands wrapper ergonomiques,OK,bin/*.sh + src/holdem/cli/*.py,Suite complète CLI,Low,L,Ajouter commandes diagnostics
+Outils & MLOps,Build System,Makefile + scripts install,OK,Makefile + install.sh,Build automation présent,Low,L,Ajouter targets CI/CD
+Outils & MLOps,Testing,Suite tests pytest comprehensive,Partiel,tests/test_*.py:18 files,Tests unitaires présents; manque tests intégration,Moyenne,M,Compléter coverage tests
+Outils & MLOps,Documentation,Docs complètes README/guides,OK,*.md:50+ fichiers,Documentation extensive,Low,L,Consolider docs (éviter duplication)
+Outils & MLOps,CI/CD,Pipeline CI automatisé,Manquant,.github/ présent mais config minimale,Moyenne,M,Configurer GitHub Actions complet
+Outils & MLOps,Containerization,Docker pour reproductibilité,Manquant,,Pas de Dockerfile fourni,Low,M,Créer Dockerfile multi-stage
+Outils & MLOps,Model Registry,Versioning checkpoints/blueprints,Manquant,,Pas de registry modèles,Moyenne,M,Implémenter registry avec DVC ou équivalent
+Outils & MLOps,Experiment Tracking,Tracking expériences MLflow/Weights&Biases,Partiel,TensorBoard présent,TensorBoard OK; manque tracking expériences complet,Moyenne,M,Intégrer MLflow ou W&B
