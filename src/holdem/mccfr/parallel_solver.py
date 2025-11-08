@@ -303,6 +303,13 @@ class ParallelMCCFRSolver:
         self._epsilon_schedule_index = 0
         self._current_epsilon = config.exploration_epsilon
         
+        # Initialize adaptive epsilon scheduler if enabled
+        self._adaptive_scheduler = None
+        if config.adaptive_epsilon_enabled and config.epsilon_schedule is not None:
+            from holdem.mccfr.adaptive_epsilon import AdaptiveEpsilonScheduler
+            self._adaptive_scheduler = AdaptiveEpsilonScheduler(config)
+            logger.info("Adaptive epsilon scheduling enabled")
+        
         # Worker pool management
         self._workers: List[mp.Process] = []
         self._task_queue: Optional[mp.Queue] = None
@@ -673,6 +680,12 @@ class ParallelMCCFRSolver:
                     
                     # Log number of infosets
                     self.writer.add_scalar('Training/NumInfosets', len(self.regret_tracker.regrets), self.iteration)
+                    
+                    # Log adaptive epsilon metrics if enabled
+                    if self._adaptive_scheduler is not None:
+                        adaptive_metrics = self._adaptive_scheduler.get_metrics()
+                        for metric_name, value in adaptive_metrics.items():
+                            self.writer.add_scalar(metric_name, value, self.iteration)
                 
                 # Console logging
                 time_since_log = current_time - last_log_time
@@ -686,6 +699,13 @@ class ParallelMCCFRSolver:
                     iter_count = self.iteration - last_logged_iteration
                     iter_per_sec = iter_count / elapsed if elapsed > 0 else 0
                     last_logged_iteration = self.iteration
+                    
+                    # Record performance metrics for adaptive scheduler
+                    if self._adaptive_scheduler is not None:
+                        num_infosets = len(self.regret_tracker.regrets)
+                        self._adaptive_scheduler.record_merge(
+                            self.iteration, num_infosets, elapsed, iter_count
+                        )
                     
                     recent_utility = sum(utility_history[-100:]) / min(100, len(utility_history)) if utility_history else 0.0
                     
@@ -746,6 +766,15 @@ class ParallelMCCFRSolver:
         if self.config.epsilon_schedule is None:
             return
         
+        # Use adaptive scheduler if enabled
+        if self._adaptive_scheduler is not None:
+            new_epsilon = self._adaptive_scheduler.get_epsilon(self.iteration)
+            if new_epsilon != self._current_epsilon:
+                self._current_epsilon = new_epsilon
+                logger.info(f"Epsilon updated to {new_epsilon:.3f} at iteration {self.iteration}")
+            return
+        
+        # Fall back to standard schedule-based update
         schedule = self.config.epsilon_schedule
         
         for i in range(len(schedule) - 1, -1, -1):

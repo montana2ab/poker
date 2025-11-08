@@ -152,6 +152,15 @@ class MCCFRConfig:
     num_workers: int = 1  # Number of parallel worker processes (1 = single process, 0 = use all CPU cores)
     batch_size: int = 100  # Number of iterations per worker batch
     
+    # Adaptive epsilon schedule parameters
+    adaptive_epsilon_enabled: bool = False  # Enable adaptive epsilon scheduling based on performance
+    adaptive_target_ips: float = 35.0  # Target iterations per second for the machine
+    adaptive_window_merges: int = 10  # Number of recent merges to average for IPS calculation
+    adaptive_min_infoset_growth: float = 10.0  # Minimum new infosets per 1000 iterations
+    adaptive_early_shift_ratio: float = 0.1  # Allow epsilon decrease up to 10% earlier if criteria exceeded
+    adaptive_extension_ratio: float = 0.15  # Allow epsilon decrease delay up to 15% if criteria not met
+    adaptive_force_after_ratio: float = 0.30  # Force epsilon decrease after 30% extension if never met
+    
 
 @dataclass
 class SearchConfig:
