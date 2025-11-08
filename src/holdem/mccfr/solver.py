@@ -53,6 +53,17 @@ class MCCFRSolver:
         # Initialize epsilon schedule tracking
         self._epsilon_schedule_index = 0
         self._current_epsilon = config.exploration_epsilon
+        
+        # Initialize adaptive epsilon scheduler if enabled
+        self._adaptive_scheduler = None
+        if config.adaptive_epsilon_enabled and config.epsilon_schedule is not None:
+            from holdem.mccfr.adaptive_epsilon import AdaptiveEpsilonScheduler
+            self._adaptive_scheduler = AdaptiveEpsilonScheduler(config)
+            logger.info("Adaptive epsilon scheduling enabled")
+        
+        # Track timing for adaptive IPS calculation
+        self._last_batch_time = None
+        self._last_iteration = 0
     
     def train(self, logdir: Path = None, use_tensorboard: bool = True):
         """Run MCCFR training.
@@ -148,6 +159,12 @@ class MCCFRSolver:
                 regret_metrics = self._calculate_regret_norm_metrics()
                 for metric_name, value in regret_metrics.items():
                     self.writer.add_scalar(metric_name, value, self.iteration)
+                
+                # Log adaptive epsilon metrics if enabled
+                if self._adaptive_scheduler is not None:
+                    adaptive_metrics = self._adaptive_scheduler.get_metrics()
+                    for metric_name, value in adaptive_metrics.items():
+                        self.writer.add_scalar(metric_name, value, self.iteration)
             
             # Console logging (every 10000 iterations or every 60 seconds in time-budget mode)
             time_since_log = current_time - last_log_time
@@ -167,6 +184,13 @@ class MCCFRSolver:
                         iter_count = 1
                 
                 iter_per_sec = iter_count / elapsed if elapsed > 0 else 0
+                
+                # Record performance metrics for adaptive scheduler
+                if self._adaptive_scheduler is not None:
+                    num_infosets = len(self.sampler.regret_tracker.regrets)
+                    self._adaptive_scheduler.record_merge(
+                        self.iteration, num_infosets, elapsed, iter_count
+                    )
                 
                 if use_time_budget:
                     elapsed_total = current_time - start_time
@@ -566,8 +590,20 @@ class MCCFRSolver:
         if self.config.epsilon_schedule is None:
             return
         
-        # Find the appropriate epsilon for current iteration
-        # Schedule is list of (iteration, epsilon) tuples sorted by iteration
+        # Use adaptive scheduler if enabled
+        if self._adaptive_scheduler is not None:
+            new_epsilon = self._adaptive_scheduler.get_epsilon(self.iteration)
+            if new_epsilon != self._current_epsilon:
+                self._current_epsilon = new_epsilon
+                # Update sampler epsilon
+                if hasattr(self.sampler, 'set_epsilon'):
+                    self.sampler.set_epsilon(new_epsilon)
+                else:
+                    self.sampler.epsilon = new_epsilon
+                logger.info(f"Epsilon updated to {new_epsilon:.3f} at iteration {self.iteration}")
+            return
+        
+        # Fall back to standard schedule-based update
         schedule = self.config.epsilon_schedule
         
         # Find the current epsilon value
