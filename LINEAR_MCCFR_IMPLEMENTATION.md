@@ -2,12 +2,20 @@
 
 This document describes the implementation of Linear MCCFR (LCFR) with discounting and dynamic pruning, as used in the Pluribus poker AI.
 
+> **Note**: For detailed information on DCFR/CFR+ adaptive discounting and warm-start functionality, see [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md).
+
 ## Overview
 
 The implementation adds two key optimizations to the Monte Carlo CFR algorithm:
 
 1. **Linear MCCFR (LCFR)**: Uses linear weighting (∝ t) for regret and strategy updates to accelerate convergence (~3x speedup as reported in Pluribus paper)
 2. **Dynamic Pruning**: Skips 95% of iterations when all actions have very negative regrets, except at river and terminal nodes
+
+Additionally, the system now supports:
+3. **DCFR/CFR+ Adaptive Discounting**: Time-dependent discount factors for even faster convergence
+4. **Warm-Start**: Resume training from checkpoints with full state restoration
+
+See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details on items 3-4.
 
 ## 1. Linear MCCFR with Discounting
 
@@ -18,10 +26,20 @@ Added to `MCCFRConfig` in `src/holdem/types.py`:
 ```python
 # Linear MCCFR parameters
 use_linear_weighting: bool = True  # Use Linear MCCFR (weighting ∝ t)
+
+# Discount mode: "none", "static", or "dcfr"
+discount_mode: str = "dcfr"  # Default: DCFR adaptive discounting
 discount_interval: int = 1000  # Apply discounting every N iterations
+
+# Static discount factors (used when discount_mode="static")
 regret_discount_alpha: float = 1.0  # Regret discount factor (α)
 strategy_discount_beta: float = 1.0  # Strategy discount factor (β)
+
+# DCFR parameters (used when discount_mode="dcfr")
+dcfr_reset_negative_regrets: bool = True  # Reset negative regrets to 0 (CFR+)
 ```
+
+**Note**: The default `discount_mode="dcfr"` enables adaptive discounting. For the original Linear MCCFR without discounting, use `discount_mode="none"`. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details.
 
 ### Implementation Details
 
@@ -101,17 +119,30 @@ self.regret_tracker.add_strategy(infoset, strategy, strategy_weight)
 
 #### Solver Integration (src/holdem/mccfr/solver.py)
 
-Discounting is applied at regular intervals during training:
+Discounting is applied at regular intervals during training. The system now supports multiple discount modes:
 
 ```python
 # Apply discounting at regular intervals
-if (self.iteration % self.config.discount_interval == 0 and 
-    (self.config.regret_discount_alpha < 1.0 or self.config.strategy_discount_beta < 1.0)):
-    self.sampler.regret_tracker.discount(
-        regret_factor=self.config.regret_discount_alpha,
-        strategy_factor=self.config.strategy_discount_beta
-    )
+if self.iteration % self.config.discount_interval == 0:
+    if self.config.discount_mode == "dcfr":
+        # DCFR/CFR+ adaptive discounting (default)
+        t = float(self.iteration)
+        d = float(self.config.discount_interval)
+        alpha = (t + d) / (t + 2 * d)  # Regret discount
+        beta = t / (t + d)              # Strategy discount
+        self.sampler.regret_tracker.discount(alpha, beta)
+        if self.config.dcfr_reset_negative_regrets:
+            self.sampler.regret_tracker.reset_regrets()  # CFR+
+    elif self.config.discount_mode == "static":
+        # Static discount factors
+        self.sampler.regret_tracker.discount(
+            regret_factor=self.config.regret_discount_alpha,
+            strategy_factor=self.config.strategy_discount_beta
+        )
+    # else: discount_mode == "none", no discounting
 ```
+
+See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details on DCFR adaptive discounting.
 
 ## 2. Dynamic Pruning
 
@@ -193,16 +224,35 @@ from holdem.types import MCCFRConfig, BucketConfig
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.solver import MCCFRSolver
 
-# Configure Linear MCCFR with discounting and pruning
+# Configure Linear MCCFR with DCFR adaptive discounting and pruning (recommended)
 mccfr_config = MCCFRConfig(
     num_iterations=2_500_000,
-    use_linear_weighting=True,  # Enable Linear MCCFR
-    discount_interval=1000,      # Discount every 1000 iterations
-    regret_discount_alpha=0.95,  # Regret discount factor
-    strategy_discount_beta=0.98, # Strategy discount factor
-    enable_pruning=True,         # Enable dynamic pruning
+    use_linear_weighting=True,   # Enable Linear MCCFR
+    discount_mode="dcfr",         # DCFR adaptive discounting (default)
+    discount_interval=1000,       # Discount every 1000 iterations
+    dcfr_reset_negative_regrets=True,  # CFR+ property (default)
+    enable_pruning=True,          # Enable dynamic pruning
     pruning_threshold=-300_000_000.0,  # Pluribus threshold
-    pruning_probability=0.95     # Skip 95% when pruning
+    pruning_probability=0.95      # Skip 95% when pruning
+)
+
+# Alternatively: Linear MCCFR with static discounting
+mccfr_config = MCCFRConfig(
+    num_iterations=2_500_000,
+    use_linear_weighting=True,
+    discount_mode="static",       # Static discount factors
+    discount_interval=1000,
+    regret_discount_alpha=0.95,   # Manual regret discount
+    strategy_discount_beta=0.98,  # Manual strategy discount
+    enable_pruning=True
+)
+
+# Or: Linear MCCFR without discounting (original)
+mccfr_config = MCCFRConfig(
+    num_iterations=2_500_000,
+    use_linear_weighting=True,
+    discount_mode="none",         # No discounting
+    enable_pruning=True
 )
 
 # Create and train solver
@@ -215,7 +265,9 @@ solver.train()
 
 ## Testing
 
-Comprehensive test suite in `tests/test_linear_mccfr.py`:
+Comprehensive test suite covering both Linear MCCFR and DCFR functionality:
+
+### Linear MCCFR Tests (`tests/test_linear_mccfr.py`)
 
 1. **test_linear_weighting_regret_update**: Verifies linear weighting in regret updates
 2. **test_linear_weighting_strategy_accumulation**: Verifies linear weighting in strategy sum
@@ -226,7 +278,19 @@ Comprehensive test suite in `tests/test_linear_mccfr.py`:
 7. **test_linear_weighting_impact**: Verifies linear weighting gives more weight to later iterations
 8. **test_discount_preserves_ratios**: Verifies discounting preserves relative regret ratios
 
-All tests pass successfully (8/8).
+### DCFR and Warm-Start Tests (`tests/test_dcfr_warmstart.py`)
+
+1. **test_dcfr_discount_calculation**: Verifies DCFR discount formulas
+2. **test_dcfr_reset_negative_regrets**: Tests CFR+ negative regret reset
+3. **test_regret_state_serialization**: Tests regret state save/load
+4. **test_warm_start_checkpoint**: Tests full warm-start functionality
+5. **test_warm_start_disabled**: Tests that warm-start can be disabled
+6. **test_discount_mode_none**: Tests no discounting mode
+7. **test_discount_mode_static**: Tests static discount mode
+
+All tests pass successfully (15/15 total).
+
+See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details on DCFR and warm-start features.
 
 ## References
 
