@@ -56,7 +56,8 @@ def test_evaluator_with_aivat():
     
     assert evaluator.use_aivat == True
     assert evaluator.aivat is not None
-    assert evaluator.aivat.num_players == 9
+    # In heads-up evaluation mode, AIVAT uses 2 players (policy vs baseline)
+    assert evaluator.aivat.num_players == 2
     
     # Run evaluation with small warmup and evaluation episodes
     results = evaluator.evaluate(num_episodes=100, warmup_episodes=50)
@@ -87,7 +88,7 @@ def test_evaluator_with_aivat():
     assert 'aivat_stats' in results
     aivat_stats = results['aivat_stats']
     assert aivat_stats['trained'] == True
-    assert aivat_stats['num_players'] == 9
+    assert aivat_stats['num_players'] == 2  # Heads-up mode
 
 
 def test_aivat_variance_reduction_in_evaluator():

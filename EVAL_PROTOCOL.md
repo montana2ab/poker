@@ -424,64 +424,57 @@ diff results_run1.json results_run2.json
 
 ### 6.1 Calcul intervalles de confiance 95%
 
-**Méthode 1 : Analytique (si distribution normale)**
+**STATUS : ✅ IMPLÉMENTÉ**
+
+L'implémentation des intervalles de confiance est maintenant disponible dans `src/holdem/rl_eval/statistics.py`.
+
+**Méthode 1 : Bootstrap (distribution-free, recommandée)**
+
+Le bootstrap est la méthode recommandée car elle ne nécessite aucune hypothèse sur la distribution des données (non-paramétrique).
 
 ```python
-import numpy as np
-from scipy import stats
+from holdem.rl_eval.statistics import compute_confidence_interval
 
-def compute_ci_analytical(results: List[float], confidence=0.95):
-    """Compute confidence interval assuming normality."""
-    n = len(results)
-    mean = np.mean(results)
-    std_err = stats.sem(results)
-    
-    # Critical value for confidence level
-    alpha = 1 - confidence
-    t_critical = stats.t.ppf(1 - alpha/2, n - 1)
-    
-    margin = t_critical * std_err
-    
-    return {
-        'mean': mean,
-        'ci_lower': mean - margin,
-        'ci_upper': mean + margin,
-        'margin': margin,
-        'confidence': confidence
-    }
+# Compute 95% CI using bootstrap
+results = [5.2, 3.1, 6.8, 4.5, 5.9, ...]  # Evaluation results
+ci_info = compute_confidence_interval(
+    results,
+    confidence=0.95,
+    method="bootstrap",
+    n_bootstrap=10000
+)
+
+print(f"Mean: {ci_info['mean']:.2f}")
+print(f"95% CI: [{ci_info['ci_lower']:.2f}, {ci_info['ci_upper']:.2f}]")
+print(f"Margin: ±{ci_info['margin']:.2f}")
 ```
 
-**Méthode 2 : Bootstrap (distribution-free)**
+**Méthode 2 : Analytique (si distribution normale)**
+
+Pour les cas où l'on peut supposer la normalité (grands échantillons), une méthode analytique plus rapide est disponible.
 
 ```python
-def compute_ci_bootstrap(results: List[float], confidence=0.95, n_bootstrap=10000):
-    """Compute confidence interval using bootstrap resampling."""
-    n = len(results)
-    bootstrap_means = []
-    
-    for _ in range(n_bootstrap):
-        # Resample with replacement
-        sample = np.random.choice(results, size=n, replace=True)
-        bootstrap_means.append(np.mean(sample))
-    
-    # Percentiles for CI
-    alpha = 1 - confidence
-    lower_percentile = (alpha / 2) * 100
-    upper_percentile = (1 - alpha / 2) * 100
-    
-    ci_lower = np.percentile(bootstrap_means, lower_percentile)
-    ci_upper = np.percentile(bootstrap_means, upper_percentile)
-    
-    return {
-        'mean': np.mean(results),
-        'ci_lower': ci_lower,
-        'ci_upper': ci_upper,
-        'margin': (ci_upper - ci_lower) / 2,
-        'confidence': confidence
-    }
+# Compute 95% CI using analytical method (t-distribution)
+ci_info = compute_confidence_interval(
+    results,
+    confidence=0.95,
+    method="analytical"
+)
 ```
+
+**Fonctionnalités incluses :**
+
+- Calcul automatique de la marge d'erreur
+- Support de différents niveaux de confiance (90%, 95%, 99%, etc.)
+- Fallback gracieux si scipy n'est pas disponible
+- Calcul de l'erreur standard (stderr)
+- Logging détaillé pour debugging
 
 ### 6.2 Taille d'échantillon requise
+
+**STATUS : ✅ IMPLÉMENTÉ**
+
+La fonction `required_sample_size()` calcule le nombre d'échantillons nécessaires pour atteindre une marge d'erreur cible.
 
 **Formule:**
 
@@ -494,27 +487,135 @@ où:
 - σ : écart-type estimé
 - E : marge d'erreur désirée
 
-**Exemple:**
+**Utilisation:**
 
 ```python
-def required_sample_size(std_dev: float, margin_error: float, confidence=0.95):
-    """Calculate required sample size."""
-    from scipy import stats
-    
-    alpha = 1 - confidence
-    z_critical = stats.norm.ppf(1 - alpha/2)
-    
-    n = (z_critical * std_dev / margin_error) ** 2
-    
-    return int(np.ceil(n))
+from holdem.rl_eval.statistics import required_sample_size
 
-# Exemple: σ=10 bb/100, marge=±1 bb/100, 95% CI
-n = required_sample_size(std_dev=10, margin_error=1, confidence=0.95)
+# Exemple: Vouloir ±1 bb/100 avec σ²=100
+n = required_sample_size(
+    target_margin=1.0,
+    estimated_variance=100.0,
+    confidence=0.95
+)
 print(f"Required sample size: {n} hands")
-# Output: ~384 hands
+# Output: ~385 hands
 ```
 
-### 6.3 Tests de significativité
+**Exemples de calculs:**
+
+| Variance (σ²) | Target Margin | Confidence | Sample Size |
+|---------------|---------------|------------|-------------|
+| 100 (σ=10)    | ±1 bb/100     | 95%        | ~385        |
+| 100 (σ=10)    | ±2 bb/100     | 95%        | ~97         |
+| 25 (σ=5)      | ±1 bb/100     | 95%        | ~97         |
+| 400 (σ=20)    | ±1 bb/100     | 95%        | ~1537       |
+
+**Avec AIVAT (78% réduction de variance):**
+
+```python
+# Sans AIVAT: σ²=100 → n=385 pour ±1 bb/100
+# Avec AIVAT: σ²=22 → n=85 pour ±1 bb/100
+# Économie: 78% d'échantillons en moins!
+
+from holdem.rl_eval.statistics import estimate_variance_reduction
+
+reduction = estimate_variance_reduction(
+    vanilla_variance=100.0,
+    aivat_variance=22.0
+)
+print(f"Variance reduction: {reduction['reduction_pct']:.1f}%")
+print(f"Efficiency gain: {reduction['efficiency_gain']:.1f}x")
+```
+
+### 6.3 Vérification d'adéquation de la marge
+
+**STATUS : ✅ IMPLÉMENTÉ**
+
+La fonction `check_margin_adequacy()` vérifie si la marge actuelle est suffisante et recommande des échantillons supplémentaires si nécessaire.
+
+```python
+from holdem.rl_eval.statistics import check_margin_adequacy
+
+adequacy = check_margin_adequacy(
+    current_margin=1.5,
+    target_margin=1.0,
+    current_n=1000,
+    estimated_variance=100.0,
+    confidence=0.95
+)
+
+if not adequacy['is_adequate']:
+    print(adequacy['recommendation'])
+    # Output: "Current margin (1.50) exceeds target (1.00). 
+    #          Recommend 485 additional samples (total: 1485)"
+```
+
+### 6.4 Intégration avec l'évaluateur
+
+**STATUS : ✅ IMPLÉMENTÉ**
+
+Les statistiques CI sont maintenant automatiquement calculées lors de l'évaluation.
+
+```python
+from holdem.rl_eval.eval_loop import Evaluator
+from holdem.mccfr.policy_store import PolicyStore
+
+# Create evaluator with CI calculation
+policy = PolicyStore()
+evaluator = Evaluator(
+    policy,
+    use_aivat=True,
+    confidence_level=0.95,
+    target_margin=1.0  # Target ±1 bb/100
+)
+
+# Run evaluation
+results = evaluator.evaluate(num_episodes=10000, warmup_episodes=1000)
+
+# Results now include CI information
+for baseline_name, metrics in results.items():
+    if baseline_name == 'aivat_stats':
+        continue
+    
+    ci = metrics['confidence_interval']
+    print(f"{baseline_name}:")
+    print(f"  Winrate: {ci['mean']:.2f} ± {ci['margin']:.2f} bb/100")
+    print(f"  95% CI: [{ci['ci_lower']:.2f}, {ci['ci_upper']:.2f}]")
+    
+    # Check margin adequacy
+    if 'margin_adequacy' in metrics:
+        adequacy = metrics['margin_adequacy']
+        if not adequacy['is_adequate']:
+            print(f"  ⚠️ {adequacy['recommendation']}")
+```
+
+**Résultats enrichis:**
+
+Chaque baseline result contient maintenant:
+- `confidence_interval`: Dict avec mean, ci_lower, ci_upper, margin, std, stderr
+- `margin_adequacy`: Dict avec is_adequate et recommendation (si target_margin spécifié)
+- `aivat_confidence_interval`: CI pour les avantages AIVAT (si AIVAT activé)
+
+### 6.5 Formatage des résultats
+
+**STATUS : ✅ IMPLÉMENTÉ**
+
+```python
+from holdem.rl_eval.statistics import format_ci_result
+
+# Format CI result for display
+formatted = format_ci_result(
+    value=5.23,
+    ci_info=ci,
+    decimals=2,
+    unit="bb/100"
+)
+print(formatted)
+# Output: "5.23 ± 0.45 bb/100 (95% CI: [4.78, 5.68])"
+```
+
+### 6.6 Tests de significativité
 
 **Test t de Student (comparaison 2 policies):**
 

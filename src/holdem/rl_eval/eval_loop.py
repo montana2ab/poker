@@ -5,6 +5,12 @@ from typing import List, Dict, Optional, Any
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.rl_eval.baselines import RandomAgent, AlwaysCallAgent, TightAgent, AggressiveAgent
 from holdem.rl_eval.aivat import AIVATEvaluator
+from holdem.rl_eval.statistics import (
+    compute_confidence_interval,
+    required_sample_size,
+    check_margin_adequacy,
+    format_ci_result
+)
 from holdem.utils.logging import get_logger
 
 logger = get_logger("rl_eval.eval_loop")
@@ -13,17 +19,22 @@ logger = get_logger("rl_eval.eval_loop")
 class Evaluator:
     """Evaluates policy against baseline agents."""
     
-    def __init__(self, policy: PolicyStore, use_aivat: bool = False, num_players: int = 9):
+    def __init__(self, policy: PolicyStore, use_aivat: bool = False, num_players: int = 9,
+                 confidence_level: float = 0.95, target_margin: Optional[float] = None):
         """Initialize evaluator.
         
         Args:
             policy: The policy to evaluate
             use_aivat: Whether to use AIVAT for variance reduction
-            num_players: Number of players (for AIVAT)
+            num_players: Number of players (for AIVAT). Use 2 for heads-up evaluation.
+            confidence_level: Confidence level for CI (default: 0.95 for 95% CI)
+            target_margin: Target margin of error for evaluation (optional)
         """
         self.policy = policy
         self.use_aivat = use_aivat
         self.num_players = num_players
+        self.confidence_level = confidence_level
+        self.target_margin = target_margin
         self.baselines = [
             RandomAgent(),
             AlwaysCallAgent(),
@@ -32,10 +43,14 @@ class Evaluator:
         ]
         
         # Initialize AIVAT if enabled
+        # For heads-up evaluation (policy vs baseline), use num_players=2
         self.aivat: Optional[AIVATEvaluator] = None
         if use_aivat:
-            self.aivat = AIVATEvaluator(num_players=num_players)
-            logger.info("AIVAT variance reduction enabled")
+            # In simplified evaluation, we're doing heads-up against each baseline
+            # So we only need to track 2 players (player 0 = our policy, player 1 = baseline)
+            actual_num_players = 2 if num_players == 9 else num_players
+            self.aivat = AIVATEvaluator(num_players=actual_num_players)
+            logger.info(f"AIVAT variance reduction enabled (heads-up mode: {actual_num_players} players)")
     
     def evaluate(self, num_episodes: int = 10000, warmup_episodes: int = 1000) -> Dict[str, Any]:
         """Evaluate policy against baselines.
@@ -66,6 +81,13 @@ class Evaluator:
                         player_id=0,
                         state_key=state_key,
                         payoff=result
+                    )
+                    # Add sample for player 1 (baseline opponent) with opposite payoff
+                    # In zero-sum games, opponent gets the negative of our result
+                    self.aivat.add_sample(
+                        player_id=1,
+                        state_key=state_key,
+                        payoff=-result
                     )
                 
                 # Train value functions
@@ -101,13 +123,36 @@ class Evaluator:
             # Compute results
             avg_winnings = np.mean(vanilla_winnings)
             std_winnings = np.std(vanilla_winnings)
+            variance = std_winnings ** 2
+            
+            # Compute confidence interval
+            ci_info = compute_confidence_interval(
+                vanilla_winnings,
+                confidence=self.confidence_level,
+                method="bootstrap"
+            )
             
             baseline_results = {
                 'mean': avg_winnings,
                 'std': std_winnings,
-                'variance': std_winnings ** 2,
-                'episodes': num_episodes
+                'variance': variance,
+                'episodes': num_episodes,
+                'confidence_interval': ci_info
             }
+            
+            # Check if margin is adequate and recommend sample size if needed
+            if self.target_margin is not None:
+                adequacy_check = check_margin_adequacy(
+                    current_margin=ci_info['margin'],
+                    target_margin=self.target_margin,
+                    current_n=num_episodes,
+                    estimated_variance=variance,
+                    confidence=self.confidence_level
+                )
+                baseline_results['margin_adequacy'] = adequacy_check
+                
+                if not adequacy_check['is_adequate']:
+                    logger.warning(f"  {adequacy_check['recommendation']}")
             
             # Add AIVAT metrics if enabled
             if self.use_aivat and self.aivat is not None and len(aivat_advantages) > 0:
@@ -117,18 +162,29 @@ class Evaluator:
                 )
                 baseline_results['aivat'] = variance_stats
                 
+                # Compute CI for AIVAT advantages as well
+                aivat_ci = compute_confidence_interval(
+                    aivat_advantages,
+                    confidence=self.confidence_level,
+                    method="bootstrap"
+                )
+                baseline_results['aivat_confidence_interval'] = aivat_ci
+                
                 logger.info(
                     f"  Results vs {baseline.name}: "
-                    f"Mean={avg_winnings:.2f} ± {std_winnings:.2f}"
+                    f"{format_ci_result(avg_winnings, ci_info, decimals=2, unit='bb/100')}"
                 )
                 logger.info(
                     f"  AIVAT variance reduction: {variance_stats['variance_reduction_pct']:.1f}% "
                     f"({variance_stats['vanilla_variance']:.2f} → {variance_stats['aivat_variance']:.2f})"
                 )
+                logger.info(
+                    f"  AIVAT CI: {format_ci_result(aivat_ci['mean'], aivat_ci, decimals=2, unit='bb/100')}"
+                )
             else:
                 logger.info(
                     f"  Results vs {baseline.name}: "
-                    f"Mean={avg_winnings:.2f} ± {std_winnings:.2f}"
+                    f"{format_ci_result(avg_winnings, ci_info, decimals=2, unit='bb/100')}"
                 )
             
             results[baseline.name] = baseline_results
