@@ -251,6 +251,22 @@ class VisionConfig:
 
 
 @dataclass
+class RTResolverConfig:
+    """Configuration for real-time depth-limited resolver."""
+    max_depth: int = 1  # Number of streets to look ahead (1 = current street only)
+    time_ms: int = 80  # Time budget per decision in milliseconds
+    min_iterations: int = 400  # Minimum CFR iterations
+    max_iterations: int = 1200  # Maximum CFR iterations
+    samples_per_leaf: int = 10  # Number of rollout samples per leaf node
+    action_set_mode: str = "balanced"  # Action set mode: tight, balanced, or loose
+    use_cfv: bool = True  # Use blueprint CFV at leaves if available
+    kl_weight: float = 0.5  # KL divergence weight toward blueprint
+    
+    # Metrics tracking
+    track_metrics: bool = True  # Track solve time, iterations, EV delta
+
+
+@dataclass
 class ControlConfig:
     """Configuration for action execution."""
     dry_run: bool = True
