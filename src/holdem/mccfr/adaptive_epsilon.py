@@ -60,6 +60,8 @@ class AdaptiveEpsilonScheduler:
         # Initialize current epsilon from base schedule
         if self.base_schedule:
             self._current_epsilon = self.base_schedule[0][1]
+            # Start looking at the second schedule entry (index 1) as the next transition
+            self._current_schedule_index = 1
         
         logger.info(f"Adaptive epsilon scheduler initialized")
         logger.info(f"  Target IPS: {self.target_ips:.1f}")
