@@ -4,35 +4,16 @@
 import platform
 import sys
 
-
-# Inline platform detection functions (same as in parallel_solver.py)
-def _is_apple_silicon() -> bool:
-    """Detect if running on Apple Silicon (M1, M2, M3, etc.)."""
-    return platform.system() == "Darwin" and platform.machine() == "arm64"
-
-def _is_macos() -> bool:
-    """Detect if running on macOS."""
-    return platform.system() == "Darwin"
-
-
-# Configure timeouts based on platform (same logic as parallel_solver.py)
-if _is_apple_silicon():
-    QUEUE_GET_TIMEOUT_SECONDS = 0.1
-    QUEUE_GET_TIMEOUT_MIN = 0.05
-    QUEUE_GET_TIMEOUT_MAX = 0.5
-elif _is_macos():
-    QUEUE_GET_TIMEOUT_SECONDS = 0.05
-    QUEUE_GET_TIMEOUT_MIN = 0.02
-    QUEUE_GET_TIMEOUT_MAX = 0.2
-else:
-    QUEUE_GET_TIMEOUT_SECONDS = 0.01
-    QUEUE_GET_TIMEOUT_MIN = 0.01
-    QUEUE_GET_TIMEOUT_MAX = 0.1
-
-BACKOFF_MULTIPLIER = 1.5
-MAX_EMPTY_POLLS = 5
-
-
+# Import platform detection and queue configuration from parallel_solver.py
+from src.holdem.mccfr.parallel_solver import (
+    _is_apple_silicon,
+    _is_macos,
+    QUEUE_GET_TIMEOUT_SECONDS,
+    QUEUE_GET_TIMEOUT_MIN,
+    QUEUE_GET_TIMEOUT_MAX,
+    BACKOFF_MULTIPLIER,
+    MAX_EMPTY_POLLS,
+)
 def test_platform_detection():
     """Test platform detection functions."""
     print("=" * 80)
