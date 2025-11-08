@@ -153,24 +153,57 @@ def persistent_worker_process(
                 )
                 worker_logger.debug(f"Worker {worker_id} sampler initialized with epsilon={epsilon:.3f}")
             
+            # Snapshot state before running batch to compute deltas
+            # This allows us to send only incremental updates, not the entire accumulated state
+            regrets_before = {}
+            strategy_sum_before = {}
+            
+            for infoset in sampler.regret_tracker.regrets:
+                regrets_before[infoset] = dict(sampler.regret_tracker.regrets[infoset])
+            
+            for infoset in sampler.regret_tracker.strategy_sum:
+                strategy_sum_before[infoset] = dict(sampler.regret_tracker.strategy_sum[infoset])
+            
             # Run iterations
             utilities = []
-            regret_updates = {}  # Track regret updates: {infoset: {action: regret}}
-            strategy_updates = {}  # Track strategy updates: {infoset: {action: weight}}
             
             for i in range(num_iterations):
                 iteration = iteration_start + i
                 utility = sampler.sample_iteration(iteration)
                 utilities.append(utility)
             
-            # Collect regret and strategy updates from this worker
+            # Compute deltas: only send the incremental changes made during this batch
+            # This prevents the data transfer size from growing unboundedly as training progresses
+            regret_updates = {}  # Track regret deltas: {infoset: {action: delta_regret}}
+            strategy_updates = {}  # Track strategy deltas: {infoset: {action: delta_weight}}
+            
+            # Calculate regret deltas
             for infoset in sampler.regret_tracker.regrets:
-                regret_updates[infoset] = dict(sampler.regret_tracker.regrets[infoset])
+                regret_delta = {}
+                for action, new_value in sampler.regret_tracker.regrets[infoset].items():
+                    old_value = regrets_before.get(infoset, {}).get(action, 0.0)
+                    delta = new_value - old_value
+                    if delta != 0.0:  # Only include non-zero deltas
+                        regret_delta[action] = delta
+                
+                if regret_delta:  # Only include infosets with changes
+                    regret_updates[infoset] = regret_delta
             
+            # Calculate strategy deltas
             for infoset in sampler.regret_tracker.strategy_sum:
-                strategy_updates[infoset] = dict(sampler.regret_tracker.strategy_sum[infoset])
+                strategy_delta = {}
+                for action, new_value in sampler.regret_tracker.strategy_sum[infoset].items():
+                    old_value = strategy_sum_before.get(infoset, {}).get(action, 0.0)
+                    delta = new_value - old_value
+                    if delta != 0.0:  # Only include non-zero deltas
+                        strategy_delta[action] = delta
+                
+                if strategy_delta:  # Only include infosets with changes
+                    strategy_updates[infoset] = strategy_delta
             
-            worker_logger.debug(f"Worker {worker_id} completed batch: {len(utilities)} iterations, {len(regret_updates)} infosets")
+            worker_logger.debug(f"Worker {worker_id} completed batch: {len(utilities)} iterations, "
+                              f"{len(regret_updates)} infosets with regret changes, "
+                              f"{len(strategy_updates)} infosets with strategy changes")
             
             # Put results in queue with timeout to avoid indefinite blocking
             # This prevents workers from getting stuck if the result queue is full
@@ -599,6 +632,11 @@ class ParallelMCCFRSolver:
                 # Collect utilities for logging
                 for result in results:
                     utility_history.extend(result['utilities'])
+                
+                # Limit utility_history size to prevent unbounded memory growth
+                # Keep only the most recent 10,000 utilities for moving averages
+                if len(utility_history) > 10000:
+                    utility_history = utility_history[-10000:]
                 
                 # Update epsilon based on schedule (if configured)
                 self._update_epsilon_schedule()
