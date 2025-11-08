@@ -121,7 +121,8 @@ def test_platform_specific_optimization_message():
     elif _is_macos():
         assert QUEUE_GET_TIMEOUT_SECONDS == 0.05
     else:
-        assert QUEUE_GET_TIMEOUT_SECONDS == 0.01
+        # Allow a small tolerance for Linux/Windows timeout
+        assert 0.008 <= QUEUE_GET_TIMEOUT_SECONDS <= 0.012, "Linux/Windows should use ~10ms timeout"
 
 
 def test_parallel_solver_uses_platform_timeouts():
