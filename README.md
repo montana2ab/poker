@@ -10,7 +10,7 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 - **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
 - **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
-- **Blueprint Training**: MCCFR/CFR+ with outcome sampling, exports average policy to JSON/PyTorch format
+- **Blueprint Training**: Linear MCCFR with DCFR/CFR+ adaptive discounting, dynamic regret pruning, and warm-start from checkpoints. Outcome sampling with validation metrics (L2 regret slope, policy entropy). Exports average policy to JSON/PyTorch format. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details.
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with KL regularization toward blueprint, time-budgeted (e.g., 80ms), fallback to blueprint on timeout
 - **Control**: Dry-run mode by default; optional auto-click with confirmations, minimum delays, hotkeys (pause/stop), requires `--i-understand-the-tos` flag
 
@@ -115,7 +115,7 @@ python -m holdem.cli.build_buckets --hands 500000 \
 Run MCCFR training to build the base strategy:
 
 ```bash
-# Single-process training
+# Single-process training with DCFR adaptive discounting (default)
 python -m holdem.cli.train_blueprint --iters 2500000 \
   --buckets assets/abstraction/precomputed_buckets.pkl \
   --logdir runs/blueprint
@@ -125,9 +125,17 @@ python -m holdem.cli.train_blueprint --iters 2500000 \
   --buckets assets/abstraction/precomputed_buckets.pkl \
   --logdir runs/blueprint \
   --num-workers 0 --batch-size 100
+
+# Resume training from checkpoint with warm-start
+python -m holdem.cli.train_blueprint --iters 5000000 \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/blueprint \
+  --resume-from runs/blueprint/checkpoints/checkpoint_iter2500000.pkl
 ```
 
 💡 **Tip**: Use `--num-workers 0` to automatically use all available CPU cores for faster training. See [PARALLEL_TRAINING.md](PARALLEL_TRAINING.md) for details.
+
+💡 **DCFR Features**: Training uses Linear MCCFR with DCFR/CFR+ adaptive discounting by default for faster convergence. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for configuration options and warm-start functionality.
 
 ### 4. Evaluate Blueprint
 
