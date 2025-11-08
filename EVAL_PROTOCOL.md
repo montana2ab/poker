@@ -1,0 +1,971 @@
+# EVAL_PROTOCOL.md
+
+Protocole d'évaluation : métriques, AIVAT/variance reduction, batteries de tests, adversaires, seeds, bornes statistiques, seuils de régression
+
+---
+
+## TABLE DES MATIÈRES
+
+1. [Vue d'ensemble](#1-vue-densemble)
+2. [Métriques d'évaluation](#2-métriques-dévaluation)
+3. [AIVAT et réduction de variance](#3-aivat-et-réduction-de-variance)
+4. [Adversaires de référence](#4-adversaires-de-référence)
+5. [Configuration seeds et reproductibilité](#5-configuration-seeds-et-reproductibilité)
+6. [Intervalles de confiance et significativité](#6-intervalles-de-confiance-et-significativité)
+7. [Batteries de tests](#7-batteries-de-tests)
+8. [Seuils de régression](#8-seuils-de-régression)
+9. [Protocole d'exécution](#9-protocole-dexécution)
+10. [Rapports et documentation](#10-rapports-et-documentation)
+
+---
+
+## 1. VUE D'ENSEMBLE
+
+### 1.1 Objectifs
+
+L'évaluation du poker AI vise à :
+
+1. **Mesurer la force absolue** : Performance vs adversaires connus
+2. **Détecter les régressions** : Comparaison vs versions précédentes
+3. **Quantifier l'incertitude** : Intervalles de confiance statistiques
+4. **Valider les changements** : Tests non-régression avant merge
+
+### 1.2 Principes
+
+- **Reproductibilité** : Seeds contrôlés, environnement déterministe
+- **Significativité** : Échantillons suffisamment larges (CI 95%)
+- **Faible variance** : AIVAT pour efficacité d'échantillonnage
+- **Automatisation** : Scripts standardisés, CI/CD intégré
+
+---
+
+## 2. MÉTRIQUES D'ÉVALUATION
+
+### 2.1 Métriques principales
+
+#### 2.1.1 Winrate (bb/100 hands)
+
+**Définition:**  
+Big blinds gagnées par 100 mains jouées
+
+**Formule:**
+```
+winrate (bb/100) = (total_chips_won / num_hands) * (100 / big_blind)
+```
+
+**Interprétation:**
+- `+10 bb/100` : Très fort (niveau pro)
+- `+5 bb/100` : Fort (gagnant régulier)
+- `+2 bb/100` : Gagnant marginal
+- `0 bb/100` : Break-even
+- `-X bb/100` : Perdant
+
+**Code:**
+```python
+def compute_winrate(chip_results: List[float], big_blind: float) -> float:
+    """Compute winrate in bb/100 hands."""
+    total_profit = sum(chip_results)
+    num_hands = len(chip_results)
+    bb_per_hand = total_profit / big_blind
+    return (bb_per_hand / num_hands) * 100
+```
+
+#### 2.1.2 Variance (σ²)
+
+**Définition:**  
+Dispersion des résultats autour de la moyenne
+
+**Formule:**
+```
+variance = E[(X - μ)²]
+```
+
+**Usage:**
+- Évaluer la consistance du bot
+- Calculer intervalles de confiance
+- Estimer taille échantillon requise
+
+#### 2.1.3 Standard Error (SE)
+
+**Définition:**  
+Erreur standard de la moyenne
+
+**Formule:**
+```
+SE = σ / sqrt(n)
+```
+
+où σ est l'écart-type et n la taille d'échantillon
+
+#### 2.1.4 Exploitability (mbb/hand)
+
+**Définition:**  
+Profit maximal d'un adversaire optimal contre notre stratégie
+
+**Mesure:**
+- Calculable exactement en heads-up simplifié
+- Approximation via best-response en multiplayer
+- Métrique théorique de qualité stratégie
+
+**Cible:**
+- < 10 mbb/hand : Très fort
+- < 50 mbb/hand : Compétitif
+- < 100 mbb/hand : Acceptable
+
+### 2.2 Métriques secondaires
+
+- **VPIP** (Voluntarily Put In Pot) : % mains jouées
+- **PFR** (Pre-Flop Raise) : % raises préflop
+- **3-bet %** : % 3-bets préflop
+- **Aggression Factor** : (Bets + Raises) / Calls
+- **Showdown Win %** : % victoires à l'abattage
+- **Non-showdown Win %** : % pots gagnés sans abattage
+
+---
+
+## 3. AIVAT ET RÉDUCTION DE VARIANCE
+
+### 3.1 Principe AIVAT
+
+**AIVAT** (Actor-Independent Variance-reduced Advantage Technique) réduit la variance d'évaluation en retirant une baseline indépendante des actions du joueur.
+
+**Formule:**
+```
+Advantage_i = Payoff_i - V_i(s, a_{-i})
+```
+
+où:
+- `Payoff_i` : gain réel du joueur i
+- `V_i(s, a_{-i})` : valeur baseline conditionnelle aux actions adversaires
+- `s` : état du jeu
+- `a_{-i}` : actions des adversaires
+
+### 3.2 Implémentation
+
+**Étapes:**
+
+1. **Collecte de samples** : Jouer N mains, enregistrer (state, actions, payoff)
+2. **Training value functions** : Apprendre V_i(s, a_{-i}) par régression
+3. **Compute advantages** : Payoff - baseline pour chaque sample
+4. **Estimation** : Moyenne des advantages (variance réduite)
+
+**Code:**
+```python
+from holdem.rl_eval.aivat import AIVATEvaluator
+
+# Initialize
+aivat = AIVATEvaluator(num_players=9)
+
+# Collect training samples (warm-up)
+for _ in range(1000):
+    result = play_hand(policy, opponents)
+    aivat.add_sample(
+        player_id=0,
+        state_key=result['state'],
+        actions_taken=result['actions'],
+        payoff=result['payoff']
+    )
+
+# Train value functions
+aivat.train_value_functions(min_samples=1000)
+
+# Evaluate with variance reduction
+for _ in range(10000):
+    result = play_hand(policy, opponents)
+    advantage = aivat.compute_advantage(
+        player_id=0,
+        state_key=result['state'],
+        actual_payoff=result['payoff']
+    )
+    # Use advantage for estimation
+```
+
+### 3.3 Gains attendus
+
+**Réduction de variance:**
+- Typiquement 30-70% selon qualité value functions
+- Permet échantillon 2-3x plus petit pour même précision
+- Critique en multiplayer (variance naturellement élevée)
+
+**Exemple:**
+- Sans AIVAT : σ² = 100 → n = 10,000 mains pour CI±2bb/100
+- Avec AIVAT (50% reduction) : σ² = 50 → n = 5,000 mains
+
+---
+
+## 4. ADVERSAIRES DE RÉFÉRENCE
+
+### 4.1 Baselines intégrés
+
+#### 4.1.1 RandomAgent
+
+**Comportement:**
+- Actions uniformément aléatoires parmi actions légales
+- Fold/call/raise avec proba égale (après légalité)
+
+**Usage:**
+- Sanity check : bot doit dominer largement
+- Baseline minimum : winrate > +50 bb/100 attendu
+
+#### 4.1.2 TightAgent
+
+**Comportement:**
+- Joue seulement top 10-15% mains préflop
+- Fold à toute aggression sans main forte
+- Stratégie passive : call > raise
+
+**Usage:**
+- Adversaire facile exploitable
+- Winrate cible : +20 bb/100
+
+#### 4.1.3 LooseAggressiveAgent
+
+**Comportement:**
+- Joue 40-50% mains préflop (loose)
+- Bet/raise fréquent (aggressive)
+- Surestime force mains marginales
+
+**Usage:**
+- Adversaire difficile à court terme (variance)
+- Winrate cible : +10 bb/100 (plus difficile)
+
+#### 4.1.4 CallingStation
+
+**Comportement:**
+- Call excessif, fold rarement
+- Passive (rarement raise)
+- Exploitable par value betting
+
+**Usage:**
+- Tester exploitation calling stations
+- Winrate cible : +15 bb/100
+
+### 4.2 Adversaires externes
+
+#### 4.2.1 Slumbot (si disponible)
+
+**Source:** http://www.slumbot.com/  
+**Niveau:** Professionnel heads-up  
+**Usage:** Benchmark compétitif
+
+#### 4.2.2 Stratégies GTO approximatives
+
+**Source:** Solver outputs (PioSolver, etc.)  
+**Niveau:** Near-optimal  
+**Usage:** Mesure exploitability
+
+### 4.3 Configuration multi-adversaires
+
+**Setup recommandé pour tests:**
+
+```python
+opponents = [
+    TightAgent(),
+    TightAgent(),
+    LooseAggressiveAgent(),
+    LooseAggressiveAgent(),
+    CallingStation(),
+    CallingStation(),
+    RandomAgent(),  # Sanity check
+    RandomAgent()
+]
+```
+
+**Diversité:** Mix de styles force le bot à adapter
+
+---
+
+## 5. CONFIGURATION SEEDS ET REPRODUCTIBILITÉ
+
+### 5.1 Seeds standards
+
+**Seeds de test dédiés:**
+
+```python
+# Seeds pour évaluation reproductible
+EVAL_SEEDS = {
+    'baseline': 42,        # Seed principal
+    'variant_1': 1337,     # Seed alternatif 1
+    'variant_2': 2048,     # Seed alternatif 2
+    'regression': 9999     # Seed tests non-régression
+}
+```
+
+### 5.2 Protocole seeding
+
+**Avant chaque évaluation:**
+
+```python
+import numpy as np
+import random
+from holdem.utils.rng import set_global_seed
+
+# Set all seeds
+seed = EVAL_SEEDS['baseline']
+set_global_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+
+# Log seed used
+logger.info(f"Evaluation seed: {seed}")
+```
+
+### 5.3 Vérification reproductibilité
+
+**Test:**
+
+```bash
+# Run 1
+python -m holdem.cli.eval_blueprint \
+  --policy policy.json \
+  --seed 42 \
+  --episodes 1000 \
+  --out results_run1.json
+
+# Run 2
+python -m holdem.cli.eval_blueprint \
+  --policy policy.json \
+  --seed 42 \
+  --episodes 1000 \
+  --out results_run2.json
+
+# Compare
+diff results_run1.json results_run2.json
+# Doit être identique
+```
+
+---
+
+## 6. INTERVALLES DE CONFIANCE ET SIGNIFICATIVITÉ
+
+### 6.1 Calcul intervalles de confiance 95%
+
+**Méthode 1 : Analytique (si distribution normale)**
+
+```python
+import numpy as np
+from scipy import stats
+
+def compute_ci_analytical(results: List[float], confidence=0.95):
+    """Compute confidence interval assuming normality."""
+    n = len(results)
+    mean = np.mean(results)
+    std_err = stats.sem(results)
+    
+    # Critical value for confidence level
+    alpha = 1 - confidence
+    t_critical = stats.t.ppf(1 - alpha/2, n - 1)
+    
+    margin = t_critical * std_err
+    
+    return {
+        'mean': mean,
+        'ci_lower': mean - margin,
+        'ci_upper': mean + margin,
+        'margin': margin,
+        'confidence': confidence
+    }
+```
+
+**Méthode 2 : Bootstrap (distribution-free)**
+
+```python
+def compute_ci_bootstrap(results: List[float], confidence=0.95, n_bootstrap=10000):
+    """Compute confidence interval using bootstrap resampling."""
+    n = len(results)
+    bootstrap_means = []
+    
+    for _ in range(n_bootstrap):
+        # Resample with replacement
+        sample = np.random.choice(results, size=n, replace=True)
+        bootstrap_means.append(np.mean(sample))
+    
+    # Percentiles for CI
+    alpha = 1 - confidence
+    lower_percentile = (alpha / 2) * 100
+    upper_percentile = (1 - alpha / 2) * 100
+    
+    ci_lower = np.percentile(bootstrap_means, lower_percentile)
+    ci_upper = np.percentile(bootstrap_means, upper_percentile)
+    
+    return {
+        'mean': np.mean(results),
+        'ci_lower': ci_lower,
+        'ci_upper': ci_upper,
+        'margin': (ci_upper - ci_lower) / 2,
+        'confidence': confidence
+    }
+```
+
+### 6.2 Taille d'échantillon requise
+
+**Formule:**
+
+```
+n = (Z * σ / E)²
+```
+
+où:
+- Z : score critique (1.96 pour 95% CI)
+- σ : écart-type estimé
+- E : marge d'erreur désirée
+
+**Exemple:**
+
+```python
+def required_sample_size(std_dev: float, margin_error: float, confidence=0.95):
+    """Calculate required sample size."""
+    from scipy import stats
+    
+    alpha = 1 - confidence
+    z_critical = stats.norm.ppf(1 - alpha/2)
+    
+    n = (z_critical * std_dev / margin_error) ** 2
+    
+    return int(np.ceil(n))
+
+# Exemple: σ=10 bb/100, marge=±1 bb/100, 95% CI
+n = required_sample_size(std_dev=10, margin_error=1, confidence=0.95)
+print(f"Required sample size: {n} hands")
+# Output: ~384 hands
+```
+
+### 6.3 Tests de significativité
+
+**Test t de Student (comparaison 2 policies):**
+
+```python
+from scipy import stats
+
+def compare_policies(results_a: List[float], results_b: List[float], alpha=0.05):
+    """Test if policy A significantly better than B."""
+    
+    # Two-sample t-test
+    t_statistic, p_value = stats.ttest_ind(results_a, results_b)
+    
+    # Effect size (Cohen's d)
+    mean_diff = np.mean(results_a) - np.mean(results_b)
+    pooled_std = np.sqrt((np.var(results_a) + np.var(results_b)) / 2)
+    cohens_d = mean_diff / pooled_std
+    
+    is_significant = p_value < alpha
+    
+    return {
+        't_statistic': t_statistic,
+        'p_value': p_value,
+        'is_significant': is_significant,
+        'mean_difference': mean_diff,
+        'cohens_d': cohens_d,
+        'effect_size_interpretation': interpret_cohens_d(cohens_d)
+    }
+
+def interpret_cohens_d(d: float) -> str:
+    """Interpret Cohen's d effect size."""
+    abs_d = abs(d)
+    if abs_d < 0.2:
+        return "negligible"
+    elif abs_d < 0.5:
+        return "small"
+    elif abs_d < 0.8:
+        return "medium"
+    else:
+        return "large"
+```
+
+---
+
+## 7. BATTERIES DE TESTS
+
+### 7.1 Test Suite Standard
+
+#### 7.1.1 Smoke Test (rapide)
+
+**Durée:** 1 minute  
+**Objectif:** Vérifier pas de crash évident
+
+```bash
+pytest tests/test_eval_smoke.py -v
+# - 100 mains vs RandomAgent
+# - Vérifier winrate > 0
+# - Pas de crash
+```
+
+#### 7.1.2 Regression Test
+
+**Durée:** 10 minutes  
+**Objectif:** Détecter régressions vs version précédente
+
+```bash
+pytest tests/test_eval_regression.py -v
+# - 5,000 mains vs baselines
+# - Seed fixe (EVAL_SEEDS['regression'])
+# - Comparer winrate ± 5%
+```
+
+#### 7.1.3 Full Evaluation
+
+**Durée:** 1-4 heures  
+**Objectif:** Évaluation complète avec CI
+
+```bash
+python -m holdem.cli.eval_blueprint \
+  --policy runs/blueprint/avg_policy.json \
+  --episodes 50000 \
+  --use-aivat \
+  --confidence 0.95 \
+  --out eval_report.json
+```
+
+### 7.2 Tests spécifiques
+
+#### 7.2.1 Vision Accuracy Test
+
+**Objectif:** Valider précision OCR/vision
+
+```bash
+pytest tests/test_vision_accuracy.py -v
+# - Dataset annoté (500 samples)
+# - Card recognition > 97%
+# - OCR accuracy > 97%
+```
+
+#### 7.2.2 Bucketing Stability Test
+
+**Objectif:** Vérifier bucketing déterministe
+
+```bash
+pytest tests/test_bucketing.py -v
+# - Seed fixe
+# - Assigner buckets 1000 mains
+# - Vérifier assignments identiques
+```
+
+#### 7.2.3 Realtime Budget Test
+
+**Objectif:** Valider respect time budget
+
+```bash
+pytest tests/test_realtime_budget.py -v
+# - 1000 décisions avec budget 80ms
+# - p95 latence < 150ms
+# - p99 latence < 200ms
+```
+
+#### 7.2.4 MCCFR Convergence Test
+
+**Objectif:** Vérifier convergence MCCFR
+
+```bash
+pytest tests/test_mccfr_sanity.py -v
+# - Training 10k iters simplified game
+# - Stratégie finale non-uniforme
+# - Exploitability décroît
+```
+
+### 7.3 CI/CD Integration
+
+**GitHub Actions workflow:**
+
+```yaml
+name: Evaluation Tests
+
+on: [push, pull_request]
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run smoke tests
+        run: pytest tests/test_eval_smoke.py -v
+        
+  regression-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Python
+        uses: actions/setup-python@v2
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run regression tests
+        run: pytest tests/test_eval_regression.py -v
+```
+
+---
+
+## 8. SEUILS DE RÉGRESSION
+
+### 8.1 Seuils d'acceptation
+
+| Métrique | Changement acceptable | Seuil alerte | Seuil blocage |
+|----------|---------------------|--------------|---------------|
+| Winrate vs Random | ±5% | -10% | -20% |
+| Winrate vs Tight | ±10% | -15% | -30% |
+| Winrate vs LAG | ±15% | -20% | -40% |
+| Vision accuracy | ±1% | -2% | -5% |
+| Latency p95 | ±10% | +20% | +50% |
+| Memory usage | ±15% | +30% | +50% |
+
+### 8.2 Décisions merge
+
+**Règles:**
+
+1. **GREEN (merge OK)** : Toutes métriques dans acceptable
+2. **YELLOW (review required)** : 1+ métriques en alerte
+3. **RED (block merge)** : 1+ métriques en blocage
+
+**Exemple:**
+
+```python
+def evaluate_merge_readiness(current_metrics, baseline_metrics):
+    """Determine if changes are ready to merge."""
+    
+    decisions = {}
+    
+    for metric_name, current_value in current_metrics.items():
+        baseline_value = baseline_metrics[metric_name]
+        
+        # Calculate % change
+        pct_change = (current_value - baseline_value) / baseline_value
+        
+        # Apply thresholds (example for winrate)
+        if abs(pct_change) < 0.05:
+            decisions[metric_name] = 'GREEN'
+        elif abs(pct_change) < 0.10:
+            decisions[metric_name] = 'YELLOW'
+        else:
+            decisions[metric_name] = 'RED'
+    
+    # Overall decision
+    if all(d == 'GREEN' for d in decisions.values()):
+        return 'MERGE_OK', decisions
+    elif any(d == 'RED' for d in decisions.values()):
+        return 'BLOCK_MERGE', decisions
+    else:
+        return 'REVIEW_REQUIRED', decisions
+```
+
+---
+
+## 9. PROTOCOLE D'EXÉCUTION
+
+### 9.1 Procédure standard
+
+**Étape 1: Préparer environnement**
+
+```bash
+# Nettoyer environnement
+make clean
+
+# Installer dépendances
+pip install -r requirements.txt
+
+# Vérifier installation
+pytest tests/test_structure.py -v
+```
+
+**Étape 2: Baseline evaluation**
+
+```bash
+# Évaluer version baseline (main)
+git checkout main
+python -m holdem.cli.eval_blueprint \
+  --policy runs/baseline/avg_policy.json \
+  --episodes 10000 \
+  --seed 42 \
+  --use-aivat \
+  --out eval_baseline.json
+```
+
+**Étape 3: Feature branch evaluation**
+
+```bash
+# Évaluer feature branch
+git checkout feature/my-improvement
+python -m holdem.cli.eval_blueprint \
+  --policy runs/feature/avg_policy.json \
+  --episodes 10000 \
+  --seed 42 \
+  --use-aivat \
+  --out eval_feature.json
+```
+
+**Étape 4: Compare results**
+
+```bash
+python scripts/compare_evaluations.py \
+  --baseline eval_baseline.json \
+  --feature eval_feature.json \
+  --out comparison_report.md
+```
+
+**Étape 5: Decision**
+
+- Lire comparison_report.md
+- Vérifier seuils de régression
+- Décider: MERGE / REVIEW / BLOCK
+
+### 9.2 Automation script
+
+**Script:** `scripts/run_full_evaluation.sh`
+
+```bash
+#!/bin/bash
+# Full evaluation protocol
+
+set -e
+
+echo "Starting full evaluation protocol..."
+
+# Configuration
+POLICY_PATH="runs/blueprint/avg_policy.json"
+NUM_EPISODES=50000
+SEED=42
+
+# Step 1: Smoke test
+echo "Step 1: Smoke test..."
+pytest tests/test_eval_smoke.py -v
+
+# Step 2: Regression test
+echo "Step 2: Regression test..."
+pytest tests/test_eval_regression.py -v
+
+# Step 3: Full evaluation
+echo "Step 3: Full evaluation (this may take 1-2 hours)..."
+python -m holdem.cli.eval_blueprint \
+  --policy "$POLICY_PATH" \
+  --episodes "$NUM_EPISODES" \
+  --seed "$SEED" \
+  --use-aivat \
+  --confidence 0.95 \
+  --out eval_results.json
+
+# Step 4: Generate report
+echo "Step 4: Generating report..."
+python scripts/generate_eval_report.py \
+  --results eval_results.json \
+  --out EVAL_REPORT.md
+
+echo "Evaluation complete. See EVAL_REPORT.md for results."
+```
+
+---
+
+## 10. RAPPORTS ET DOCUMENTATION
+
+### 10.1 Format rapport standard
+
+**Template:** `EVAL_REPORT_TEMPLATE.md`
+
+```markdown
+# Evaluation Report
+
+**Date:** YYYY-MM-DD  
+**Policy:** path/to/policy.json  
+**Git commit:** abc1234  
+**Seed:** 42  
+**Episodes:** 50,000  
+
+## Summary
+
+- **Winrate vs Random:** +52.3 ± 2.1 bb/100 (CI 95%)
+- **Winrate vs Tight:** +18.7 ± 3.5 bb/100
+- **Winrate vs LAG:** +8.2 ± 4.2 bb/100
+
+## Detailed Results
+
+### Against RandomAgent
+
+| Metric | Value | CI 95% |
+|--------|-------|--------|
+| Winrate (bb/100) | +52.3 | [50.2, 54.4] |
+| Variance | 89.2 | - |
+| AIVAT Variance | 42.1 | - |
+| Variance Reduction | 52.8% | - |
+
+### Against TightAgent
+
+...
+
+## Regression Analysis
+
+| Metric | Baseline | Current | Change | Status |
+|--------|----------|---------|--------|--------|
+| Winrate Random | +50.1 | +52.3 | +2.2 (+4.4%) | ✅ GREEN |
+| Winrate Tight | +20.3 | +18.7 | -1.6 (-7.9%) | ⚠️ YELLOW |
+| Winrate LAG | +9.1 | +8.2 | -0.9 (-9.9%) | ⚠️ YELLOW |
+
+## Conclusion
+
+**Overall Status:** ⚠️ REVIEW REQUIRED
+
+Slight regression against Tight and LAG agents. Investigate...
+```
+
+### 10.2 Artifacts à conserver
+
+**Pour chaque évaluation, sauvegarder:**
+
+1. `eval_results.json` - Résultats bruts
+2. `EVAL_REPORT.md` - Rapport formatté
+3. `eval_config.yaml` - Configuration utilisée
+4. `policy_metadata.json` - Metadata policy (commit, config, etc.)
+5. `comparison_vs_baseline.png` - Graphique comparaison
+
+**Storage:**
+
+```
+evals/
+  2025-11-08_baseline/
+    eval_results.json
+    EVAL_REPORT.md
+    eval_config.yaml
+    policy_metadata.json
+  2025-11-09_feature_x/
+    ...
+```
+
+---
+
+## ANNEXE A: SCRIPTS UTILITAIRES
+
+### A.1 Generate Evaluation Report
+
+**Script:** `scripts/generate_eval_report.py`
+
+```python
+#!/usr/bin/env python3
+"""Generate formatted evaluation report from results JSON."""
+
+import json
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+def generate_report(results_path: Path, output_path: Path):
+    """Generate markdown report from eval results."""
+    
+    with open(results_path) as f:
+        results = json.load(f)
+    
+    report = f"""# Evaluation Report
+
+**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**Policy:** {results['policy_path']}
+**Episodes:** {results['num_episodes']:,}
+**Seed:** {results['seed']}
+
+## Summary
+
+"""
+    
+    for opponent, metrics in results['opponents'].items():
+        winrate = metrics['winrate']
+        ci_lower = metrics['ci_lower']
+        ci_upper = metrics['ci_upper']
+        
+        report += f"- **Winrate vs {opponent}:** {winrate:+.1f} ± {(ci_upper - ci_lower)/2:.1f} bb/100\n"
+    
+    report += "\n## Detailed Results\n\n"
+    
+    # Add detailed sections...
+    
+    output_path.write_text(report)
+    print(f"Report generated: {output_path}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--results', type=Path, required=True)
+    parser.add_argument('--out', type=Path, default=Path('EVAL_REPORT.md'))
+    args = parser.parse_args()
+    
+    generate_report(args.results, args.out)
+```
+
+### A.2 Compare Evaluations
+
+**Script:** `scripts/compare_evaluations.py`
+
+```python
+#!/usr/bin/env python3
+"""Compare two evaluation results."""
+
+import json
+import argparse
+from pathlib import Path
+
+def compare_evaluations(baseline_path: Path, feature_path: Path, output_path: Path):
+    """Compare two evaluations and generate report."""
+    
+    with open(baseline_path) as f:
+        baseline = json.load(f)
+    
+    with open(feature_path) as f:
+        feature = json.load(f)
+    
+    report = "# Evaluation Comparison\n\n"
+    report += f"**Baseline:** {baseline['policy_path']}\n"
+    report += f"**Feature:** {feature['policy_path']}\n\n"
+    report += "| Opponent | Baseline (bb/100) | Feature (bb/100) | Change | Status |\n"
+    report += "|----------|-------------------|------------------|--------|--------|\n"
+    
+    for opponent in baseline['opponents'].keys():
+        baseline_wr = baseline['opponents'][opponent]['winrate']
+        feature_wr = feature['opponents'][opponent]['winrate']
+        change = feature_wr - baseline_wr
+        pct_change = (change / abs(baseline_wr)) * 100 if baseline_wr != 0 else 0
+        
+        # Determine status
+        if abs(pct_change) < 5:
+            status = "✅ GREEN"
+        elif abs(pct_change) < 10:
+            status = "⚠️ YELLOW"
+        else:
+            status = "❌ RED"
+        
+        report += f"| {opponent} | {baseline_wr:+.1f} | {feature_wr:+.1f} | {change:+.1f} ({pct_change:+.1f}%) | {status} |\n"
+    
+    output_path.write_text(report)
+    print(f"Comparison report generated: {output_path}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--baseline', type=Path, required=True)
+    parser.add_argument('--feature', type=Path, required=True)
+    parser.add_argument('--out', type=Path, default=Path('comparison_report.md'))
+    args = parser.parse_args()
+    
+    compare_evaluations(args.baseline, args.feature, args.out)
+```
+
+---
+
+## ANNEXE B: RÉFÉRENCES
+
+1. **Brown & Sandholm (2019).** "Superhuman AI for multiplayer poker" - Science 365(6456):885-890
+   - Section "Evaluation" dans supplementary materials
+   - AIVAT description et validation
+
+2. **Johanson et al. (2011).** "Evaluating State-Space Abstractions in Extensive-Form Games"
+   - Métriques d'évaluation poker AI
+   - Exploitability mesure
+
+3. **Efron & Tibshirani (1994).** "An Introduction to the Bootstrap"
+   - Bootstrap confidence intervals
+   - Non-parametric statistics
+
+4. **Cohen (1988).** "Statistical Power Analysis for the Behavioral Sciences"
+   - Effect sizes (Cohen's d)
+   - Sample size calculations
+
+---
+
+**Version:** 1.0  
+**Dernière mise à jour:** 2025-11-08  
+**Maintenu par:** montana2ab
