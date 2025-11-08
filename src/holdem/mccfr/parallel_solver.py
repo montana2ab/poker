@@ -1,6 +1,7 @@
 """Parallel MCCFR solver using multiprocessing."""
 
 import multiprocessing as mp
+import platform
 import queue
 import time
 from pathlib import Path
@@ -16,6 +17,15 @@ from holdem.utils.timers import Timer
 
 logger = get_logger("mccfr.parallel_solver")
 
+# Platform detection for Apple Silicon optimization
+def _is_apple_silicon() -> bool:
+    """Detect if running on Apple Silicon (M1, M2, M3, etc.)."""
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+def _is_macos() -> bool:
+    """Detect if running on macOS."""
+    return platform.system() == "Darwin"
+
 # Worker timeout configuration
 # Adaptive timeout is calculated as max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
 # Each MCCFR iteration can take several seconds depending on game tree complexity,
@@ -23,13 +33,37 @@ logger = get_logger("mccfr.parallel_solver")
 WORKER_TIMEOUT_MIN_SECONDS = 300  # Minimum timeout in seconds (5 minutes)
 WORKER_TIMEOUT_MULTIPLIER = 10  # Multiplier for adaptive timeout based on batch size (seconds per iteration)
 
-# Queue operation timeouts
-QUEUE_GET_TIMEOUT_SECONDS = 0.01  # Timeout for queue.get() operations (10ms - keeps processes responsive)
+# Queue operation timeouts - platform specific
+# Apple Silicon (M1/M2/M3) requires longer timeouts to avoid excessive context switching
+# and scheduler thrashing. The aggressive 0.01s timeout causes progressive CPU collapse
+# on macOS due to the way the scheduler handles very short sleep/wake cycles.
+if _is_apple_silicon():
+    # Apple Silicon: Use longer timeouts to reduce context switching overhead
+    QUEUE_GET_TIMEOUT_SECONDS = 0.1  # 100ms - reduces GIL contention and context switches
+    QUEUE_GET_TIMEOUT_MIN = 0.05     # 50ms - minimum for backoff
+    QUEUE_GET_TIMEOUT_MAX = 0.5      # 500ms - maximum for backoff
+    logger.info("Detected Apple Silicon - using optimized queue timeouts for M1/M2/M3")
+elif _is_macos():
+    # Intel macOS: Slightly longer than Linux but not as much as Apple Silicon
+    QUEUE_GET_TIMEOUT_SECONDS = 0.05  # 50ms
+    QUEUE_GET_TIMEOUT_MIN = 0.02      # 20ms
+    QUEUE_GET_TIMEOUT_MAX = 0.2       # 200ms
+    logger.info("Detected Intel macOS - using optimized queue timeouts")
+else:
+    # Linux/Windows: More aggressive timeouts work well on x86
+    QUEUE_GET_TIMEOUT_SECONDS = 0.01  # 10ms - keeps processes responsive
+    QUEUE_GET_TIMEOUT_MIN = 0.01      # 10ms
+    QUEUE_GET_TIMEOUT_MAX = 0.1       # 100ms
+
 RESULT_PUT_TIMEOUT_SECONDS = 60  # Timeout for putting results in queue (60s - handles large payloads)
 ERROR_PUT_TIMEOUT_SECONDS = 5  # Timeout for putting error results (5s - shorter since errors are small)
 
 # Worker monitoring configuration
 WORKER_STATUS_CHECK_INTERVAL = 10  # Check worker status every N results collected
+
+# Backoff configuration for queue polling
+BACKOFF_MULTIPLIER = 1.5  # Exponential backoff multiplier
+MAX_EMPTY_POLLS = 5  # Maximum consecutive empty polls before increasing timeout
 
 # Optional TensorBoard support
 try:
@@ -467,12 +501,17 @@ class ParallelMCCFRSolver:
                     self._task_queue.put(task)
                     logger.debug(f"Dispatched task to worker queue: iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
                 
-                # Collect results from workers
-                # Use a very short timeout to minimize main process idle time and maintain high CPU usage
-                # This prevents the cyclic 100% -> 0% CPU pattern that occurs with long blocking waits
+                # Collect results from workers with adaptive backoff
+                # Adaptive backoff reduces context switching and GIL contention on macOS/Apple Silicon
+                # by progressively increasing the timeout when the queue is empty, then resetting
+                # when results arrive. This prevents the progressive CPU collapse seen with multiple workers.
                 results = []
                 timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
                 start_wait_time = time.time()
+                
+                # Adaptive timeout for queue polling
+                current_timeout = QUEUE_GET_TIMEOUT_SECONDS
+                consecutive_empty_polls = 0
                 
                 while len(results) < self.num_workers:
                     # Check if timeout exceeded
@@ -480,17 +519,32 @@ class ParallelMCCFRSolver:
                         logger.error(f"Timeout waiting for worker results after {timeout_seconds}s")
                         break
                     
-                    # Try to get result from queue with very short timeout
-                    # This keeps the main process actively checking the queue instead of blocking,
-                    # which maintains consistent CPU usage and prevents the sawtooth pattern
+                    # Try to get result from queue with adaptive timeout
+                    # The timeout increases with consecutive empty polls to reduce CPU thrashing,
+                    # then resets when results are found to maintain responsiveness
                     try:
-                        result = self._result_queue.get(timeout=QUEUE_GET_TIMEOUT_SECONDS)
+                        result = self._result_queue.get(timeout=current_timeout)
                         results.append(result)
                         logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
+                        
+                        # Reset adaptive timeout when we successfully get a result
+                        current_timeout = QUEUE_GET_TIMEOUT_SECONDS
+                        consecutive_empty_polls = 0
+                        
                     except queue.Empty:
-                        # Queue empty or timeout, continue waiting
-                        # Very short timeout means we check again almost immediately
-                        pass
+                        # Queue empty - apply exponential backoff to reduce CPU overhead
+                        consecutive_empty_polls += 1
+                        
+                        if consecutive_empty_polls >= MAX_EMPTY_POLLS:
+                            # Increase timeout to reduce polling frequency
+                            current_timeout = min(
+                                current_timeout * BACKOFF_MULTIPLIER,
+                                QUEUE_GET_TIMEOUT_MAX
+                            )
+                            # Log backoff on first occurrence to help diagnose performance issues
+                            if consecutive_empty_polls == MAX_EMPTY_POLLS:
+                                logger.debug(f"Queue empty after {consecutive_empty_polls} polls, "
+                                           f"increasing timeout to {current_timeout:.3f}s")
                     
                     # Check if any worker has died unexpectedly
                     # Check on first result and then periodically to balance overhead vs responsiveness
