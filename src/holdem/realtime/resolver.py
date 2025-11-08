@@ -82,9 +82,11 @@ class SubgameResolver:
         import time
         start_time = time.time()
         iterations = 0
+        total_kl = 0.0
         
         while iterations < self.config.min_iterations:
-            self._cfr_iteration(subgame, infoset, blueprint_strategy)
+            kl_div = self._cfr_iteration(subgame, infoset, blueprint_strategy)
+            total_kl += kl_div
             iterations += 1
             
             # Check time budget
@@ -95,7 +97,9 @@ class SubgameResolver:
         # Get solution strategy
         strategy = self.regret_tracker.get_average_strategy(infoset, actions)
         
-        logger.debug(f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms)")
+        # Log final statistics including KL divergence
+        avg_kl = total_kl / iterations if iterations > 0 else 0.0
+        logger.debug(f"Resolved subgame in {iterations} iterations ({elapsed_ms:.1f}ms), avg KL divergence: {avg_kl:.6f}")
         
         return strategy
     
@@ -104,7 +108,7 @@ class SubgameResolver:
         subgame: SubgameTree,
         infoset: str,
         blueprint_strategy: Dict[AbstractAction, float]
-    ):
+    ) -> float:
         """Run one CFR iteration with KL regularization.
         
         LIMITATION: This is a simplified utility calculation that does not fully
@@ -121,11 +125,17 @@ class SubgameResolver:
             subgame: Subgame tree to solve
             infoset: Current information set
             blueprint_strategy: Blueprint strategy for KL regularization
+            
+        Returns:
+            KL divergence from blueprint strategy
         """
         actions = subgame.get_actions(infoset)
         
         # Get current strategy (warm-started from blueprint if available)
         current_strategy = self.regret_tracker.get_strategy(infoset, actions)
+        
+        # Calculate KL divergence from blueprint (explicit calculation)
+        kl_divergence = self._kl_divergence(current_strategy, blueprint_strategy)
         
         # Sample action
         action_probs = [current_strategy.get(a, 0.0) for a in actions]
@@ -145,9 +155,8 @@ class SubgameResolver:
         # - Backpropagate values through the tree
         utility = self.rng.uniform(-1.0, 1.0)
         
-        # Add KL divergence penalty to stay close to blueprint
-        kl_penalty = self._kl_divergence(current_strategy, blueprint_strategy)
-        utility -= self.config.kl_divergence_weight * kl_penalty
+        # Apply KL divergence penalty to stay close to blueprint
+        utility -= self.config.kl_weight * kl_divergence
         
         # Update regrets
         for action in actions:
@@ -158,6 +167,8 @@ class SubgameResolver:
         
         # Add to strategy sum
         self.regret_tracker.add_strategy(infoset, current_strategy, 1.0)
+        
+        return kl_divergence
     
     def _kl_divergence(
         self,
