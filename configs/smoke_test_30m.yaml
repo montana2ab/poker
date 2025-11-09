@@ -1,0 +1,94 @@
+# Smoke Test Configuration - 30 minutes
+# Configuration complète avec toutes les fonctionnalités activées
+# - DCFR (Discounted CFR+)
+# - LCFR (Linear CFR)
+# - External Sampling (via MCCFR standard)
+# - NRP (Negative Regret Pruning via external_sampling)
+# - Parallélisation automatique
+# - TensorBoard
+# - Checkpoints fréquents
+# - Epsilon schedule compressé
+
+# Training mode: time-budget (30 minutes)
+time_budget_seconds: 1800  # 30 minutes
+# num_iterations: disabled (using time-budget)
+
+# Snapshot configuration - sauvegardes fréquentes pour smoke test
+snapshot_interval_seconds: 180  # Sauvegarde toutes les 3 minutes (10 snapshots en 30 min)
+
+# Linear MCCFR parameters (LCFR)
+use_linear_weighting: true  # Active LCFR avec pondération linéaire ∝ t
+discount_interval: 500  # Applique le discount toutes les 500 iterations (fréquent pour smoke test)
+
+# DCFR/CFR+ mode - Discounted CFR+
+discount_mode: "dcfr"  # Mode DCFR avec discount adaptatif
+                       # α = (t + d) / (t + 2d) pour les regrets
+                       # β = t / (t + d) pour la stratégie
+dcfr_reset_negative_regrets: true  # CFR+: Reset des regrets négatifs à 0
+
+# Note: Les paramètres statiques ci-dessous sont ignorés en mode DCFR
+regret_discount_alpha: 1.0  # (ignoré en mode dcfr)
+strategy_discount_beta: 1.0  # (ignoré en mode dcfr)
+
+# Epsilon schedule compressé pour 30 minutes
+# Avec parallélisation, on peut atteindre ~500-1000 iter/s
+# soit ~900K-1.8M iterations en 30 minutes
+epsilon_schedule:
+  - [0,       0.60]  # Bootstrap: exploration élevée au départ
+  - [50000,   0.40]  # Réduction rapide après 50K iterations
+  - [200000,  0.25]  # Exploration modérée
+  - [500000,  0.15]  # Réduction pour favoriser l'exploitation
+  - [1000000, 0.08]  # Très faible exploration en fin de run
+
+# Dynamic pruning (valeurs Pluribus paper)
+enable_pruning: true
+pruning_threshold: -300000000.0  # -300M comme dans Pluribus
+pruning_probability: 0.95  # Skip iteration avec 95% de probabilité quand en dessous du seuil
+
+# Parallélisation automatique
+num_workers: 0  # 0 = auto-detect (utilise tous les cores CPU disponibles)
+                # Sur Mac M2: 8 cores standard, 10-12 cores Pro/Max
+                # Sur serveur: peut utiliser 16, 32, 64+ cores
+batch_size: 100  # Nombre d'itérations par batch worker (optimal pour la plupart des cas)
+
+# TensorBoard logging
+tensorboard_log_interval: 500  # Log toutes les 500 iterations (fréquent pour smoke test)
+                               # Permet de suivre en temps réel l'évolution
+
+# Preflop equity optimization
+preflop_equity_samples: 100  # Échantillons d'équité preflop (100 = standard)
+
+# External Sampling et NRP (Negative Regret Pruning)
+# Note: Ces fonctionnalités sont intégrées dans l'implémentation MCCFR standard
+# - External sampling: utilisé par défaut dans MCCFRSolver
+# - NRP: activé via enable_nrp dans ExternalSampler (activé par défaut)
+
+# Adaptive epsilon (désactivé pour smoke test - on utilise epsilon_schedule)
+adaptive_epsilon_enabled: false
+
+# Notes d'utilisation:
+#
+# Lancer le smoke test avec:
+#   python -m holdem.cli.train_blueprint \
+#       --config configs/smoke_test_30m.yaml \
+#       --buckets assets/abstraction/precomputed_buckets.pkl \
+#       --logdir runs/smoke_test_30m
+#
+# Monitorer avec TensorBoard:
+#   tensorboard --logdir runs/smoke_test_30m/tensorboard
+#
+# Performance attendue (avec parallélisation):
+#   - Mac M2 (8 cores): ~600-800 iter/s → ~1.1M-1.4M iterations en 30 min
+#   - Mac M2 Pro (10-12 cores): ~800-1000 iter/s → ~1.4M-1.8M iterations en 30 min
+#   - Serveur (32+ cores): ~2000+ iter/s → ~3.6M+ iterations en 30 min
+#
+# Fonctionnalités activées:
+#   ✓ DCFR (Discounted CFR+) avec reset des regrets négatifs
+#   ✓ LCFR (Linear CFR) avec pondération linéaire
+#   ✓ External Sampling (implémentation standard MCCFR)
+#   ✓ NRP (Negative Regret Pruning)
+#   ✓ Parallélisation automatique (tous les cores CPU)
+#   ✓ TensorBoard avec logs fréquents (toutes les 500 iterations)
+#   ✓ Checkpoints fréquents (toutes les 3 minutes)
+#   ✓ Epsilon schedule compressé optimisé pour 30 minutes
+#   ✓ Dynamic pruning (valeurs Pluribus)
