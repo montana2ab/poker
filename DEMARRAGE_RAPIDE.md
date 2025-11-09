@@ -45,6 +45,7 @@ python -m holdem.cli.run_dry_run \
 - **Démarrage rapide:** `README_AUTO_CAPTURE.md`
 - **Guide complet:** `GUIDE_AUTO_CAPTURE.md`
 - **Configuration:** `GUIDE_CORRECTION_CARTES.md`
+- **Création de buckets:** `GUIDE_CREATION_BUCKETS.md` - Guide détaillé pour créer buckets.pkl
 
 ## ❓ Besoin d'Aide ?
 
