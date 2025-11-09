@@ -122,11 +122,9 @@ def persistent_worker_process(
         
         while True:
             # Wait for task from main process
-            # Use shorter timeout to keep worker responsive and maintain CPU usage
-            try:
-                task = task_queue.get(timeout=QUEUE_GET_TIMEOUT_SECONDS)
-            except queue.Empty:
-                continue
+            # Block indefinitely to avoid busy-wait polling that causes CPU overhead
+            # Workers should sleep until work arrives, not poll with timeouts
+            task = task_queue.get()  # Blocking call - no timeout
             
             # Check for shutdown signal
             if task is None or task.get('shutdown', False):
