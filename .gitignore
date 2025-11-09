@@ -70,3 +70,6 @@ assets/samples/*.png
 assets/abstraction/precomputed_buckets.pkl
 assets/table_profiles/*_reference.npy
 assets/table_profiles/*_descriptors.npy
+
+# Abstraction data
+data/abstractions/

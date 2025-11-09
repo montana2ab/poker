@@ -4,15 +4,39 @@ Ce guide détaillé explique comment créer un fichier `buckets.pkl` pour l'abst
 
 ## Table des Matières
 
+0. [Démarrage Rapide (Quick Start)](#démarrage-rapide-quick-start)
 1. [Introduction](#introduction)
 2. [Qu'est-ce qu'un bucket ?](#quest-ce-quun-bucket)
 3. [Architecture du Système](#architecture-du-système)
 4. [Fonctions Implémentées](#fonctions-implémentées)
 5. [Création de buckets.pkl - Méthode Simple](#création-de-bucketspkl---méthode-simple)
 6. [Création de buckets.pkl - Méthode Avancée](#création-de-bucketspkl---méthode-avancée)
-7. [Options de Configuration](#options-de-configuration)
-8. [Validation et Tests](#validation-et-tests)
-9. [Dépannage](#dépannage)
+7. [Création de buckets.pkl - Méthode pack_buckets.py (Fusion street)](#création-de-bucketspkl---méthode-pack_bucketspy-fusion-street)
+8. [Options de Configuration](#options-de-configuration)
+9. [Validation et Tests](#validation-et-tests)
+10. [Dépannage](#dépannage)
+
+---
+
+## Démarrage Rapide (Quick Start)
+
+**Vous voulez juste créer `buckets.pkl` rapidement ?**
+
+```bash
+# Méthode recommandée : tout en une commande (30-60 minutes)
+python pack_buckets.py --build-all
+```
+
+C'est tout ! Le fichier `assets/abstraction/buckets.pkl` sera créé et prêt pour l'entraînement.
+
+**Validation rapide :**
+
+```bash
+python validate_buckets.py assets/abstraction/buckets.pkl
+```
+
+**Pour les impatients :**  
+Continuez à lire pour comprendre comment ça marche et personnaliser la configuration.
 
 ---
 
@@ -500,6 +524,234 @@ python custom_buckets_config.py balanced
 python custom_buckets_config.py hq
 ```
 
+## Création de buckets.pkl - Méthode pack_buckets.py (Fusion street)
+
+### Vue d'ensemble
+
+La méthode **pack_buckets.py** est une approche hybride qui combine les avantages des scripts `build_flop.py`, `build_turn.py`, `build_river.py` (haute qualité k-medoids) avec la simplicité d'utilisation de `buckets.pkl`. Cette méthode est idéale pour la production car elle offre le meilleur des deux mondes.
+
+### Avantages
+
+- ✓ Utilise k-medoids pour flop/turn/river (meilleure qualité)
+- ✓ Produit un fichier `buckets.pkl` compatible avec l'entraînement
+- ✓ Réutilisable : pas besoin de tout recalculer
+- ✓ Checksums SHA-256 pour vérification d'intégrité
+- ✓ Flexible : peut utiliser des fichiers street existants ou les créer
+
+### Principe de Fonctionnement
+
+```
+┌─────────────────┐
+│  build_flop.py  │──► flop_medoids_8000.npy
+└─────────────────┘    flop_normalization_8000.npz
+                       flop_checksum_8000.txt
+
+┌─────────────────┐
+│  build_turn.py  │──► turn_medoids_2000.npy
+└─────────────────┘    turn_normalization_2000.npz
+                       turn_checksum_2000.txt
+
+┌─────────────────┐
+│ build_river.py  │──► river_medoids_400.npy
+└─────────────────┘    river_normalization_400.npz
+                       river_checksum_400.txt
+
+          ▼ ▼ ▼
+
+┌─────────────────┐
+│ pack_buckets.py │──► buckets.pkl
+└─────────────────┘    (Preflop + Flop + Turn + River)
+                       ✓ Prêt pour l'entraînement
+```
+
+### Installation
+
+Le script `pack_buckets.py` se trouve à la racine du projet :
+
+```bash
+ls -l pack_buckets.py
+```
+
+### Utilisation Rapide (Mode Pack Only)
+
+Si vous avez **déjà généré** les abstractions street séparément :
+
+```bash
+# Fusionner en buckets.pkl (quelques secondes seulement)
+python pack_buckets.py --pack-only
+```
+
+Cette commande :
+1. Charge les medoids des fichiers `data/abstractions/{flop,turn,river}/`
+2. Crée l'abstraction preflop
+3. Fusionne tout dans `assets/abstraction/buckets.pkl`
+
+### Utilisation Complète (Mode Build All)
+
+Pour **tout construire en une seule commande** (30-60 minutes) :
+
+```bash
+# Configuration par défaut (recommandée)
+python pack_buckets.py --build-all
+```
+
+Ceci va :
+1. Construire l'abstraction flop (8000 buckets)
+2. Construire l'abstraction turn (2000 buckets)
+3. Construire l'abstraction river (400 buckets)
+4. Construire l'abstraction preflop (24 buckets)
+5. Fusionner tout dans `buckets.pkl`
+
+### Configuration Personnalisée
+
+```bash
+# Personnaliser le nombre de buckets et samples
+python pack_buckets.py --build-all \
+    --preflop-buckets 24 \
+    --flop-buckets 10000 \
+    --turn-buckets 3000 \
+    --river-buckets 500 \
+    --flop-samples 60000 \
+    --turn-samples 40000 \
+    --river-samples 25000 \
+    --preflop-samples 150000 \
+    --seed 42
+```
+
+### Workflow Recommandé en 2 Étapes
+
+Pour un contrôle maximal, construisez d'abord les abstractions street séparément :
+
+```bash
+# Étape 1 : Construire les abstractions street (une fois)
+python abstraction/build_flop.py --buckets 8000 --samples 50000 \
+    --output data/abstractions/flop --seed 42
+
+python abstraction/build_turn.py --buckets 2000 --samples 30000 \
+    --output data/abstractions/turn --seed 42
+
+python abstraction/build_river.py --buckets 400 --samples 20000 \
+    --output data/abstractions/river --seed 42
+
+# Étape 2 : Fusionner en buckets.pkl (rapide, réutilisable)
+python pack_buckets.py --pack-only \
+    --preflop-buckets 24 \
+    --flop-buckets 8000 \
+    --turn-buckets 2000 \
+    --river-buckets 400 \
+    --output assets/abstraction/buckets.pkl \
+    --seed 42
+```
+
+**Avantage :** Si vous voulez régénérer `buckets.pkl` avec une configuration preflop différente, vous n'avez qu'à réexécuter l'étape 2 (quelques secondes au lieu de 30-60 minutes).
+
+### Spécifier des Répertoires Personnalisés
+
+```bash
+python pack_buckets.py --pack-only \
+    --flop-dir /chemin/vers/flop \
+    --turn-dir /chemin/vers/turn \
+    --river-dir /chemin/vers/river \
+    --output /chemin/vers/buckets.pkl
+```
+
+### Vérification
+
+Après création, vérifiez que `buckets.pkl` est valide :
+
+```python
+#!/usr/bin/env python3
+from pathlib import Path
+from holdem.abstraction.bucketing import HandBucketing
+from holdem.types import Street
+
+# Charger le fichier fusionné
+bucketing = HandBucketing.load(Path("assets/abstraction/buckets.pkl"))
+
+# Vérifier tous les modèles
+for street in Street:
+    k = bucketing._get_k_for_street(street)
+    print(f"{street.name}: {k} buckets ✓")
+
+print("\n✓ buckets.pkl est valide et prêt à l'emploi!")
+```
+
+Résultat attendu :
+```
+PREFLOP: 24 buckets ✓
+FLOP: 8000 buckets ✓
+TURN: 2000 buckets ✓
+RIVER: 400 buckets ✓
+
+✓ buckets.pkl est valide et prêt à l'emploi!
+```
+
+### Test Fonctionnel
+
+Testez avec une main réelle :
+
+```python
+from holdem.types import Card, Street
+from holdem.abstraction.bucketing import HandBucketing
+from pathlib import Path
+
+# Charger
+bucketing = HandBucketing.load(Path("assets/abstraction/buckets.pkl"))
+
+# Tester avec AKs au flop
+hole_cards = [Card('A', 's'), Card('K', 's')]
+board = [Card('Q', 's'), Card('J', 'h'), Card('9', 'd')]
+
+bucket = bucketing.get_bucket(
+    hole_cards=hole_cards,
+    board=board,
+    street=Street.FLOP,
+    pot=100.0,
+    stack=200.0,
+    is_in_position=True
+)
+
+print(f"Main: {hole_cards[0]}{hole_cards[1]}")
+print(f"Board: {board[0]}{board[1]}{board[2]}")
+print(f"Bucket: {bucket} / 8000")
+print("✓ Bucketing fonctionne correctement!")
+```
+
+### Résolution de Problèmes
+
+**Erreur : "Flop medoids file not found"**
+
+```bash
+# Les fichiers street n'existent pas, utiliser --build-all
+python pack_buckets.py --build-all
+```
+
+**Erreur : "sklearn-extra not installed"**
+
+Ce n'est pas un problème ! Le script utilise automatiquement KMeans comme fallback.
+
+**Fichier buckets.pkl trop volumineux**
+
+Réduisez le nombre de buckets :
+```bash
+python pack_buckets.py --build-all \
+    --flop-buckets 5000 \
+    --turn-buckets 1000 \
+    --river-buckets 200
+```
+
+### Comparaison avec les Autres Méthodes
+
+| Critère | Méthode Simple | Méthode Avancée | **pack_buckets.py** |
+|---------|---------------|-----------------|---------------------|
+| Facilité | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Qualité | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Contrôle | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Réutilisable | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Production | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+
+**Recommandation :** Utilisez `pack_buckets.py` pour la production et l'entraînement sérieux.
+
 ## Options de Configuration
 
 ### BucketConfig
@@ -844,18 +1096,158 @@ for hand_state in game_states:
 
 **Utilisation recommandée :** Recherche, expérimentation, analyse approfondie
 
+### Méthode pack_buckets.py (Nouveau : Fusion des fichiers street)
+
+**Description :**
+
+Le script `pack_buckets.py` permet de fusionner les fichiers générés par les scripts `build_flop.py`, `build_turn.py`, et `build_river.py` en un seul fichier `buckets.pkl` utilisable directement pour l'entraînement. Cette méthode combine les avantages des deux approches précédentes.
+
+**Avantages :**
+- Utilise les abstractions k-medoids haute qualité pour flop/turn/river
+- Produit un fichier `buckets.pkl` compatible avec HandBucketing
+- Permet l'utilisation immédiate dans l'entraînement
+- Checksums SHA-256 disponibles pour chaque street
+- Réutilisable : pas besoin de recalculer si les fichiers street existent
+
+**Fonctionnement :**
+1. Génère les abstractions street par street (ou utilise les fichiers existants)
+2. Charge les medoids et paramètres de normalisation
+3. Crée des modèles KMeans à partir des medoids
+4. Construit l'abstraction preflop
+5. Fusionne tout dans un fichier `buckets.pkl`
+
+**Utilisation - Mode Pack Only (Rapide) :**
+
+Si vous avez déjà généré les fichiers street séparément :
+
+```bash
+# D'abord, générer les abstractions individuelles
+python abstraction/build_flop.py --buckets 8000 --samples 50000 --output data/abstractions/flop
+python abstraction/build_turn.py --buckets 2000 --samples 30000 --output data/abstractions/turn
+python abstraction/build_river.py --buckets 400 --samples 20000 --output data/abstractions/river
+
+# Ensuite, fusionner en buckets.pkl (quelques secondes)
+python pack_buckets.py --pack-only
+```
+
+**Utilisation - Mode Build All (Tout-en-un) :**
+
+Pour tout construire en une seule commande (30-60 minutes) :
+
+```bash
+# Configuration par défaut (recommandée)
+python pack_buckets.py --build-all
+
+# Configuration personnalisée
+python pack_buckets.py --build-all \
+    --preflop-buckets 24 \
+    --flop-buckets 10000 \
+    --turn-buckets 3000 \
+    --river-buckets 500 \
+    --flop-samples 50000 \
+    --turn-samples 30000 \
+    --river-samples 20000
+```
+
+**Configuration avancée :**
+
+```bash
+# Spécifier les répertoires et chemins de sortie
+python pack_buckets.py --pack-only \
+    --flop-dir data/abstractions/flop \
+    --turn-dir data/abstractions/turn \
+    --river-dir data/abstractions/river \
+    --output assets/abstraction/buckets.pkl \
+    --preflop-buckets 24 \
+    --flop-buckets 8000 \
+    --turn-buckets 2000 \
+    --river-buckets 400 \
+    --seed 42
+```
+
+**Exemple de workflow complet :**
+
+```python
+#!/usr/bin/env python3
+"""Workflow complet pour créer des buckets optimisés"""
+
+import subprocess
+from pathlib import Path
+
+# Étape 1 : Construire les abstractions street avec k-medoids
+print("Building street abstractions...")
+subprocess.run([
+    "python", "abstraction/build_flop.py",
+    "--buckets", "8000",
+    "--samples", "50000",
+    "--output", "data/abstractions/flop"
+])
+
+subprocess.run([
+    "python", "abstraction/build_turn.py", 
+    "--buckets", "2000",
+    "--samples", "30000",
+    "--output", "data/abstractions/turn"
+])
+
+subprocess.run([
+    "python", "abstraction/build_river.py",
+    "--buckets", "400",
+    "--samples", "20000",
+    "--output", "data/abstractions/river"
+])
+
+# Étape 2 : Fusionner en buckets.pkl
+print("Packing into buckets.pkl...")
+subprocess.run([
+    "python", "pack_buckets.py",
+    "--pack-only",
+    "--output", "assets/abstraction/buckets.pkl"
+])
+
+print("Done! buckets.pkl is ready for training.")
+```
+
+**Vérification :**
+
+```python
+from pathlib import Path
+from holdem.abstraction.bucketing import HandBucketing
+
+# Charger le fichier fusionné
+bucketing = HandBucketing.load(Path("assets/abstraction/buckets.pkl"))
+
+# Vérifier que tous les modèles sont présents
+from holdem.types import Street
+for street in Street:
+    assert street in bucketing.models
+    print(f"{street.name}: {bucketing._get_k_for_street(street)} buckets")
+
+print("✓ buckets.pkl est valide et prêt à l'emploi")
+```
+
+**Utilisation recommandée :** Production avec contrôle fin, recherche avec réutilisation
+
 ## Recommandations Finales
 
 ### Pour Débuter
-1. Utilisez la **méthode simple** avec configuration balanced
+1. Utilisez **pack_buckets.py --build-all** (méthode recommandée)
 2. Temps: ~30-45 minutes
 3. Fichier: `assets/abstraction/buckets.pkl`
+4. Qualité: Haute (k-medoids pour flop/turn/river)
 
 ### Pour Production
-1. Utilisez la **configuration haute qualité**
-2. `num_samples=500000` minimum
-3. `equity_samples=500` dans les features
+1. Utilisez **pack_buckets.py** en 2 étapes :
+   - Étape 1 : Construire les abstractions street individuellement avec `num_samples` élevé
+   - Étape 2 : Fusionner avec `--pack-only`
+2. Configuration recommandée :
+   - Flop: 8000-10000 buckets, 50000-60000 samples
+   - Turn: 2000-3000 buckets, 30000-40000 samples
+   - River: 400-500 buckets, 20000-25000 samples
+   - Preflop: 24 buckets, 100000-150000 samples
+3. `equity_samples=500` dans les features (pour runtime)
 4. Validez avec `validate_buckets.py`
+5. Conservez les checksums SHA-256 pour vérification
 
 ### Pour Recherche
 1. Utilisez les **scripts build_*.py**
@@ -884,6 +1276,7 @@ for hand_state in game_states:
 - `abstraction/build_flop.py` - Script construction flop
 - `abstraction/build_turn.py` - Script construction turn
 - `abstraction/build_river.py` - Script construction river
+- `pack_buckets.py` - **[NOUVEAU]** Script de fusion des fichiers street → buckets.pkl
 
 ### Dépendances
 - `numpy` - Calculs numériques
