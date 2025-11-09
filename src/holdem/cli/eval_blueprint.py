@@ -17,6 +17,12 @@ def main():
                        help="Number of evaluation episodes")
     parser.add_argument("--out", type=Path,
                        help="Output results file (JSON)")
+    parser.add_argument("--duplicate", type=int, default=0,
+                       help="Duplicate parameter for evaluation")
+    parser.add_argument("--translator", type=str, default="balanced",
+                       help="Translator type for evaluation")
+    parser.add_argument("--seed", type=int, default=42,
+                       help="Random seed for evaluation")
     
     args = parser.parse_args()
     
@@ -30,7 +36,7 @@ def main():
     logger.info(f"Policy has {policy.num_infosets()} infosets")
     
     # Create evaluator
-    evaluator = Evaluator(policy)
+    evaluator = Evaluator(policy, duplicate=args.duplicate, translator=args.translator, seed=args.seed)
     
     # Run evaluation
     logger.info(f"Evaluating over {args.episodes} episodes")

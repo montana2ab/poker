@@ -20,7 +20,8 @@ class Evaluator:
     """Evaluates policy against baseline agents."""
     
     def __init__(self, policy: PolicyStore, use_aivat: bool = False, num_players: int = 9,
-                 confidence_level: float = 0.95, target_margin: Optional[float] = None):
+                 confidence_level: float = 0.95, target_margin: Optional[float] = None,
+                 duplicate: int = 0, translator: str = "balanced", seed: int = 42):
         """Initialize evaluator.
         
         Args:
@@ -29,12 +30,18 @@ class Evaluator:
             num_players: Number of players (for AIVAT). Use 2 for heads-up evaluation.
             confidence_level: Confidence level for CI (default: 0.95 for 95% CI)
             target_margin: Target margin of error for evaluation (optional)
+            duplicate: Duplicate parameter for evaluation
+            translator: Translator type for evaluation
+            seed: Random seed for evaluation
         """
         self.policy = policy
         self.use_aivat = use_aivat
         self.num_players = num_players
         self.confidence_level = confidence_level
         self.target_margin = target_margin
+        self.duplicate = duplicate
+        self.translator = translator
+        self.seed = seed
         self.baselines = [
             RandomAgent(),
             AlwaysCallAgent(),
