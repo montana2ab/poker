@@ -4,6 +4,7 @@ Ce guide détaillé explique comment créer un fichier `buckets.pkl` pour l'abst
 
 ## Table des Matières
 
+0. [Démarrage Rapide (Quick Start)](#démarrage-rapide-quick-start)
 1. [Introduction](#introduction)
 2. [Qu'est-ce qu'un bucket ?](#quest-ce-quun-bucket)
 3. [Architecture du Système](#architecture-du-système)
@@ -14,6 +15,28 @@ Ce guide détaillé explique comment créer un fichier `buckets.pkl` pour l'abst
 8. [Options de Configuration](#options-de-configuration)
 9. [Validation et Tests](#validation-et-tests)
 10. [Dépannage](#dépannage)
+
+---
+
+## Démarrage Rapide (Quick Start)
+
+**Vous voulez juste créer `buckets.pkl` rapidement ?**
+
+```bash
+# Méthode recommandée : tout en une commande (30-60 minutes)
+python pack_buckets.py --build-all
+```
+
+C'est tout ! Le fichier `assets/abstraction/buckets.pkl` sera créé et prêt pour l'entraînement.
+
+**Validation rapide :**
+
+```bash
+python validate_buckets.py assets/abstraction/buckets.pkl
+```
+
+**Pour les impatients :**  
+Continuez à lire pour comprendre comment ça marche et personnaliser la configuration.
 
 ---
 
