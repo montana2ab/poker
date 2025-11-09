@@ -615,19 +615,32 @@ class ParallelMCCFRSolver:
                         current_timeout = QUEUE_GET_TIMEOUT_SECONDS
                         consecutive_empty_polls = 0
                         
+                        # Brief pause to allow other workers to complete and put results in queue
+                        # This reduces failed drain attempts and kerneltask CPU overhead
+                        if len(results) < active_workers:
+                            time.sleep(0.003)  # 3ms grace period for other workers
+                        
                         # Batch collection: When we get one result, drain any other immediately available
                         # results from the queue without waiting. This reduces synchronization overhead
                         # when multiple workers complete around the same time (common pattern).
-                        while len(results) < active_workers:
+                        # Limit drain attempts to avoid excessive system calls that cause kerneltask CPU spikes
+                        max_drain_attempts = 3  # Limit rapid polling to reduce kerneltask overhead
+                        drain_attempts = 0
+                        while len(results) < active_workers and drain_attempts < max_drain_attempts:
                             try:
-                                # Use very short timeout (non-blocking) to drain available results
-                                extra_result = self._result_queue.get(timeout=0.001)
+                                # Use slightly longer timeout to reduce system call frequency
+                                # 5ms is long enough to reduce kerneltask CPU but short enough to drain quickly
+                                extra_result = self._result_queue.get(timeout=0.005)
                                 results.append(extra_result)
+                                drain_attempts = 0  # Reset counter when we find results
                                 logger.debug(f"Batch collected result from worker {extra_result['worker_id']} "
                                            f"({len(results)}/{active_workers})")
                             except queue.Empty:
-                                # No more results immediately available, break inner loop
-                                break
+                                # No more results immediately available
+                                drain_attempts += 1
+                                # Add small delay to reduce polling frequency and kerneltask CPU
+                                if drain_attempts < max_drain_attempts:
+                                    time.sleep(0.002)  # 2ms delay between failed drain attempts
                         
                     except queue.Empty:
                         # Queue empty - apply exponential backoff to reduce CPU overhead
