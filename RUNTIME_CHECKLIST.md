@@ -571,6 +571,155 @@ dd if=/dev/zero of=/tmp/test bs=1M count=1024
 
 ---
 
-**Version:** 1.0  
-**Dernière mise à jour:** 2025-11-08  
+## ANNEXE C: SEUILS CIBLES (TARGET THRESHOLDS)
+
+### Performance Runtime Targets
+
+Ces seuils définissent les objectifs de performance pour le système en temps réel.
+
+#### Budget Décision
+- **Target:** `p95 rt/decision_time_ms ≤ 110 ms`
+- **Hard limit:** `p99 rt/decision_time_ms ≤ 160 ms`
+- **Métrique:** `rt/decision_time_ms` (percentiles p50, p95, p99)
+- **Validation:** Mesurer sur 1000+ décisions en conditions réelles
+
+#### Fallback Sûr
+- **Target online:** `rt/failsafe_fallback_rate ≤ 5%` sur 100k décisions
+- **Target offline:** `rt/failsafe_fallback_rate = 0%` lors des replays offline
+- **Métrique:** `rt/failsafe_fallback_rate` = total_fallbacks / total_solves
+- **Validation:** Logger tous les fallbacks et analyser les causes
+
+#### Itérations
+- **Target median:** `rt/iterations ≥ 600` (médiane)
+- **Hard minimum:** `min_iterations = 400`
+- **Métrique:** `rt/iterations` (médiane, p25, p75)
+- **Validation:** Profiler le temps par itération
+
+#### Gain EV
+- **Target:** Médiane `rt/ev_delta_bbs > 0` sur corpus ≥ 5k états figés
+- **Significance:** CI95 strictement > 0 (pas de chevauchement avec 0)
+- **Métrique:** `rt/ev_delta_bbs` (médiane, moyenne, CI95)
+- **Validation:** Tests statistiques avec bootstrap
+
+#### KL Régularisation
+- **Target:** `policy/kl_to_blueprint_root p50 ∈ [0.05, 0.25]`
+- **Rationale:** Évite surfit (KL trop bas) et drift (KL trop haut)
+- **Métrique:** `policy/kl_to_blueprint_root` (par street et position)
+- **Validation:** Tuning de `kl_weight` pour respecter la fourchette
+
+#### Translator
+- **Target roundtrip:** `translator/illegal_after_roundtrip == 0` (strict)
+- **Target oscillation:** `oscillation_rate < 0.1%` des décisions
+- **Métriques:** 
+  - `translator/illegal_after_roundtrip` (count)
+  - `translator/oscillation_rate` (%)
+- **Validation:** Tests idempotence avec jitter amounts
+
+#### Vision
+- **Target debounce:** Filtrer ≥ 50-70% des frames "bruitées"
+- **Target OCR:** MAE montants < 0.02 (2 centimes sur échelle [0,1])
+- **Métriques:**
+  - `vision/debounce_filter_rate` (%)
+  - `vision/ocr_mae_amounts` (MAE)
+- **Validation:** Corpus annoté de frames bruitées vs. vraies
+
+#### Abstraction
+- **Target balance:** `abstraction/bucket_pop_std < 2.0` (100k flops tirés)
+- **Target collision:** `abstraction/collision_rate ≈ 0` (< 0.001)
+- **Métriques:**
+  - `abstraction/bucket_pop_std` (écart-type des populations)
+  - `abstraction/collision_rate` (taux de collisions)
+- **Validation:** Simulation Monte Carlo sur espace des boards
+
+### Commandes de Validation
+
+```bash
+# 1. Budget décision - profiler latence
+python -m holdem.cli.benchmark_decisions \
+  --corpus runs/corpus/frozen_states_5k.json \
+  --budget 80 --budget 100 --budget 120 \
+  --mode tight --mode balanced --mode loose \
+  --output runs/bench/runtime_{mode}_{budget}.json
+
+# 2. Fallback rate - test avec contraintes temps
+pytest tests/test_fallback_and_metrics.py -v
+
+# 3. Itérations - vérifier médiane
+python -c "
+from holdem.rt_resolver.depth_limited_cfr import DepthLimitedCFR
+# ... charger solver
+metrics = solver.get_metrics()
+print(f'Iterations: {metrics[\"rt/iterations\"]:.0f}')
+"
+
+# 4. Gain EV - évaluation statistique
+python -m holdem.cli.eval_ev_delta \
+  --corpus runs/corpus/frozen_states_5k.json \
+  --blueprint runs/blueprint/avg_policy.json \
+  --num-samples 5000 \
+  --output runs/eval/ev_delta_stats.json
+
+# 5. KL régularisation - mesurer divergence
+python -m holdem.cli.measure_kl \
+  --resolved-strategies runs/resolved/*.json \
+  --blueprint runs/blueprint/avg_policy.json \
+  --output runs/metrics/kl_divergence.json
+
+# 6. Translator - test roundtrip
+pytest tests/test_action_translator.py::test_anti_oscillation_min_raise -v
+
+# 7. Vision - test debounce
+pytest tests/test_state_debounce.py::test_debounce_no_resolve_on_noise -v
+
+# 8. Abstraction - vérifier balance buckets
+pytest tests/test_bucket_validation.py -v
+python -m holdem.cli.analyze_buckets \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --samples 100000 \
+  --output runs/metrics/bucket_stats.json
+```
+
+### Dashboard Métriques Clés
+
+Pour monitoring en temps réel (Grafana/TensorBoard):
+
+```python
+# Métriques à logger dans TensorBoard
+metrics = {
+    # Performance
+    'rt/decision_time_ms_p50': ...,
+    'rt/decision_time_ms_p95': ...,
+    'rt/decision_time_ms_p99': ...,
+    
+    # Qualité
+    'rt/iterations_median': ...,
+    'rt/failsafe_fallback_rate': ...,
+    'rt/ev_delta_bbs_mean': ...,
+    'rt/ev_delta_bbs_ci95_lower': ...,
+    'rt/ev_delta_bbs_ci95_upper': ...,
+    
+    # Régularisation
+    'policy/kl_to_blueprint_root_p50': ...,
+    'policy/kl_to_blueprint_flop': ...,
+    'policy/kl_to_blueprint_turn': ...,
+    'policy/kl_to_blueprint_river': ...,
+    
+    # Vision
+    'vision/debounce_filter_rate': ...,
+    'vision/ocr_mae_amounts': ...,
+    
+    # Abstraction
+    'abstraction/bucket_pop_std': ...,
+    'abstraction/collision_rate': ...,
+    
+    # Translator
+    'translator/illegal_after_roundtrip': ...,
+    'translator/oscillation_rate': ...,
+}
+```
+
+---
+
+**Version:** 1.1  
+**Dernière mise à jour:** 2025-11-09  
 **Maintenu par:** montana2ab
