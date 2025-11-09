@@ -294,6 +294,24 @@ class ParallelMCCFRSolver:
         
         logger.info(f"Initialized parallel solver with {self.num_workers} worker(s)")
         
+        # Validate batch size for parallel efficiency
+        if self.num_workers > 1:
+            if self.config.batch_size < self.num_workers:
+                logger.warning(
+                    f"Batch size ({self.config.batch_size}) is smaller than number of workers ({self.num_workers}). "
+                    f"Only {self.config.batch_size} of {self.num_workers} workers will be utilized per batch. "
+                    f"Consider increasing --batch-size to at least {self.num_workers} for better parallelization."
+                )
+            elif self.config.batch_size % self.num_workers != 0:
+                # Batch size doesn't divide evenly - some workers will get +1 iteration
+                base = self.config.batch_size // self.num_workers
+                remainder = self.config.batch_size % self.num_workers
+                logger.debug(
+                    f"Batch size ({self.config.batch_size}) does not divide evenly by workers ({self.num_workers}). "
+                    f"{remainder} workers will get {base+1} iterations, {self.num_workers-remainder} workers get {base}. "
+                    f"Consider using batch_size={self.num_workers * base} or {self.num_workers * (base+1)} for even distribution."
+                )
+        
         # Main regret tracker (will aggregate results from workers)
         self.regret_tracker = RegretTracker()
         self.iteration = 0
@@ -525,35 +543,63 @@ class ParallelMCCFRSolver:
                 
                 # Run batch of iterations in parallel
                 batch_size = self.config.batch_size
-                iterations_per_worker = batch_size // self.num_workers
                 
-                logger.debug(f"Dispatching batch to workers: {self.num_workers} workers, {iterations_per_worker} iterations each")
+                # Distribute work evenly across workers, ensuring all iterations are executed
+                # Use floor division to get base iterations per worker
+                base_iterations_per_worker = batch_size // self.num_workers
+                # Calculate remainder to distribute among first workers
+                remainder = batch_size % self.num_workers
+                
+                # Warn if batch size is too small for the number of workers
+                if base_iterations_per_worker == 0:
+                    logger.warning(f"Batch size ({batch_size}) is smaller than number of workers ({self.num_workers}). "
+                                 f"Consider increasing --batch-size to at least {self.num_workers} for better performance.")
+                
+                logger.debug(f"Dispatching batch to workers: {self.num_workers} workers, "
+                           f"{base_iterations_per_worker} base iterations each, "
+                           f"{remainder} workers get +1 iteration")
                 
                 # Send tasks to workers via task queue
+                # Distribute iterations ensuring total equals batch_size
+                current_iteration = self.iteration
                 for worker_id in range(self.num_workers):
-                    worker_start_iter = self.iteration + worker_id * iterations_per_worker
+                    # First 'remainder' workers get one extra iteration
+                    iterations_for_this_worker = base_iterations_per_worker + (1 if worker_id < remainder else 0)
+                    
+                    # Skip workers with no work (only happens if batch_size < num_workers)
+                    if iterations_for_this_worker == 0:
+                        continue
                     
                     task = {
                         'epsilon': self._current_epsilon,
-                        'iteration_start': worker_start_iter,
-                        'num_iterations': iterations_per_worker
+                        'iteration_start': current_iteration,
+                        'num_iterations': iterations_for_this_worker
                     }
                     self._task_queue.put(task)
-                    logger.debug(f"Dispatched task to worker queue: iterations {worker_start_iter} to {worker_start_iter + iterations_per_worker - 1}")
+                    logger.debug(f"Dispatched task to worker {worker_id}: iterations {current_iteration} "
+                               f"to {current_iteration + iterations_for_this_worker - 1} "
+                               f"({iterations_for_this_worker} iterations)")
+                    
+                    current_iteration += iterations_for_this_worker
+                
+                # Calculate expected number of active workers (for result collection)
+                active_workers = min(self.num_workers, batch_size)
                 
                 # Collect results from workers with adaptive backoff
                 # Adaptive backoff reduces context switching and GIL contention on macOS/Apple Silicon
                 # by progressively increasing the timeout when the queue is empty, then resetting
                 # when results arrive. This prevents the progressive CPU collapse seen with multiple workers.
                 results = []
-                timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
+                # Calculate timeout based on maximum iterations per worker
+                max_iterations_per_worker = base_iterations_per_worker + (1 if remainder > 0 else 0)
+                timeout_seconds = max(WORKER_TIMEOUT_MIN_SECONDS, max_iterations_per_worker * WORKER_TIMEOUT_MULTIPLIER)
                 start_wait_time = time.time()
                 
                 # Adaptive timeout for queue polling
                 current_timeout = QUEUE_GET_TIMEOUT_SECONDS
                 consecutive_empty_polls = 0
                 
-                while len(results) < self.num_workers:
+                while len(results) < active_workers:
                     # Check if timeout exceeded
                     if time.time() - start_wait_time > timeout_seconds:
                         logger.error(f"Timeout waiting for worker results after {timeout_seconds}s")
@@ -565,7 +611,7 @@ class ParallelMCCFRSolver:
                     try:
                         result = self._result_queue.get(timeout=current_timeout)
                         results.append(result)
-                        logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{self.num_workers})")
+                        logger.debug(f"Collected result from worker {result['worker_id']} ({len(results)}/{active_workers})")
                         
                         # Reset adaptive timeout when we successfully get a result
                         current_timeout = QUEUE_GET_TIMEOUT_SECONDS
@@ -574,13 +620,13 @@ class ParallelMCCFRSolver:
                         # Batch collection: When we get one result, drain any other immediately available
                         # results from the queue without waiting. This reduces synchronization overhead
                         # when multiple workers complete around the same time (common pattern).
-                        while len(results) < self.num_workers:
+                        while len(results) < active_workers:
                             try:
                                 # Use very short timeout (non-blocking) to drain available results
                                 extra_result = self._result_queue.get(timeout=0.001)
                                 results.append(extra_result)
                                 logger.debug(f"Batch collected result from worker {extra_result['worker_id']} "
-                                           f"({len(results)}/{self.num_workers})")
+                                           f"({len(results)}/{active_workers})")
                             except queue.Empty:
                                 # No more results immediately available, break inner loop
                                 break
@@ -616,10 +662,10 @@ class ParallelMCCFRSolver:
                         failed_workers.append(result['worker_id'])
                         logger.error(f"Worker {result['worker_id']} failed with error:\n{result.get('error', 'Unknown error')}")
                 
-                # Check if we got results from all workers
-                if len(results) < self.num_workers:
-                    missing_workers = self.num_workers - len(results)
-                    logger.error(f"Only received results from {len(results)}/{self.num_workers} workers ({missing_workers} missing)")
+                # Check if we got results from all active workers
+                if len(results) < active_workers:
+                    missing_workers = active_workers - len(results)
+                    logger.error(f"Only received results from {len(results)}/{active_workers} workers ({missing_workers} missing)")
                     logger.error("Training cannot continue reliably. Please check:")
                     logger.error("  1. Worker logs above for specific errors")
                     logger.error("  2. System resources (RAM, CPU)")
