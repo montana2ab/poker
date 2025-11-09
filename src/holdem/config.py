@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from holdem.types import (
     BucketConfig, MCCFRConfig, SearchConfig, 
-    VisionConfig, ControlConfig
+    VisionConfig, ControlConfig, RTResolverConfig
 )
 
 
@@ -19,6 +19,7 @@ class Config:
         self.search: SearchConfig = SearchConfig()
         self.vision: VisionConfig = VisionConfig()
         self.control: ControlConfig = ControlConfig()
+        self.rt: RTResolverConfig = RTResolverConfig()
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
@@ -34,6 +35,8 @@ class Config:
             config.vision = VisionConfig(**data["vision"])
         if "control" in data:
             config.control = ControlConfig(**data["control"])
+        if "rt" in data:
+            config.rt = RTResolverConfig(**data["rt"])
         return config
     
     @classmethod
@@ -58,6 +61,7 @@ class Config:
             "search": vars(self.search),
             "vision": vars(self.vision),
             "control": vars(self.control),
+            "rt": vars(self.rt),
         }
     
     def save_yaml(self, path: Path):
@@ -79,3 +83,4 @@ DEFAULT_MCCFR_CONFIG = MCCFRConfig()
 DEFAULT_SEARCH_CONFIG = SearchConfig()
 DEFAULT_VISION_CONFIG = VisionConfig()
 DEFAULT_CONTROL_CONFIG = ControlConfig()
+DEFAULT_RT_RESOLVER_CONFIG = RTResolverConfig()
