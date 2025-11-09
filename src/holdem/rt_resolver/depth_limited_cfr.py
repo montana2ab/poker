@@ -37,7 +37,8 @@ class DepthLimitedCFR:
         min_iterations: int = 400,
         max_iterations: int = 1200,
         time_limit_ms: int = 80,
-        kl_weight: float = 0.5
+        kl_weight: float = 0.5,
+        fallback_to_blueprint: bool = True
     ):
         """Initialize depth-limited CFR solver.
         
@@ -49,6 +50,7 @@ class DepthLimitedCFR:
             max_iterations: Maximum iterations (hard cap)
             time_limit_ms: Time limit in milliseconds
             kl_weight: KL divergence weight toward blueprint
+            fallback_to_blueprint: If True, fallback to blueprint when time expires before min_iterations
         """
         self.blueprint = blueprint
         self.subgame_builder = subgame_builder
@@ -57,6 +59,7 @@ class DepthLimitedCFR:
         self.max_iterations = max_iterations
         self.time_limit_ms = time_limit_ms
         self.kl_weight = kl_weight
+        self.fallback_to_blueprint = fallback_to_blueprint
         
         self.regret_tracker = RegretTracker()
         self.rng = get_rng()
@@ -65,11 +68,14 @@ class DepthLimitedCFR:
         self.last_solve_time_ms = 0.0
         self.last_iterations = 0
         self.ev_delta_vs_blueprint = 0.0
+        self.total_solves = 0
+        self.failsafe_fallbacks = 0  # Count of fallbacks to blueprint
         
         logger.info(
             f"DepthLimitedCFR initialized: "
             f"iterations={min_iterations}-{max_iterations}, "
-            f"time_limit={time_limit_ms}ms, kl_weight={kl_weight}"
+            f"time_limit={time_limit_ms}ms, kl_weight={kl_weight}, "
+            f"fallback_to_blueprint={fallback_to_blueprint}"
         )
     
     def solve(
@@ -81,6 +87,8 @@ class DepthLimitedCFR:
     ) -> Dict[AbstractAction, float]:
         """Solve subgame and return strategy.
         
+        If time expires before min_iterations, falls back to blueprint (safe fallback).
+        
         Args:
             root_state: Root state of subgame
             hero_hand: Hero's hole cards
@@ -91,6 +99,16 @@ class DepthLimitedCFR:
             Strategy (probability distribution over actions)
         """
         start_time = time.time()
+        self.total_solves += 1
+        used_fallback = False
+        
+        # Get actions for infoset
+        actions = self.subgame_builder.get_actions(
+            root_state,
+            stack=100.0,  # Placeholder
+            in_position=True
+        )
+        infoset = self._make_infoset(root_state, hero_hand)
         
         # Warm-start from blueprint
         self._warm_start(root_state, hero_hand)
@@ -98,6 +116,34 @@ class DepthLimitedCFR:
         # Run CFR iterations with time budget
         iteration = 0
         while iteration < self.max_iterations:
+            # Check time limit before iteration
+            elapsed_ms = (time.time() - start_time) * 1000
+            
+            # If time expired before min_iterations, use fallback
+            if elapsed_ms >= self.time_limit_ms and iteration < self.min_iterations:
+                if self.fallback_to_blueprint:
+                    logger.warning(
+                        f"Time expired ({elapsed_ms:.1f}ms) before min_iterations ({self.min_iterations}). "
+                        f"Falling back to blueprint (failsafe)."
+                    )
+                    used_fallback = True
+                    self.failsafe_fallbacks += 1
+                    
+                    # Return blueprint strategy directly
+                    blueprint_strategy = self.blueprint.get_strategy(infoset)
+                    if not blueprint_strategy:
+                        # If blueprint has no strategy, use uniform
+                        blueprint_strategy = {a: 1.0 / len(actions) for a in actions}
+                    
+                    self.last_solve_time_ms = elapsed_ms
+                    self.last_iterations = iteration
+                    self.ev_delta_vs_blueprint = 0.0  # No EV delta since we're using blueprint
+                    
+                    return blueprint_strategy
+                else:
+                    # No fallback, continue with what we have
+                    break
+            
             self._cfr_iteration(
                 root_state, hero_hand, villain_range, hero_position, iteration
             )
@@ -109,31 +155,23 @@ class DepthLimitedCFR:
                 if elapsed_ms >= self.time_limit_ms:
                     break
         
-        # Compute final strategy
-        actions = self.subgame_builder.get_actions(
-            root_state,
-            stack=100.0,  # Placeholder
-            in_position=True
-        )
-        strategy = self.regret_tracker.get_average_strategy(
-            self._make_infoset(root_state, hero_hand),
-            actions
-        )
+        # Compute final strategy from regrets
+        strategy = self.regret_tracker.get_average_strategy(infoset, actions)
         
         # Update metrics
         self.last_solve_time_ms = (time.time() - start_time) * 1000
         self.last_iterations = iteration
         
         # Calculate EV delta vs blueprint
-        blueprint_infoset = self._make_infoset(root_state, hero_hand)
-        blueprint_strategy = self.blueprint.get_strategy(blueprint_infoset)
+        blueprint_strategy = self.blueprint.get_strategy(infoset)
         self.ev_delta_vs_blueprint = self._compute_ev_delta(
             strategy, blueprint_strategy, root_state.pot
         )
         
         logger.info(
             f"Solved subgame: {iteration} iterations in {self.last_solve_time_ms:.1f}ms, "
-            f"EV delta vs blueprint: {self.ev_delta_vs_blueprint:+.2f} BBs"
+            f"EV delta vs blueprint: {self.ev_delta_vs_blueprint:+.2f} BBs, "
+            f"fallback_used={used_fallback}"
         )
         
         return strategy
@@ -293,13 +331,18 @@ class DepthLimitedCFR:
         """Get solving metrics.
         
         Returns:
-            Dictionary of metrics
+            Dictionary of metrics including rt/* metrics
         """
+        failsafe_fallback_rate = self.failsafe_fallbacks / max(self.total_solves, 1)
+        
         return {
-            'solve_time_ms': self.last_solve_time_ms,
-            'iterations': self.last_iterations,
-            'ev_delta_bbs': self.ev_delta_vs_blueprint,
-            'time_per_iteration_ms': self.last_solve_time_ms / max(self.last_iterations, 1)
+            'rt/decision_time_ms': self.last_solve_time_ms,
+            'rt/iterations': float(self.last_iterations),
+            'rt/failsafe_fallback_rate': failsafe_fallback_rate,
+            'rt/ev_delta_bbs': self.ev_delta_vs_blueprint,
+            'rt/time_per_iteration_ms': self.last_solve_time_ms / max(self.last_iterations, 1),
+            'rt/total_solves': float(self.total_solves),
+            'rt/total_fallbacks': float(self.failsafe_fallbacks)
         }
 
 
