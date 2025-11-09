@@ -4,10 +4,11 @@ Evaluates terminal states (leaves) using:
 - Blueprint counterfactual values (CFV)
 - Rollouts using blueprint strategy
 - Reduced action set for speed
+- Caching of CFV/rollouts by (bucket_public, bucket_ranges, action_set_id, street)
 """
 
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from holdem.types import Card, Street
 from holdem.abstraction.actions import AbstractAction
 from holdem.mccfr.policy_store import PolicyStore
@@ -24,13 +25,16 @@ class LeafEvaluator:
     Methods:
     1. Blueprint CFV: Use blueprint's counterfactual values directly
     2. Rollout: Sample game continuations using blueprint strategy
+    3. Caching: Cache CFV/rollouts by (bucket_public, bucket_ranges, action_set_id, street)
     """
     
     def __init__(
         self,
         blueprint: PolicyStore,
         num_rollout_samples: int = 10,
-        use_cfv: bool = True
+        use_cfv: bool = True,
+        enable_cache: bool = True,
+        cache_max_size: int = 10000
     ):
         """Initialize leaf evaluator.
         
@@ -38,15 +42,24 @@ class LeafEvaluator:
             blueprint: Blueprint policy store
             num_rollout_samples: Number of rollout samples per leaf
             use_cfv: Use blueprint CFV if available, else rollout
+            enable_cache: Enable caching of leaf values
+            cache_max_size: Maximum cache entries (LRU eviction)
         """
         self.blueprint = blueprint
         self.num_rollout_samples = num_rollout_samples
         self.use_cfv = use_cfv
+        self.enable_cache = enable_cache
+        self.cache_max_size = cache_max_size
         self.rng = get_rng()
+        
+        # Cache: (bucket_public, bucket_ranges_hash, action_set_id, street) -> value
+        self._cache: Dict[Tuple, float] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
         
         logger.info(
             f"LeafEvaluator initialized: use_cfv={use_cfv}, "
-            f"rollout_samples={num_rollout_samples}"
+            f"rollout_samples={num_rollout_samples}, cache={enable_cache} (max={cache_max_size})"
         )
     
     def evaluate(
@@ -54,7 +67,10 @@ class LeafEvaluator:
         state: SubgameState,
         hero_hand: List[Card],
         villain_range: Dict[str, float],
-        hero_position: int
+        hero_position: int,
+        bucket_public: Optional[int] = None,
+        bucket_ranges: Optional[Tuple[int, ...]] = None,
+        action_set_id: Optional[int] = None
     ) -> float:
         """Evaluate leaf node value.
         
@@ -63,18 +79,108 @@ class LeafEvaluator:
             hero_hand: Hero's hole cards
             villain_range: Villain's hand range (hand_str -> probability)
             hero_position: Hero's position (0, 1, ...)
+            bucket_public: Public card bucket (optional, for caching)
+            bucket_ranges: Hand range buckets (optional, for caching)
+            action_set_id: Action set identifier (optional, for caching)
             
         Returns:
             Expected value for hero
         """
+        # Try cache first
+        if self.enable_cache and bucket_public is not None and bucket_ranges is not None:
+            cache_key = self._make_cache_key(
+                bucket_public, bucket_ranges, action_set_id, state.street
+            )
+            
+            if cache_key in self._cache:
+                self._cache_hits += 1
+                value = self._cache[cache_key]
+                logger.debug(f"Cache HIT for key {cache_key[:3]}... -> {value:.2f}")
+                return value
+            else:
+                self._cache_misses += 1
+        
+        # Compute value
         if self.use_cfv:
             # Try blueprint CFV first
             cfv = self._get_blueprint_cfv(state, hero_hand, hero_position)
             if cfv is not None:
-                return cfv
+                value = cfv
+            else:
+                # Fall back to rollout
+                value = self._rollout_value(state, hero_hand, villain_range, hero_position)
+        else:
+            value = self._rollout_value(state, hero_hand, villain_range, hero_position)
         
-        # Fall back to rollout
-        return self._rollout_value(state, hero_hand, villain_range, hero_position)
+        # Cache the result
+        if self.enable_cache and bucket_public is not None and bucket_ranges is not None:
+            cache_key = self._make_cache_key(
+                bucket_public, bucket_ranges, action_set_id, state.street
+            )
+            self._add_to_cache(cache_key, value)
+        
+        return value
+    
+    def _make_cache_key(
+        self,
+        bucket_public: int,
+        bucket_ranges: Tuple[int, ...],
+        action_set_id: Optional[int],
+        street: Street
+    ) -> Tuple:
+        """Create cache key from bucket information.
+        
+        Args:
+            bucket_public: Public card bucket
+            bucket_ranges: Range buckets (tuple of ints)
+            action_set_id: Action set identifier
+            street: Current street
+            
+        Returns:
+            Cache key tuple
+        """
+        # Hash the range buckets to keep key compact
+        ranges_hash = hash(bucket_ranges)
+        return (bucket_public, ranges_hash, action_set_id, street.value)
+    
+    def _add_to_cache(self, key: Tuple, value: float):
+        """Add entry to cache with LRU eviction.
+        
+        Args:
+            key: Cache key
+            value: Value to cache
+        """
+        # Simple LRU: if cache is full, remove oldest entry
+        if len(self._cache) >= self.cache_max_size:
+            # Remove first entry (FIFO approximation of LRU)
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+            logger.debug(f"Cache evicted key {oldest_key[:3]}... (size={len(self._cache)})")
+        
+        self._cache[key] = value
+    
+    def get_cache_stats(self) -> Dict[str, float]:
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary with cache metrics
+        """
+        total_accesses = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total_accesses if total_accesses > 0 else 0.0
+        
+        return {
+            'cache_size': len(self._cache),
+            'cache_hits': self._cache_hits,
+            'cache_misses': self._cache_misses,
+            'cache_hit_rate': hit_rate
+        }
+    
+    def clear_cache(self):
+        """Clear the cache and reset statistics."""
+        self._cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        logger.info("Cache cleared")
     
     def _get_blueprint_cfv(
         self,
