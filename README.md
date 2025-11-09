@@ -434,6 +434,7 @@ Individual test modules:
 - **[Getting Started](GETTING_STARTED.md)** - Quick setup guide for new users
 - **[Parallel Training](PARALLEL_TRAINING.md)** - Guide to multi-core training and real-time solving
 - **[Feature Extraction](FEATURE_EXTRACTION.md)** - Detailed guide to the 10-dimensional preflop and 34-dimensional postflop feature extraction system
+- **[Guide de Création des Buckets](GUIDE_CREATION_BUCKETS.md)** - Guide complet (Français) pour créer buckets.pkl avec toutes les fonctions implémentées
 - **[Real-time Re-Solving](REALTIME_RESOLVING.md)** - Complete guide to real-time search integration
 - **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)
 - **[Development Guide](DEVELOPMENT.md)** - Complete setup and workflow guide
