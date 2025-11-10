@@ -76,6 +76,8 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
             config_dict['chunk_size_iterations'] = args.chunk_iterations
         if hasattr(args, 'chunk_minutes') and args.chunk_minutes is not None:
             config_dict['chunk_size_minutes'] = args.chunk_minutes
+        if hasattr(args, 'chunk_restart_delay') and args.chunk_restart_delay is not None:
+            config_dict['chunk_restart_delay_seconds'] = args.chunk_restart_delay
     
     # Convert epsilon_schedule from list of lists to list of tuples
     if 'epsilon_schedule' in config_dict and config_dict['epsilon_schedule'] is not None:
@@ -139,6 +141,8 @@ def main():
                        help="Number of iterations per chunk (for chunked mode)")
     parser.add_argument("--chunk-minutes", type=float,
                        help="Time duration per chunk in minutes (for chunked mode)")
+    parser.add_argument("--chunk-restart-delay", type=float,
+                       help="Delay in seconds between chunk restarts to allow RAM to clear (default: 5.0)")
     
     args = parser.parse_args()
     
