@@ -92,7 +92,7 @@ def _run_solver_instance(
         end_iter: Ending iteration (exclusive) - only used in iteration mode
     """
     # Setup instance-specific logger
-    instance_logger = setup_logger(f"instance_{instance_id}", logdir / f"instance_{instance_id}.log")
+    instance_logger = setup_logger(f"instance_{instance_id}", log_file=logdir / f"instance_{instance_id}.log")
     
     try:
         if use_time_budget:
