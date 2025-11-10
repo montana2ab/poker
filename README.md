@@ -12,6 +12,7 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 - **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: Linear MCCFR with DCFR/CFR+ adaptive discounting, dynamic regret pruning, and warm-start from checkpoints. Outcome sampling with validation metrics (L2 regret slope, policy entropy). Exports average policy to JSON/PyTorch format. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for details.
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with KL regularization toward blueprint, time-budgeted (e.g., 80ms), fallback to blueprint on timeout
+- **Evaluation Tools**: Head-to-head policy evaluation with duplicate deals and position swapping, bb/100 winrate with 95% confidence intervals, JSON/CSV output. See [tools/README.md](tools/README.md) for details.
 - **Control**: Dry-run mode by default; optional auto-click with confirmations, minimum delays, hotkeys (pause/stop), requires `--i-understand-the-tos` flag
 
 ## Platform Support
@@ -158,6 +159,17 @@ python -m holdem.cli.eval_blueprint \
   --policy runs/blueprint/avg_policy.json \
   --episodes 200000
 ```
+
+**Head-to-Head Evaluation**: To compare two policies directly with statistically rigorous duplicate deals:
+
+```bash
+python tools/eval_h2h.py \
+  runs/blueprint_v1/avg_policy.json \
+  runs/blueprint_v2/avg_policy.json \
+  --hands 1000 --output results/
+```
+
+This produces bb/100 winrate with 95% confidence intervals. See [tools/README.md](tools/README.md) for details.
 
 ### 5. Run in Dry-Run Mode
 
