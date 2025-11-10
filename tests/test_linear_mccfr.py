@@ -71,6 +71,10 @@ def test_separate_discount_factors():
     beta = 0.8   # Strategy discount
     tracker.discount(regret_factor=alpha, strategy_factor=beta)
     
+    # Force application of pending discounts (for testing)
+    # In production, discounts are applied lazily for performance
+    tracker.apply_pending_discounts()
+    
     # Check regret is discounted by alpha
     assert abs(tracker.get_regret(infoset, action) - 50.0) < 0.01
     

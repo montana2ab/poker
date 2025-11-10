@@ -182,6 +182,18 @@ class RegretTracker:
         self._cumulative_regret_discount *= regret_factor
         self._cumulative_strategy_discount *= strategy_factor
     
+    def apply_pending_discounts(self):
+        """Force application of all pending discount factors.
+        
+        This method is provided for backward compatibility and testing.
+        In normal operation, discounts are applied lazily for performance.
+        """
+        # Apply pending discounts to all infosets
+        for infoset in list(self.regrets.keys()):
+            self._apply_pending_regret_discount(infoset)
+        for infoset in list(self.strategy_sum.keys()):
+            self._apply_pending_strategy_discount(infoset)
+    
     def should_prune(self, infoset: str, actions: List[AbstractAction], threshold: float) -> bool:
         """Check if all actions at infoset have regret below threshold.
         
