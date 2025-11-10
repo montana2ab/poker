@@ -183,7 +183,36 @@ def main():
     logger.info(f"Loading buckets from {args.buckets}")
     bucketing = HandBucketing.load(args.buckets)
     
+    # Multi-instance mode: Launch multiple independent solver instances
+    # Note: This check must come before chunked mode check, because multi-instance
+    # coordinator can handle chunked mode for each instance internally
+    if args.num_instances is not None:
+        logger.info("=" * 60)
+        logger.info(f"MULTI-INSTANCE MODE: Launching {args.num_instances} independent solver instances")
+        if config.enable_chunked_training:
+            logger.info("CHUNKED TRAINING: Each instance will run in chunked mode")
+            if config.chunk_size_iterations:
+                logger.info(f"  Chunk size: {config.chunk_size_iterations:,} iterations per instance")
+            if config.chunk_size_minutes:
+                logger.info(f"  Chunk duration: {config.chunk_size_minutes:.1f} minutes per instance")
+        if args.resume_from:
+            logger.info(f"RESUME MODE: Will attempt to resume from {args.resume_from}")
+        logger.info("=" * 60)
+        
+        from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
+        
+        coordinator = MultiInstanceCoordinator(
+            num_instances=args.num_instances,
+            config=config,
+            bucketing=bucketing,
+            num_players=args.num_players
+        )
+        
+        result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard, resume_from=args.resume_from)
+        return result
+    
     # Chunked training mode: Run training in chunks with process restart
+    # Note: Single-instance chunked mode (when --num-instances is not specified)
     if config.enable_chunked_training:
         logger.info("=" * 60)
         logger.info("CHUNKED TRAINING MODE")
@@ -206,26 +235,6 @@ def main():
         
         coordinator.run()
         return 0
-    
-    # Multi-instance mode: Launch multiple independent solver instances
-    if args.num_instances is not None:
-        logger.info("=" * 60)
-        logger.info(f"MULTI-INSTANCE MODE: Launching {args.num_instances} independent solver instances")
-        if args.resume_from:
-            logger.info(f"RESUME MODE: Will attempt to resume from {args.resume_from}")
-        logger.info("=" * 60)
-        
-        from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
-        
-        coordinator = MultiInstanceCoordinator(
-            num_instances=args.num_instances,
-            config=config,
-            bucketing=bucketing,
-            num_players=args.num_players
-        )
-        
-        result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard, resume_from=args.resume_from)
-        return result
     
     # Standard single-solver mode (with optional multi-worker parallelism)
     # Log training mode
