@@ -206,6 +206,9 @@ class SearchConfig:
     target_kl_turn: float = 0.18
     target_kl_river: float = 0.25
     
+    # Public card sampling (board sampling) - Pluribus technique
+    samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
+    
     def get_kl_weight(self, street: Street, is_oop: bool = False) -> float:
         """Get kl_weight for a specific street and position.
         
@@ -264,6 +267,9 @@ class RTResolverConfig:
     
     # Metrics tracking
     track_metrics: bool = True  # Track solve time, iterations, EV delta
+    
+    # Public card sampling (board sampling) - Pluribus technique
+    samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
 
 
 @dataclass
