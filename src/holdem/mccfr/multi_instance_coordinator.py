@@ -118,7 +118,10 @@ def _run_solver_instance(
                 checkpoint_interval=None,
                 epsilon_schedule=config.epsilon_schedule,
                 adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
-                adaptive_target_ips=config.adaptive_target_ips
+                adaptive_target_ips=config.adaptive_target_ips,
+                enable_chunked_training=config.enable_chunked_training,
+                chunk_size_iterations=config.chunk_size_iterations,
+                chunk_size_minutes=config.chunk_size_minutes
             )
             
             # Create initial progress tracking (time-based)
@@ -148,7 +151,10 @@ def _run_solver_instance(
                 snapshot_interval_seconds=None,
                 epsilon_schedule=config.epsilon_schedule,
                 adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
-                adaptive_target_ips=config.adaptive_target_ips
+                adaptive_target_ips=config.adaptive_target_ips,
+                enable_chunked_training=config.enable_chunked_training,
+                chunk_size_iterations=config.chunk_size_iterations,
+                chunk_size_minutes=config.chunk_size_minutes
             )
             
             # Create initial progress tracking (iteration-based)
@@ -156,16 +162,49 @@ def _run_solver_instance(
             progress.update(start_iter, "running")
             _write_progress(progress_file, progress)
         
-        # Create solver
+        # Create instance-specific logdir
+        instance_logdir = logdir / f"instance_{instance_id}"
+        instance_logdir.mkdir(parents=True, exist_ok=True)
+        
+        # Check if chunked mode is enabled
+        if instance_config.enable_chunked_training:
+            # Use ChunkedTrainingCoordinator for this instance
+            instance_logger.info(f"Instance {instance_id} using chunked training mode")
+            if instance_config.chunk_size_iterations:
+                instance_logger.info(f"  Chunk size: {instance_config.chunk_size_iterations:,} iterations")
+            if instance_config.chunk_size_minutes:
+                instance_logger.info(f"  Chunk duration: {instance_config.chunk_size_minutes:.1f} minutes")
+            
+            from holdem.mccfr.chunked_coordinator import ChunkedTrainingCoordinator
+            
+            coordinator = ChunkedTrainingCoordinator(
+                config=instance_config,
+                bucketing=bucketing,
+                logdir=instance_logdir,
+                num_players=num_players,
+                use_tensorboard=use_tensorboard
+            )
+            
+            # Run chunked training (runs one chunk and exits)
+            coordinator.run()
+            
+            # Mark as completed
+            # Note: In chunked mode, we run one chunk at a time
+            # The user would need to restart the entire multi-instance run to continue
+            progress.update(0, "chunk_completed")
+            progress_data = progress.to_dict()
+            progress_data['message'] = "Completed one chunk. Restart to continue."
+            _write_progress_dict(progress_file, progress_data)
+            
+            instance_logger.info(f"Instance {instance_id} completed one chunk successfully")
+            return
+        
+        # Create solver (non-chunked mode)
         solver = MCCFRSolver(
             config=instance_config,
             bucketing=bucketing,
             num_players=num_players
         )
-        
-        # Create instance-specific logdir
-        instance_logdir = logdir / f"instance_{instance_id}"
-        instance_logdir.mkdir(parents=True, exist_ok=True)
         
         # Resume from checkpoint if provided
         resumed_iteration = 0

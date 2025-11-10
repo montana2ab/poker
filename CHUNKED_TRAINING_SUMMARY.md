@@ -111,8 +111,8 @@ self._cumulative_elapsed_seconds = 0.0
 ```
 
 **Validation:**
-- Cannot use `--chunked` with `--num-instances` (multi-instance mode)
 - Must specify either `--chunk-iterations` or `--chunk-minutes` when using `--chunked`
+- Can be combined with `--num-instances` (each instance will run in chunked mode)
 
 **Integration:**
 - Checks if `enable_chunked_training` is True

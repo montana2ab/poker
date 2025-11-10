@@ -144,8 +144,6 @@ def main():
     
     # Validate chunked training mode
     if args.chunked:
-        if args.num_instances is not None:
-            parser.error("--chunked cannot be used with --num-instances (multi-instance mode)")
         if args.chunk_iterations is None and args.chunk_minutes is None:
             parser.error("--chunked requires either --chunk-iterations or --chunk-minutes")
         if args.num_workers is not None and args.num_workers > 1:
