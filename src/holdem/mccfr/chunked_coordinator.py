@@ -135,111 +135,117 @@ class ChunkedTrainingCoordinator:
         temp_file.replace(self.progress_file)
     
     def run(self) -> None:
-        """Run training in chunked mode.
+        """Run training in chunked mode with automatic restart.
         
         This method orchestrates the chunked training process:
         1. Find the latest checkpoint (if any)
         2. Create a solver and load the checkpoint
         3. Run one chunk of training
         4. Save checkpoint and flush logs
-        5. Exit (coordinator will be called again to start next chunk)
+        5. If training not complete, automatically restart for next chunk
+        6. Loop until training is complete or interrupted
         """
-        # Find latest checkpoint to resume from
-        latest_checkpoint = self._find_latest_checkpoint()
-        
-        if latest_checkpoint:
-            logger.info(f"Resuming from checkpoint: {latest_checkpoint}")
-        else:
-            logger.info("Starting fresh training (no checkpoint found)")
-        
-        # Create solver
-        solver = MCCFRSolver(
-            config=self.config,
-            bucketing=self.bucketing,
-            num_players=self.num_players
-        )
-        
-        # Load checkpoint if available
-        start_iteration = 0
-        if latest_checkpoint:
-            try:
-                start_iteration = solver.load_checkpoint(
-                    latest_checkpoint,
-                    validate_buckets=True,
-                    warm_start=True
-                )
-                logger.info(f"Successfully resumed from iteration {start_iteration}")
-            except Exception as e:
-                logger.error(f"Failed to load checkpoint: {e}")
-                logger.warning("Starting fresh training")
-                start_iteration = 0
-        
-        # Calculate chunk boundaries
-        chunk_start_iter = start_iteration
-        chunk_end_iter = None
-        chunk_end_time = None
-        
-        if self.config.chunk_size_iterations:
-            # Calculate next chunk boundary based on iterations
-            chunk_end_iter = chunk_start_iter + self.config.chunk_size_iterations
-            logger.info(f"Chunk: iterations {chunk_start_iter} -> {chunk_end_iter}")
+        # Loop until training is complete
+        while True:
+            # Find latest checkpoint to resume from
+            latest_checkpoint = self._find_latest_checkpoint()
             
-            # If using time budget, also respect that
-            if self.config.time_budget_seconds:
-                # Check if we'd exceed time budget
-                # We'll let the solver's normal time budget check handle this
-                pass
-        
-        if self.config.chunk_size_minutes:
-            chunk_end_time = time.time() + (self.config.chunk_size_minutes * 60)
-            logger.info(f"Chunk duration: {self.config.chunk_size_minutes:.1f} minutes")
-        
-        # Run one chunk of training
-        logger.info("Starting chunk training...")
-        chunk_start_time = time.time()
-        
-        try:
-            self._run_chunk(
-                solver=solver,
-                chunk_start_iter=chunk_start_iter,
-                chunk_end_iter=chunk_end_iter,
-                chunk_end_time=chunk_end_time,
-                chunk_start_time=chunk_start_time
+            if latest_checkpoint:
+                logger.info(f"Resuming from checkpoint: {latest_checkpoint}")
+            else:
+                logger.info("Starting fresh training (no checkpoint found)")
+            
+            # Create solver
+            solver = MCCFRSolver(
+                config=self.config,
+                bucketing=self.bucketing,
+                num_players=self.num_players
             )
-        except KeyboardInterrupt:
-            logger.info("Training interrupted by user")
-            # Still save checkpoint before exiting
+            
+            # Load checkpoint if available
+            start_iteration = 0
+            if latest_checkpoint:
+                try:
+                    start_iteration = solver.load_checkpoint(
+                        latest_checkpoint,
+                        validate_buckets=True,
+                        warm_start=True
+                    )
+                    logger.info(f"Successfully resumed from iteration {start_iteration}")
+                except Exception as e:
+                    logger.error(f"Failed to load checkpoint: {e}")
+                    logger.warning("Starting fresh training")
+                    start_iteration = 0
+            
+            # Calculate chunk boundaries
+            chunk_start_iter = start_iteration
+            chunk_end_iter = None
+            chunk_end_time = None
+            
+            if self.config.chunk_size_iterations:
+                # Calculate next chunk boundary based on iterations
+                chunk_end_iter = chunk_start_iter + self.config.chunk_size_iterations
+                logger.info(f"Chunk: iterations {chunk_start_iter} -> {chunk_end_iter}")
+                
+                # If using time budget, also respect that
+                if self.config.time_budget_seconds:
+                    # Check if we'd exceed time budget
+                    # We'll let the solver's normal time budget check handle this
+                    pass
+            
+            if self.config.chunk_size_minutes:
+                chunk_end_time = time.time() + (self.config.chunk_size_minutes * 60)
+                logger.info(f"Chunk duration: {self.config.chunk_size_minutes:.1f} minutes")
+            
+            # Run one chunk of training
+            logger.info("Starting chunk training...")
+            chunk_start_time = time.time()
+            
+            try:
+                self._run_chunk(
+                    solver=solver,
+                    chunk_start_iter=chunk_start_iter,
+                    chunk_end_iter=chunk_end_iter,
+                    chunk_end_time=chunk_end_time,
+                    chunk_start_time=chunk_start_time
+                )
+            except KeyboardInterrupt:
+                logger.info("Training interrupted by user")
+                # Still save checkpoint before exiting
+                self._save_chunk_checkpoint(solver, chunk_start_time)
+                raise
+            except Exception as e:
+                logger.error(f"Error during chunk training: {e}")
+                # Save checkpoint on error
+                self._save_chunk_checkpoint(solver, chunk_start_time)
+                raise
+            
+            # Save final checkpoint for this chunk
             self._save_chunk_checkpoint(solver, chunk_start_time)
-            raise
-        except Exception as e:
-            logger.error(f"Error during chunk training: {e}")
-            # Save checkpoint on error
-            self._save_chunk_checkpoint(solver, chunk_start_time)
-            raise
-        
-        # Save final checkpoint for this chunk
-        self._save_chunk_checkpoint(solver, chunk_start_time)
-        
-        # Flush TensorBoard if enabled
-        if solver.writer:
-            logger.info("Flushing TensorBoard logs...")
-            solver.writer.flush()
-            solver.writer.close()
-        
-        # Check if training is complete
-        training_complete = self._is_training_complete(solver)
-        
-        if training_complete:
-            logger.info("=" * 80)
-            logger.info("Training Complete!")
-            logger.info(f"Final iteration: {solver.iteration}")
-            logger.info("=" * 80)
-        else:
-            logger.info("=" * 80)
-            logger.info("Chunk Complete - Process will now exit to free memory")
-            logger.info(f"Progress: iteration {solver.iteration}")
-            logger.info("Restart this command to continue training from checkpoint")
-            logger.info("=" * 80)
+            
+            # Flush TensorBoard if enabled
+            if solver.writer:
+                logger.info("Flushing TensorBoard logs...")
+                solver.writer.flush()
+                solver.writer.close()
+            
+            # Check if training is complete
+            training_complete = self._is_training_complete(solver)
+            
+            if training_complete:
+                logger.info("=" * 80)
+                logger.info("Training Complete!")
+                logger.info(f"Final iteration: {solver.iteration}")
+                logger.info("=" * 80)
+                break  # Exit the loop
+            else:
+                logger.info("=" * 80)
+                logger.info("Chunk Complete - Automatically restarting for next chunk")
+                logger.info(f"Progress: iteration {solver.iteration}")
+                logger.info("=" * 80)
+                # Small delay before restarting to ensure files are flushed
+                time.sleep(2)
+                # Continue to next iteration of the loop (automatic restart)
     
     def _run_chunk(
         self,
