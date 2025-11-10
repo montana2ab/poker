@@ -378,7 +378,12 @@ class MultiInstanceCoordinator:
         return ranges
     
     def _find_resume_checkpoints(self, resume_from: Path) -> List[Optional[Path]]:
-        """Find the latest checkpoint for each instance in a previous run.
+        """Find the latest complete checkpoint for each instance in a previous run.
+        
+        A complete checkpoint consists of three files:
+        - checkpoint_*.pkl (policy/strategy data)
+        - checkpoint_*_metadata.json (iteration, RNG state, epsilon, bucket hash, etc.)
+        - checkpoint_*_regrets.pkl (full regret state)
         
         Args:
             resume_from: Base directory of previous multi-instance run
@@ -392,20 +397,53 @@ class MultiInstanceCoordinator:
             checkpoint_dir = instance_dir / "checkpoints"
             
             if not checkpoint_dir.exists():
-                logger.warning(f"No checkpoint directory found for instance {i}")
+                logger.info(f"No checkpoint directory found for instance {i}, starting from scratch")
                 checkpoints.append(None)
                 continue
             
-            # Find the latest checkpoint
+            # Find all checkpoint .pkl files
             checkpoint_files = list(checkpoint_dir.glob("checkpoint_*.pkl"))
+            
+            # Filter out the *_regrets.pkl files - we only want the main checkpoint files
+            checkpoint_files = [f for f in checkpoint_files if not f.name.endswith('_regrets.pkl')]
+            
             if not checkpoint_files:
-                logger.warning(f"No checkpoint files found for instance {i}")
+                logger.info(f"No checkpoint files found for instance {i}, starting from scratch")
                 checkpoints.append(None)
                 continue
             
-            # Sort by modification time and get the latest
-            latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
-            logger.info(f"Found checkpoint for instance {i}: {latest_checkpoint.name}")
+            # Find complete checkpoints using the centralized validation method
+            complete_checkpoints = []
+            incomplete_count = 0
+            for checkpoint_file in checkpoint_files:
+                if MCCFRSolver.is_checkpoint_complete(checkpoint_file):
+                    complete_checkpoints.append(checkpoint_file)
+                    logger.debug(f"Instance {i}: Found complete checkpoint {checkpoint_file.name}")
+                else:
+                    incomplete_count += 1
+                    # Extract the base name to check which files are missing
+                    checkpoint_stem = checkpoint_file.stem
+                    metadata_file = checkpoint_dir / f"{checkpoint_stem}_metadata.json"
+                    regrets_file = checkpoint_dir / f"{checkpoint_stem}_regrets.pkl"
+                    logger.warning(
+                        f"Instance {i}: Skipping incomplete checkpoint {checkpoint_file.name} "
+                        f"(metadata={metadata_file.exists()}, regrets={regrets_file.exists()})"
+                    )
+            
+            if not complete_checkpoints:
+                logger.info(
+                    f"No complete checkpoints found for instance {i} "
+                    f"({incomplete_count} incomplete checkpoint(s) ignored), starting from scratch"
+                )
+                checkpoints.append(None)
+                continue
+            
+            # Sort by modification time and get the latest complete checkpoint
+            latest_checkpoint = max(complete_checkpoints, key=lambda p: p.stat().st_mtime)
+            logger.info(
+                f"Instance {i}: Resuming from complete checkpoint '{latest_checkpoint.name}' "
+                f"({len(complete_checkpoints)} complete checkpoint(s) available, {incomplete_count} incomplete ignored)"
+            )
             checkpoints.append(latest_checkpoint)
         
         return checkpoints

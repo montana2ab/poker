@@ -25,6 +25,32 @@ except ImportError:
 class MCCFRSolver:
     """Main MCCFR solver."""
     
+    @staticmethod
+    def is_checkpoint_complete(checkpoint_path: Path) -> bool:
+        """Check if a checkpoint has all required files (full state).
+        
+        A complete checkpoint consists of:
+        - checkpoint_*.pkl (policy/strategy data)
+        - checkpoint_*_metadata.json (iteration, RNG state, epsilon, etc.)
+        - checkpoint_*_regrets.pkl (full regret state)
+        
+        Args:
+            checkpoint_path: Path to the main checkpoint .pkl file
+            
+        Returns:
+            True if all required files exist, False otherwise
+        """
+        if not checkpoint_path.exists():
+            return False
+        
+        checkpoint_stem = checkpoint_path.stem
+        checkpoint_dir = checkpoint_path.parent
+        
+        metadata_file = checkpoint_dir / f"{checkpoint_stem}_metadata.json"
+        regrets_file = checkpoint_dir / f"{checkpoint_stem}_regrets.pkl"
+        
+        return metadata_file.exists() and regrets_file.exists()
+    
     def __init__(
         self,
         config: MCCFRConfig,
@@ -564,17 +590,30 @@ class MCCFRSolver:
             Iteration number from checkpoint (0 if metadata not found)
             
         Raises:
-            ValueError: If bucket validation fails or infoset version is incompatible
+            ValueError: If checkpoint is incomplete, bucket validation fails, or infoset version is incompatible
         """
         from holdem.utils.serialization import load_json, load_pickle
         
+        # Validate checkpoint completeness first
+        if not self.is_checkpoint_complete(checkpoint_path):
+            checkpoint_stem = checkpoint_path.stem
+            checkpoint_dir = checkpoint_path.parent
+            metadata_file = checkpoint_dir / f"{checkpoint_stem}_metadata.json"
+            regrets_file = checkpoint_dir / f"{checkpoint_stem}_regrets.pkl"
+            
+            raise ValueError(
+                f"Incomplete checkpoint: {checkpoint_path.name}\n"
+                f"Required files:\n"
+                f"  - {checkpoint_path.name}: {'✓' if checkpoint_path.exists() else '✗'}\n"
+                f"  - {metadata_file.name}: {'✓' if metadata_file.exists() else '✗'}\n"
+                f"  - {regrets_file.name}: {'✓' if regrets_file.exists() else '✗'}\n"
+                f"Cannot load incomplete checkpoint."
+            )
+        
+        logger.info(f"Loading complete checkpoint: {checkpoint_path.name}")
+        
         # Load metadata
         metadata_path = checkpoint_path.parent / f"{checkpoint_path.stem}_metadata.json"
-        if not metadata_path.exists():
-            logger.warning(f"Metadata file not found: {metadata_path}")
-            logger.warning("Cannot restore training state without metadata")
-            return 0
-        
         metadata = load_json(metadata_path)
         
         # Validate infoset version
@@ -651,7 +690,19 @@ class MCCFRSolver:
         iteration = metadata.get('iteration', 0)
         self.iteration = iteration
         
-        logger.info(f"Loaded checkpoint from iteration {iteration}")
+        # Log comprehensive checkpoint restoration summary
+        logger.info("=" * 60)
+        logger.info(f"✓ Checkpoint restoration complete: iteration {iteration}")
+        logger.info(f"  - Epsilon: {self._current_epsilon:.3f}")
+        logger.info(f"  - Discount alpha: {self.config.regret_discount_alpha:.3f}")
+        logger.info(f"  - Discount beta: {self.config.strategy_discount_beta:.3f}")
+        if 'elapsed_seconds' in metadata:
+            elapsed_hrs = metadata['elapsed_seconds'] / 3600
+            logger.info(f"  - Elapsed time: {elapsed_hrs:.2f} hours")
+        logger.info(f"  - RNG state: {'restored' if 'rng_state' in metadata else 'not available'}")
+        if warm_start and hasattr(self.sampler.regret_tracker, 'regrets'):
+            logger.info(f"  - Warm-start: {len(self.sampler.regret_tracker.regrets)} infosets with regrets")
+        logger.info("=" * 60)
         
         return iteration
     
