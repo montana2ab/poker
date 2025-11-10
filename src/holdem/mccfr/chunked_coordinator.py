@@ -223,6 +223,11 @@ class ChunkedTrainingCoordinator:
             # Save final checkpoint for this chunk
             self._save_chunk_checkpoint(solver, chunk_start_time)
             
+            # Update cumulative elapsed time before checking completion
+            # This ensures the completion check uses the current total elapsed time
+            chunk_elapsed_seconds = time.time() - chunk_start_time
+            solver._cumulative_elapsed_seconds += chunk_elapsed_seconds
+            
             # Flush TensorBoard if enabled
             if solver.writer:
                 logger.info("Flushing TensorBoard logs...")
@@ -236,15 +241,18 @@ class ChunkedTrainingCoordinator:
                 logger.info("=" * 80)
                 logger.info("Training Complete!")
                 logger.info(f"Final iteration: {solver.iteration}")
+                logger.info(f"Total elapsed time: {solver._cumulative_elapsed_seconds:.1f}s ({solver._cumulative_elapsed_seconds / 3600:.2f} hours)")
                 logger.info("=" * 80)
                 break  # Exit the loop
             else:
                 logger.info("=" * 80)
                 logger.info("Chunk Complete - Automatically restarting for next chunk")
                 logger.info(f"Progress: iteration {solver.iteration}")
+                logger.info(f"Elapsed time: {solver._cumulative_elapsed_seconds:.1f}s ({solver._cumulative_elapsed_seconds / 3600:.2f} hours)")
+                logger.info(f"Waiting {self.config.chunk_restart_delay_seconds:.1f}s before restart to allow RAM to clear...")
                 logger.info("=" * 80)
-                # Small delay before restarting to ensure files are flushed
-                time.sleep(2)
+                # Configurable delay before restarting to ensure files are flushed and RAM is freed
+                time.sleep(self.config.chunk_restart_delay_seconds)
                 # Continue to next iteration of the loop (automatic restart)
     
     def _run_chunk(

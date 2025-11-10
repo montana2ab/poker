@@ -180,6 +180,7 @@ class MCCFRConfig:
     enable_chunked_training: bool = False  # Enable chunked training mode (process restart after each chunk)
     chunk_size_iterations: Optional[int] = None  # Number of iterations per chunk (e.g., 100000)
     chunk_size_minutes: Optional[float] = None  # Time duration per chunk in minutes (e.g., 60.0 for 1 hour)
+    chunk_restart_delay_seconds: float = 5.0  # Delay between chunk restarts to allow RAM to clear (default: 5 seconds)
     
 
 @dataclass

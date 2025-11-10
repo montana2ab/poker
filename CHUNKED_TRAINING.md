@@ -95,6 +95,7 @@ config = MCCFRConfig(
     # Chunked mode
     enable_chunked_training=True,
     chunk_size_iterations=100_000,  # 100k iterations per chunk
+    chunk_restart_delay_seconds=5.0,  # Delay between chunk restarts (default: 5s)
     
     # Regular checkpoints within chunks
     checkpoint_interval=25_000,
@@ -118,6 +119,7 @@ config = MCCFRConfig(
     # Chunked mode
     enable_chunked_training=True,
     chunk_size_minutes=60.0,  # 1 hour per chunk
+    chunk_restart_delay_seconds=10.0,  # Longer delay for systems with slower RAM cleanup
     
     # Regular snapshots within chunks
     snapshot_interval_seconds=900,  # 15 minutes
@@ -188,7 +190,8 @@ enable_pruning: true
   --logdir runs/chunked_training \
   --iters 1000000 \
   --chunked \
-  --chunk-iterations 100000
+  --chunk-iterations 100000 \
+  --chunk-restart-delay 5.0  # Optional: customize restart delay (default: 5s)
 
 # Time-based chunks
 ./bin/holdem-train-blueprint \
@@ -196,7 +199,8 @@ enable_pruning: true
   --logdir runs/chunked_training \
   --time-budget 691200 \
   --chunked \
-  --chunk-minutes 60
+  --chunk-minutes 60 \
+  --chunk-restart-delay 10.0  # Optional: longer delay for systems with slower RAM cleanup
 
 # Hybrid chunks
 ./bin/holdem-train-blueprint \
