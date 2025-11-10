@@ -182,21 +182,21 @@ def _run_solver_instance(
                 bucketing=bucketing,
                 logdir=instance_logdir,
                 num_players=num_players,
-                use_tensorboard=use_tensorboard
+                use_tensorboard=use_tensorboard,
+                progress_file=progress_file,
+                instance_id=instance_id
             )
             
-            # Run chunked training (runs one chunk and exits)
+            # Run chunked training (automatically restarts until complete)
             coordinator.run()
             
-            # Mark as completed
-            # Note: In chunked mode, we run one chunk at a time
-            # The user would need to restart the entire multi-instance run to continue
-            progress.update(0, "chunk_completed")
+            # Mark as completed (only reached when training is fully complete)
+            progress.update(0, "completed")
             progress_data = progress.to_dict()
-            progress_data['message'] = "Completed one chunk. Restart to continue."
+            progress_data['message'] = "Training completed successfully."
             _write_progress_dict(progress_file, progress_data)
             
-            instance_logger.info(f"Instance {instance_id} completed one chunk successfully")
+            instance_logger.info(f"Instance {instance_id} completed training successfully")
             return
         
         # Create solver (non-chunked mode)
