@@ -110,12 +110,15 @@ class OutcomeSampler:
         # Get available actions based on street and position
         actions = self._get_available_actions(pot, street, history)
         
-        # Create infoset
+        # Create infoset with versioned encoding
+        # Convert action history to abbreviated format (e.g., ["check_call", "bet_0.75p"] -> "C-B75")
+        action_sequence = self.encoder.encode_action_history(history)
         infoset, _ = self.encoder.encode_infoset(
             hands[current_player],
             board,
             street,
-            self.encoder.encode_history(history)
+            action_sequence,
+            use_versioning=True  # Use new versioned format (v2)
         )
         
         # Dynamic pruning: skip iteration if conditions are met
