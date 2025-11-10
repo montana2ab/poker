@@ -69,6 +69,14 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
     if args.batch_size is not None:
         config_dict['batch_size'] = args.batch_size
     
+    # Chunked training configuration
+    if hasattr(args, 'chunked') and args.chunked:
+        config_dict['enable_chunked_training'] = True
+        if hasattr(args, 'chunk_iterations') and args.chunk_iterations is not None:
+            config_dict['chunk_size_iterations'] = args.chunk_iterations
+        if hasattr(args, 'chunk_minutes') and args.chunk_minutes is not None:
+            config_dict['chunk_size_minutes'] = args.chunk_minutes
+    
     # Convert epsilon_schedule from list of lists to list of tuples
     if 'epsilon_schedule' in config_dict and config_dict['epsilon_schedule'] is not None:
         config_dict['epsilon_schedule'] = [tuple(item) for item in config_dict['epsilon_schedule']]
@@ -124,7 +132,24 @@ def main():
                             "In time-budget mode (--time-budget), each instance runs independently for the full time budget. "
                             "Cannot be used with --num-workers. Supports --resume-from to continue previous multi-instance run.")
     
+    # Chunked training mode
+    parser.add_argument("--chunked", action="store_true",
+                       help="Enable chunked training mode (process restart after each chunk to free RAM)")
+    parser.add_argument("--chunk-iterations", type=int,
+                       help="Number of iterations per chunk (for chunked mode)")
+    parser.add_argument("--chunk-minutes", type=float,
+                       help="Time duration per chunk in minutes (for chunked mode)")
+    
     args = parser.parse_args()
+    
+    # Validate chunked training mode
+    if args.chunked:
+        if args.num_instances is not None:
+            parser.error("--chunked cannot be used with --num-instances (multi-instance mode)")
+        if args.chunk_iterations is None and args.chunk_minutes is None:
+            parser.error("--chunked requires either --chunk-iterations or --chunk-minutes")
+        if args.num_workers is not None and args.num_workers > 1:
+            logger.warning("Chunked mode works best with single-process training (num_workers=1)")
     
     # Validate multi-instance mode
     if args.num_instances is not None:
@@ -159,6 +184,30 @@ def main():
     # Load buckets
     logger.info(f"Loading buckets from {args.buckets}")
     bucketing = HandBucketing.load(args.buckets)
+    
+    # Chunked training mode: Run training in chunks with process restart
+    if config.enable_chunked_training:
+        logger.info("=" * 60)
+        logger.info("CHUNKED TRAINING MODE")
+        if config.chunk_size_iterations:
+            logger.info(f"Chunk size: {config.chunk_size_iterations:,} iterations")
+        if config.chunk_size_minutes:
+            logger.info(f"Chunk duration: {config.chunk_size_minutes:.1f} minutes")
+        logger.info("Process will restart after each chunk to free RAM")
+        logger.info("=" * 60)
+        
+        from holdem.mccfr.chunked_coordinator import ChunkedTrainingCoordinator
+        
+        coordinator = ChunkedTrainingCoordinator(
+            config=config,
+            bucketing=bucketing,
+            logdir=args.logdir,
+            num_players=args.num_players,
+            use_tensorboard=args.tensorboard
+        )
+        
+        coordinator.run()
+        return 0
     
     # Multi-instance mode: Launch multiple independent solver instances
     if args.num_instances is not None:

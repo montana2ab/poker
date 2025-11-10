@@ -77,6 +77,9 @@ class MCCFRSolver:
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None
         
+        # Track cumulative elapsed time across chunks (for chunked training mode)
+        self._cumulative_elapsed_seconds = 0.0
+        
         # Initialize epsilon schedule tracking
         self._epsilon_schedule_index = 0
         self._current_epsilon = config.exploration_epsilon
@@ -526,17 +529,21 @@ class MCCFRSolver:
             logdir: Directory for checkpoints
             iteration: Current iteration number
             elapsed_seconds: Time elapsed since training start (for time-budget mode)
+                           This is the chunk elapsed time; cumulative time is tracked internally
         """
         from holdem.utils.serialization import save_json, save_pickle
         
         checkpoint_dir = logdir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
+        # Update cumulative elapsed time
+        cumulative_seconds = self._cumulative_elapsed_seconds + elapsed_seconds
+        
         # Save policy
         policy_store = PolicyStore(self.sampler.regret_tracker)
         checkpoint_name = f"checkpoint_iter{iteration}"
-        if elapsed_seconds > 0:
-            checkpoint_name += f"_t{int(elapsed_seconds)}s"
+        if cumulative_seconds > 0:
+            checkpoint_name += f"_t{int(cumulative_seconds)}s"
         policy_store.save(checkpoint_dir / f"{checkpoint_name}.pkl")
         
         # Get RNG state
@@ -549,10 +556,11 @@ class MCCFRSolver:
         bucket_sha = self._calculate_bucket_hash()
         
         # Save checkpoint metadata with metrics, RNG state, epsilon, discount params, and bucket metadata
-        metrics = self._calculate_metrics(iteration, elapsed_seconds)
+        metrics = self._calculate_metrics(iteration, cumulative_seconds)
         metadata = {
             'iteration': iteration,
-            'elapsed_seconds': elapsed_seconds,
+            'elapsed_seconds': cumulative_seconds,  # Store cumulative time
+            'chunk_elapsed_seconds': elapsed_seconds,  # Also store chunk time for debugging
             'metrics': metrics,
             'rng_state': rng_state,
             'epsilon': self._current_epsilon,
@@ -686,9 +694,12 @@ class MCCFRSolver:
         else:
             logger.info("Warm-start disabled, training will continue with fresh regret state")
         
-        # Get iteration number
+        # Get iteration number and cumulative elapsed time
         iteration = metadata.get('iteration', 0)
         self.iteration = iteration
+        
+        # Restore cumulative elapsed time (for chunked training)
+        self._cumulative_elapsed_seconds = metadata.get('elapsed_seconds', 0.0)
         
         # Log comprehensive checkpoint restoration summary
         logger.info("=" * 60)
@@ -698,7 +709,7 @@ class MCCFRSolver:
         logger.info(f"  - Discount beta: {self.config.strategy_discount_beta:.3f}")
         if 'elapsed_seconds' in metadata:
             elapsed_hrs = metadata['elapsed_seconds'] / 3600
-            logger.info(f"  - Elapsed time: {elapsed_hrs:.2f} hours")
+            logger.info(f"  - Cumulative elapsed time: {elapsed_hrs:.2f} hours")
         logger.info(f"  - RNG state: {'restored' if 'rng_state' in metadata else 'not available'}")
         if warm_start and hasattr(self.sampler.regret_tracker, 'regrets'):
             logger.info(f"  - Warm-start: {len(self.sampler.regret_tracker.regrets)} infosets with regrets")
