@@ -37,21 +37,21 @@ Entraînement MCCFR,Exploration Epsilon,Epsilon configurable avec schedule,OK,sr
 Entraînement MCCFR,Adaptive Epsilon,Epsilon adaptatif selon IPS et coverage,OK,src/holdem/mccfr/adaptive_epsilon.py:1-200,AdaptiveEpsilonScheduler complet,Low,L,Tuning paramètres adaptatifs
 Entraînement MCCFR,Parallel Training,Multi-process avec persistent workers,OK,src/holdem/mccfr/parallel_solver.py:1-500,Parallélisation spawn-based multi-platform,Low,L,Optimiser latence queues
 Entraînement MCCFR,Checkpointing,Sauvegarde périodique avec snapshot,OK,src/holdem/mccfr/solver.py:150-250,Checkpoint + snapshot système présent,Low,L,Ajouter hash abstraction pour validation
-Entraînement MCCFR,Reprise Déterministe,Restauration exacte état RNG/epsilon/iteration,OK,src/holdem/mccfr/solver.py:374+517+597,RNG state sauvegardé (get_state/set_state); epsilon et regret_tracker state aussi; reprise bit-exact,Low,L,✅ IMPLÉMENTÉ - Ajouter hash abstraction pour validation compatibilité
+Entraînement MCCFR,Reprise Déterministe,Restauration exacte état RNG/epsilon/iteration,Partiel,src/holdem/utils/rng.py:1-50,RNG seedable; manque sauvegarde complète état dans checkpoint,Moyenne,M,Sauvegarder état RNG dans checkpoints
 Entraînement MCCFR,Blueprint Export,Export avg_policy en JSON/PyTorch,OK,src/holdem/mccfr/policy_store.py:1-200,Export JSON fonctionnel,Low,L,Ajouter export PyTorch natif
 Entraînement MCCFR,Stratégie Moyenne,Calcul stratégie moyenne pondérée,OK,src/holdem/mccfr/regrets.py:81-95,get_average_strategy implémenté,Low,L,Validation pondération linéaire
 Entraînement MCCFR,Time-Budget Training,Entraînement basé durée (ex: 8 jours),OK,src/holdem/types.py:142-143,time_budget_seconds configurable,Low,L,Tests de non-régression
 Entraînement MCCFR,Itérations Cible,Recommandation 10M+ itérations,Partiel,src/holdem/types.py:118,Défaut 2.5M; documentation suggère plus,Moyenne,L,Documenter recommandations selon hardware
 Recherche Temps Réel,Subgame Construction,Construction sous-jeu limité à current+1 street,OK,src/holdem/realtime/subgame.py:1-200,SubgameTree implémenté,Low,L,Validation profondeur subgame
 Recherche Temps Réel,Belief Update,Mise à jour ranges adversaires,OK,src/holdem/realtime/belief.py:1-150,BeliefState avec update fonctionnel,Low,L,Validation distribution probas
-Recherche Temps Réel,KL Regularization,Régularisation KL vers blueprint,OK,src/holdem/realtime/resolver.py:180-242,KL divergence explicitement calculée avec _kl_divergence(); logging stats complet; tracking par street/position,Low,L,✅ IMPLÉMENTÉ - Tuning optionnel du kl_weight par street
+Recherche Temps Réel,KL Regularization,Régularisation KL vers blueprint,Partiel,src/holdem/realtime/resolver.py:79-80,Blueprint strategy utilisée; KL pas explicitement calculée,Haute,M,Implémenter terme KL explicite dans objective
 Recherche Temps Réel,Warm-start,Initialisation regrets depuis blueprint,OK,src/holdem/realtime/resolver.py:29-51,warm_start_from_blueprint implémenté,Low,L,Tuning strength warm-start
 Recherche Temps Réel,Time Budget,Budget 80ms par défaut avec min iterations,OK,src/holdem/realtime/resolver.py:58-93,time_budget_ms + min_iterations,Low,L,Tests empiriques latence
 Recherche Temps Réel,Fallback Blueprint,Retour blueprint si timeout,OK,src/holdem/realtime/resolver.py:86-93,Fallback implicite via min_iterations,Low,L,Logging explicite fallbacks
 Recherche Temps Réel,Board Sampling,Échantillonnage boards publics futurs,Manquant,,Pas d'échantillonnage boards publics pour réduire variance,Moyenne,M,Implémenter public card sampling à la Pluribus
 Recherche Temps Réel,Unsafe Subgame,Gel actions passées + continuation strategies,Partiel,src/holdem/realtime/subgame.py:1-200,Construction subgame présente; stratégies continuation pas documentées,Moyenne,M,Documenter et tester stratégies continuation aux feuilles
 Recherche Temps Réel,Parallel Resolving,Multi-threads/process pour search,OK,src/holdem/realtime/parallel_resolver.py:1-150,ParallelResolver implémenté,Low,L,Benchmarking gains parallélisme
-Évaluation,AIVAT,Variance reduction multi-joueurs,OK,src/holdem/rl_eval/aivat.py:19-150,AIVATEvaluator avec value functions et baseline; train_value_functions implémenté,Low,L,✅ IMPLÉMENTÉ - Valider reduction variance sur benchmarks
+Évaluation,AIVAT,Variance reduction multi-joueurs,Manquant,,Pas d'implémentation AIVAT ou équivalent,Haute,H,Implémenter AIVAT pour évaluation low-variance
 Évaluation,Baseline Agents,Adversaires de référence (random/tight/aggressive),OK,src/holdem/rl_eval/baselines.py:1-200,Baselines présents,Low,L,Ajouter plus de baselines (GTO approximations)
 Évaluation,Evaluation Loop,Boucle eval avec métriques bb/100,OK,src/holdem/rl_eval/eval_loop.py:1-150,Loop implémenté avec logging,Low,L,Ajouter intervalles confiance
 Évaluation,Sample Size,Taille échantillon statistiquement significative,Partiel,,Nb episodes configurable mais pas guidé statistiquement,Moyenne,M,Calculateur taille échantillon requis
@@ -100,4 +100,3 @@ Vision,Debounce efficacité,Filter rate ≥ 50-70% frames bruitées,À mesurer,s
 Vision,OCR précision,MAE montants < 0.02 (2 centimes),À mesurer,,Pas de métrique MAE implémentée,Métrique manquante,Haute,Moyen,Implémenter vision/ocr_mae_amounts avec ground truth
 Abstraction,Collisions,collision_rate ≈ 0 (< 0.001),À vérifier,src/holdem/abstraction/bucketing.py,K-means avec seed fixe; collisions non mesurées,Métrique manquante,Moyen,Faible,Ajouter calcul collision_rate sur 100k boards tirés
 Leaf Cache,Hit rate,Cache hit_rate ≥ 0.6,À implémenter,src/holdem/rt_resolver/leaf_evaluator.py,Pas de cache implémenté explicitement,Cache manquant,Moyen,Moyen,Implémenter LRU cache avec statistiques hit_rate
-Entraînement MCCFR,Abstraction Hash,Hash MD5/SHA256 buckets pour validation compatibilité,Manquant,,Pas de hash abstraction dans checkpoints; risque incompatibilité,Moyenne,M,Implémenter compute_hash() dans BucketConfig + validation à la reprise
