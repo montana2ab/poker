@@ -31,6 +31,7 @@ python -m holdem.cli.train_blueprint \
   --num-instances 5 \
   --chunked \
   --chunk-minutes 25 \
+  --chunk-restart-delay 5.0 \  # Optional: delay between restarts (default: 5s)
   --time-budget 28800  # 8 hours
 ```
 
@@ -126,6 +127,9 @@ This feature is compatible with:
 ## Notes
 
 - The automatic restart happens in the same process (no subprocess spawning)
-- Each restart takes ~2 seconds for file flushing and checkpoint loading
+- Each restart has a configurable delay (default: 5 seconds) to allow RAM to be fully freed by the OS
+  - Use `--chunk-restart-delay <seconds>` to customize this delay
+  - Increase the delay if RAM is not being freed quickly enough on your system
 - Progress tracking updates every 100 iterations or 10 seconds
 - All RNG state, epsilon schedules, and discount factors are preserved across chunks
+- Cumulative elapsed time is properly tracked across chunk restarts for accurate time-budget enforcement
