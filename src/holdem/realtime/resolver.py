@@ -1,14 +1,15 @@
 """Subgame resolver with KL regularization."""
 
 import numpy as np
-from typing import Dict, List
-from holdem.types import SearchConfig, Card, Street
+from typing import Dict, List, Optional
+from holdem.types import SearchConfig, Card, Street, TableState
 from holdem.abstraction.actions import AbstractAction
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.mccfr.regrets import RegretTracker
 from holdem.realtime.subgame import SubgameTree
 from holdem.utils.rng import get_rng
 from holdem.utils.logging import get_logger
+from holdem.utils.deck import sample_public_cards
 
 logger = get_logger("realtime.resolver")
 
@@ -58,6 +59,188 @@ class SubgameResolver:
             
             logger.debug(f"Warm-started infoset {infoset} from blueprint")
     
+    def solve_with_sampling(
+        self,
+        subgame: SubgameTree,
+        infoset: str,
+        our_cards: List[Card],
+        time_budget_ms: int = None,
+        street: Street = None,
+        is_oop: bool = False
+    ) -> Dict[AbstractAction, float]:
+        """Solve subgame with public card sampling (board sampling).
+        
+        This implements the Pluribus technique of sampling future boards
+        to reduce variance. The subgame is solved on K sampled boards and
+        the resulting strategies are averaged.
+        
+        Args:
+            subgame: Subgame tree to solve
+            infoset: Information set to solve for
+            our_cards: Hero's hole cards
+            time_budget_ms: Time budget in milliseconds (overrides config)
+            street: Current game street (for KL weight calculation)
+            is_oop: Whether player is out of position (for KL weight calculation)
+            
+        Returns:
+            Averaged strategy (probability distribution over actions)
+        """
+        num_samples = self.config.samples_per_solve
+        
+        # If samples_per_solve is 1, use standard solve (no sampling)
+        if num_samples <= 1:
+            return self.solve(subgame, infoset, time_budget_ms, street, is_oop)
+        
+        # Determine street from subgame if not provided
+        if street is None:
+            street = subgame.state.street if hasattr(subgame, 'state') else Street.FLOP
+        
+        # Only sample if we're not on river (can't sample future cards on river)
+        if street == Street.RIVER:
+            logger.debug("River street - no public card sampling needed")
+            return self.solve(subgame, infoset, time_budget_ms, street, is_oop)
+        
+        # Get current board and determine target street
+        current_board = subgame.state.board if hasattr(subgame, 'state') else []
+        
+        # Determine target number of board cards based on current street
+        target_cards = {
+            Street.PREFLOP: 3,  # Sample flop
+            Street.FLOP: 4,     # Sample turn
+            Street.TURN: 5,     # Sample river
+            Street.RIVER: 5     # Already at river
+        }[street]
+        
+        # Get known cards (board + our hole cards)
+        known_cards = current_board + our_cards
+        
+        # Sample future boards
+        try:
+            sampled_boards = sample_public_cards(
+                num_samples=num_samples,
+                current_board=current_board,
+                known_cards=known_cards,
+                target_street_cards=target_cards,
+                rng=self.rng
+            )
+        except ValueError as e:
+            logger.warning(f"Public card sampling failed: {e}. Falling back to single solve.")
+            return self.solve(subgame, infoset, time_budget_ms, street, is_oop)
+        
+        # Divide time budget across samples
+        time_per_sample = time_budget_ms // num_samples if time_budget_ms else None
+        
+        # Solve on each sampled board and collect strategies
+        strategies = []
+        variances = []
+        
+        for i, board in enumerate(sampled_boards):
+            # Create subgame with sampled board
+            sampled_subgame = self._create_subgame_with_board(subgame, board)
+            
+            # Solve on this board sample
+            strategy = self.solve(
+                sampled_subgame, 
+                infoset, 
+                time_per_sample, 
+                street, 
+                is_oop
+            )
+            strategies.append(strategy)
+            
+            # Track variance in strategies for logging
+            if strategies:
+                avg_so_far = self._average_strategies(strategies)
+                variance = self._strategy_variance(strategy, avg_so_far)
+                variances.append(variance)
+        
+        # Average strategies across all samples
+        averaged_strategy = self._average_strategies(strategies)
+        
+        # Log sampling statistics
+        if variances:
+            avg_variance = np.mean(variances)
+            max_variance = np.max(variances)
+            logger.info(
+                f"Public card sampling: {num_samples} boards | "
+                f"variance - avg: {avg_variance:.4f}, max: {max_variance:.4f}"
+            )
+        
+        return averaged_strategy
+    
+    def _create_subgame_with_board(self, original_subgame: SubgameTree, board: List[Card]) -> SubgameTree:
+        """Create a new subgame with a different board.
+        
+        Args:
+            original_subgame: Original subgame
+            board: New board cards
+            
+        Returns:
+            New subgame with updated board
+        """
+        # Create a copy of the subgame with the new board
+        from copy import deepcopy
+        new_subgame = deepcopy(original_subgame)
+        if hasattr(new_subgame, 'state'):
+            new_subgame.state.board = board.copy()
+        return new_subgame
+    
+    def _average_strategies(self, strategies: List[Dict[AbstractAction, float]]) -> Dict[AbstractAction, float]:
+        """Average multiple strategies.
+        
+        Args:
+            strategies: List of strategy dictionaries
+            
+        Returns:
+            Averaged strategy
+        """
+        if not strategies:
+            return {}
+        
+        # Get all actions
+        all_actions = set()
+        for strategy in strategies:
+            all_actions.update(strategy.keys())
+        
+        # Average probabilities for each action
+        averaged = {}
+        for action in all_actions:
+            probs = [strategy.get(action, 0.0) for strategy in strategies]
+            averaged[action] = np.mean(probs)
+        
+        # Normalize to ensure probabilities sum to 1.0
+        total = sum(averaged.values())
+        if total > 0:
+            averaged = {action: prob / total for action, prob in averaged.items()}
+        
+        return averaged
+    
+    def _strategy_variance(
+        self, 
+        strategy: Dict[AbstractAction, float], 
+        reference: Dict[AbstractAction, float]
+    ) -> float:
+        """Calculate variance between a strategy and reference strategy.
+        
+        Uses L2 distance (Euclidean distance) between probability vectors.
+        
+        Args:
+            strategy: Strategy to compare
+            reference: Reference strategy
+            
+        Returns:
+            L2 distance between strategies
+        """
+        all_actions = set(strategy.keys()) | set(reference.keys())
+        
+        diff_sum = 0.0
+        for action in all_actions:
+            p1 = strategy.get(action, 0.0)
+            p2 = reference.get(action, 0.0)
+            diff_sum += (p1 - p2) ** 2
+        
+        return np.sqrt(diff_sum)
+    
     def solve(
         self,
         subgame: SubgameTree,
@@ -67,6 +250,9 @@ class SubgameResolver:
         is_oop: bool = False
     ) -> Dict[AbstractAction, float]:
         """Solve subgame and return strategy.
+        
+        Note: This method does NOT use public card sampling. To enable sampling,
+        use solve_with_sampling() instead.
         
         Args:
             subgame: Subgame tree to solve
