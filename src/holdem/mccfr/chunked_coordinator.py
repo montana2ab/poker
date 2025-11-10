@@ -36,7 +36,9 @@ class ChunkedTrainingCoordinator:
         bucketing: HandBucketing,
         logdir: Path,
         num_players: int = 2,
-        use_tensorboard: bool = True
+        use_tensorboard: bool = True,
+        progress_file: Optional[Path] = None,
+        instance_id: Optional[int] = None
     ):
         """Initialize the chunked training coordinator.
         
@@ -46,6 +48,8 @@ class ChunkedTrainingCoordinator:
             logdir: Directory for logs and checkpoints
             num_players: Number of players (default: 2)
             use_tensorboard: Enable TensorBoard logging
+            progress_file: Optional path to write progress updates (for multi-instance mode)
+            instance_id: Optional instance ID (for multi-instance mode)
         """
         if not config.enable_chunked_training:
             raise ValueError("Chunked training not enabled in config. Set enable_chunked_training=True")
@@ -58,6 +62,8 @@ class ChunkedTrainingCoordinator:
         self.logdir = logdir
         self.num_players = num_players
         self.use_tensorboard = use_tensorboard
+        self.progress_file = progress_file
+        self.instance_id = instance_id if instance_id is not None else 0
         
         # Ensure logdir exists
         self.logdir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +77,62 @@ class ChunkedTrainingCoordinator:
             logger.info(f"Chunk duration: {config.chunk_size_minutes:.1f} minutes")
         logger.info(f"Logdir: {logdir}")
         logger.info("=" * 80)
+    
+    def _write_progress_update(
+        self,
+        current_iter: int,
+        elapsed_seconds: float,
+        start_iteration: int
+    ):
+        """Write progress update to file (for multi-instance coordination).
+        
+        Args:
+            current_iter: Current iteration number
+            elapsed_seconds: Seconds elapsed in this chunk
+            start_iteration: Starting iteration of this chunk
+        """
+        if not self.progress_file:
+            return
+        
+        import json
+        
+        # Determine mode
+        use_time_budget = self.config.time_budget_seconds is not None
+        
+        if use_time_budget:
+            # Time-budget mode: track elapsed time
+            progress_data = {
+                'instance_id': self.instance_id,
+                'start_iter': 0,
+                'end_iter': -1,  # -1 indicates time-based mode
+                'current_iter': current_iter,
+                'status': 'running',
+                'progress_pct': 0,  # Not meaningful in time mode
+                'last_update': time.time(),
+                'elapsed_seconds': elapsed_seconds,
+                'time_budget_seconds': self.config.time_budget_seconds,
+                'time_progress_pct': 100.0 * elapsed_seconds / self.config.time_budget_seconds if self.config.time_budget_seconds else 0
+            }
+        else:
+            # Iteration mode: track iteration progress
+            end_iter = start_iteration + (self.config.chunk_size_iterations or self.config.num_iterations)
+            progress_pct = 100.0 * (current_iter - start_iteration) / (end_iter - start_iteration) if end_iter > start_iteration else 0
+            
+            progress_data = {
+                'instance_id': self.instance_id,
+                'start_iter': start_iteration,
+                'end_iter': end_iter,
+                'current_iter': current_iter,
+                'status': 'running',
+                'progress_pct': progress_pct,
+                'last_update': time.time()
+            }
+        
+        # Atomic write
+        temp_file = self.progress_file.with_suffix('.tmp')
+        with open(temp_file, 'w') as f:
+            json.dump(progress_data, f, indent=2)
+        temp_file.replace(self.progress_file)
     
     def run(self) -> None:
         """Run training in chunked mode.
@@ -217,6 +279,7 @@ class ChunkedTrainingCoordinator:
         last_checkpoint_time = chunk_start_time
         last_log_time = chunk_start_time
         last_log_iteration = solver.iteration
+        last_progress_update_time = chunk_start_time
         
         from holdem.utils.timers import Timer
         timer = Timer()
@@ -336,6 +399,17 @@ class ChunkedTrainingCoordinator:
                 
                 last_log_time = current_time
                 last_log_iteration = solver.iteration
+            
+            # Progress file update (every 100 iterations or every 10 seconds)
+            time_since_progress = current_time - last_progress_update_time
+            if (solver.iteration % 100 == 0) or (time_since_progress >= 10):
+                chunk_elapsed = current_time - chunk_start_time
+                self._write_progress_update(
+                    current_iter=solver.iteration,
+                    elapsed_seconds=chunk_elapsed,
+                    start_iteration=chunk_start_iter
+                )
+                last_progress_update_time = current_time
         
         logger.info(f"Chunk training complete at iteration {solver.iteration}")
     

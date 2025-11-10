@@ -182,7 +182,9 @@ def _run_solver_instance(
                 bucketing=bucketing,
                 logdir=instance_logdir,
                 num_players=num_players,
-                use_tensorboard=use_tensorboard
+                use_tensorboard=use_tensorboard,
+                progress_file=progress_file,
+                instance_id=instance_id
             )
             
             # Run chunked training (runs one chunk and exits)
