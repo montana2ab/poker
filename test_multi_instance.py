@@ -166,7 +166,7 @@ def test_error_conditions():
     except ValueError as e:
         print(f"  ✓ Correctly raised ValueError for invalid num_instances: {e}")
     
-    # Test 2: Time budget mode (not supported)
+    # Test 2: Time budget mode (now supported!)
     config_time = MCCFRConfig(
         time_budget_seconds=3600,
         num_workers=1
@@ -177,10 +177,10 @@ def test_error_conditions():
             config=config_time,
             bucketing=mock_bucketing
         )
-        print("  ✗ Should have raised ValueError for time-budget mode")
-        return False
+        print(f"  ✓ Time-budget mode is now supported in multi-instance")
     except ValueError as e:
-        print(f"  ✓ Correctly raised ValueError for time-budget mode: {e}")
+        print(f"  ✗ Time-budget mode should be supported but got error: {e}")
+        return False
     
     # Test 3: No iterations specified
     config_no_iter = MCCFRConfig(num_workers=1, num_iterations=None)

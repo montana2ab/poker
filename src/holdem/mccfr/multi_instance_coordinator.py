@@ -72,7 +72,8 @@ def _run_solver_instance(
     progress_file: Path,
     use_time_budget: bool,
     start_iter: int = 0,
-    end_iter: int = None
+    end_iter: int = None,
+    resume_checkpoint: Path = None
 ):
     """Run a single solver instance in a separate process.
     
@@ -90,6 +91,7 @@ def _run_solver_instance(
         use_time_budget: Whether to use time-budget mode (True) or iteration mode (False)
         start_iter: Starting iteration (inclusive) - only used in iteration mode
         end_iter: Ending iteration (exclusive) - only used in iteration mode
+        resume_checkpoint: Path to checkpoint file to resume from (optional)
     """
     # Setup instance-specific logger
     instance_logger = setup_logger(f"instance_{instance_id}", log_file=logdir / f"instance_{instance_id}.log")
@@ -161,13 +163,33 @@ def _run_solver_instance(
             num_players=num_players
         )
         
-        # Override iteration counter to reflect actual iteration numbers (iteration mode only)
-        if not use_time_budget:
-            solver.iteration = start_iter
-        
         # Create instance-specific logdir
         instance_logdir = logdir / f"instance_{instance_id}"
         instance_logdir.mkdir(parents=True, exist_ok=True)
+        
+        # Resume from checkpoint if provided
+        resumed_iteration = 0
+        if resume_checkpoint and resume_checkpoint.exists():
+            instance_logger.info(f"Resuming instance {instance_id} from checkpoint: {resume_checkpoint}")
+            try:
+                resumed_iteration = solver.load_checkpoint(resume_checkpoint, validate_buckets=True)
+                instance_logger.info(f"Successfully loaded checkpoint at iteration {resumed_iteration}")
+                
+                # Update start iteration if resuming in iteration mode
+                if not use_time_budget:
+                    start_iter = resumed_iteration
+                    progress.start_iter = start_iter
+                    progress.update(start_iter, "running")
+                    _write_progress(progress_file, progress)
+                    instance_logger.info(f"Resuming from iteration {start_iter} to {end_iter-1}")
+            except Exception as e:
+                instance_logger.error(f"Failed to load checkpoint: {e}")
+                instance_logger.warning("Starting from scratch instead")
+                resumed_iteration = 0
+        
+        # Override iteration counter to reflect actual iteration numbers (iteration mode only)
+        if not use_time_budget:
+            solver.iteration = start_iter
         
         # Hook into solver's iteration loop to report progress
         original_train = solver.train
@@ -355,18 +377,62 @@ class MultiInstanceCoordinator:
         
         return ranges
     
-    def train(self, logdir: Path, use_tensorboard: bool = True):
+    def _find_resume_checkpoints(self, resume_from: Path) -> List[Optional[Path]]:
+        """Find the latest checkpoint for each instance in a previous run.
+        
+        Args:
+            resume_from: Base directory of previous multi-instance run
+            
+        Returns:
+            List of checkpoint paths (or None) for each instance
+        """
+        checkpoints = []
+        for i in range(self.num_instances):
+            instance_dir = resume_from / f"instance_{i}"
+            checkpoint_dir = instance_dir / "checkpoints"
+            
+            if not checkpoint_dir.exists():
+                logger.warning(f"No checkpoint directory found for instance {i}")
+                checkpoints.append(None)
+                continue
+            
+            # Find the latest checkpoint
+            checkpoint_files = list(checkpoint_dir.glob("checkpoint_*.pkl"))
+            if not checkpoint_files:
+                logger.warning(f"No checkpoint files found for instance {i}")
+                checkpoints.append(None)
+                continue
+            
+            # Sort by modification time and get the latest
+            latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
+            logger.info(f"Found checkpoint for instance {i}: {latest_checkpoint.name}")
+            checkpoints.append(latest_checkpoint)
+        
+        return checkpoints
+    
+    def train(self, logdir: Path, use_tensorboard: bool = True, resume_from: Optional[Path] = None):
         """Launch and coordinate multiple solver instances.
         
         Args:
             logdir: Base directory for logs and checkpoints
             use_tensorboard: Enable TensorBoard for each instance
+            resume_from: Base directory containing previous multi-instance run to resume from (optional)
         """
         logdir.mkdir(parents=True, exist_ok=True)
         
         # Create progress directory
         progress_dir = logdir / "progress"
         progress_dir.mkdir(exist_ok=True)
+        
+        # Check for resume capability
+        resume_checkpoints = []
+        if resume_from:
+            logger.info(f"Attempting to resume from previous run in: {resume_from}")
+            resume_checkpoints = self._find_resume_checkpoints(resume_from)
+            if resume_checkpoints:
+                logger.info(f"Found {len(resume_checkpoints)} instance checkpoint(s) to resume from")
+            else:
+                logger.warning(f"No checkpoints found in {resume_from}, starting fresh")
         
         logger.info(f"Launching {self.num_instances} solver instances...")
         logger.info(f"Logs will be written to: {logdir}")
@@ -391,6 +457,9 @@ class MultiInstanceCoordinator:
                 progress_file = progress_dir / f"instance_{i}_progress.json"
                 self._progress_files.append(progress_file)
                 
+                # Get resume checkpoint if available
+                resume_checkpoint = resume_checkpoints[i] if resume_checkpoints and i < len(resume_checkpoints) else None
+                
                 # Create process
                 p = mp_context.Process(
                     target=_run_solver_instance,
@@ -403,17 +472,24 @@ class MultiInstanceCoordinator:
                         use_tensorboard,
                         progress_file,
                         True,  # use_time_budget
-                    )
+                    ),
+                    kwargs={'resume_checkpoint': resume_checkpoint}
                 )
                 p.start()
                 self._processes.append(p)
                 
-                logger.info(f"Launched instance {i} (PID: {p.pid}) - time budget: {self.config.time_budget_seconds:.0f}s")
+                if resume_checkpoint:
+                    logger.info(f"Launched instance {i} (PID: {p.pid}) - resuming from checkpoint")
+                else:
+                    logger.info(f"Launched instance {i} (PID: {p.pid}) - time budget: {self.config.time_budget_seconds:.0f}s")
         else:
             # Iteration-based mode: distribute iterations among instances
             for i, (start_iter, end_iter) in enumerate(self.iteration_ranges):
                 progress_file = progress_dir / f"instance_{i}_progress.json"
                 self._progress_files.append(progress_file)
+                
+                # Get resume checkpoint if available
+                resume_checkpoint = resume_checkpoints[i] if resume_checkpoints and i < len(resume_checkpoints) else None
                 
                 # Create process
                 p = mp_context.Process(
@@ -429,12 +505,16 @@ class MultiInstanceCoordinator:
                         False,  # use_time_budget
                         start_iter,
                         end_iter
-                    )
+                    ),
+                    kwargs={'resume_checkpoint': resume_checkpoint}
                 )
                 p.start()
                 self._processes.append(p)
                 
-                logger.info(f"Launched instance {i} (PID: {p.pid}) - iterations {start_iter} to {end_iter-1}")
+                if resume_checkpoint:
+                    logger.info(f"Launched instance {i} (PID: {p.pid}) - resuming from checkpoint")
+                else:
+                    logger.info(f"Launched instance {i} (PID: {p.pid}) - iterations {start_iter} to {end_iter-1}")
         
         # Monitor progress
         self._monitor_progress(progress_dir)

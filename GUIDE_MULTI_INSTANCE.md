@@ -66,12 +66,12 @@ Cette commande va :
 - `--config` : Fichier de configuration YAML
 - `--time-budget` : ✅ **NOUVEAU** - Budget de temps en secondes (chaque instance utilise le budget complet)
 - `--iters` : Nombre d'itérations (distribué entre les instances)
+- `--resume-from` : ✅ **NOUVEAU** - Reprendre depuis un entraînement multi-instance précédent
 - Tous les autres paramètres MCCFR standards
 
 #### Paramètres incompatibles
 
 ❌ `--num-workers` : Chaque instance utilise automatiquement 1 worker
-❌ `--resume-from` : La reprise de checkpoint n'est pas supportée en mode multi-instance
 
 ## Modes de fonctionnement
 
@@ -360,6 +360,55 @@ Terminating instance 1 (PID: 12346)
 
 Les checkpoints déjà sauvegardés restent valides.
 
+### Reprendre un entraînement interrompu
+
+✅ **NOUVEAU** : Il est maintenant possible de reprendre un entraînement multi-instance interrompu !
+
+Si vous arrêtez un entraînement (Ctrl+C) ou s'il est interrompu, vous pouvez le reprendre en spécifiant le répertoire de l'entraînement précédent :
+
+```bash
+# Reprendre depuis un entraînement précédent
+python -m holdem.cli.train_blueprint \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/continued_training \
+  --iters 1000000 \
+  --num-instances 4 \
+  --resume-from runs/multi_instance
+```
+
+**Comment ça fonctionne :**
+1. Le système cherche les checkpoints les plus récents dans chaque `instance_N/checkpoints/`
+2. Chaque instance reprend depuis son dernier checkpoint
+3. La progression continue depuis le point d'arrêt
+4. Si un checkpoint n'existe pas pour une instance, elle démarre à zéro
+
+**Important :**
+- Utilisez les mêmes paramètres (`--iters`, `--num-instances`) que l'entraînement original
+- Le même fichier de buckets doit être utilisé
+- Les checkpoints sont validés avant la reprise
+
+**Exemple pratique :**
+```bash
+# Démarrage initial
+python -m holdem.cli.train_blueprint \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/training_day1 \
+  --iters 10000000 \
+  --num-instances 8 \
+  --checkpoint-interval 50000
+
+# [Interruption après quelques heures]
+
+# Reprise
+python -m holdem.cli.train_blueprint \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/training_day2 \
+  --iters 10000000 \
+  --num-instances 8 \
+  --checkpoint-interval 50000 \
+  --resume-from runs/training_day1
+```
+
 ## Conseils de performance
 
 ### Choisir le nombre d'instances
@@ -476,7 +525,7 @@ python -m holdem.cli.train_blueprint \
 
 ### Q : Puis-je reprendre un entraînement multi-instance ?
 
-**R** : Non, `--resume-from` n'est pas supporté en mode multi-instance. Chaque instance commence à zéro.
+**R** : ✅ **OUI** ! La fonctionnalité de reprise est maintenant supportée en mode multi-instance. Utilisez `--resume-from` avec le répertoire de l'entraînement précédent. Chaque instance reprendra depuis son dernier checkpoint. Voir la section "Reprendre un entraînement interrompu" pour plus de détails.
 
 ### Q : Les instances communiquent-elles entre elles ?
 
@@ -499,6 +548,39 @@ python -m holdem.cli.train_blueprint \
 **R** : Oui ! Lancez chaque instance avec des ranges d'itérations manuellement spécifiées (fonctionnalité à venir). Pour l'instant, lancez le coordinateur sur une machine qui peut accéder à toutes les autres.
 
 ## Exemples avancés
+
+### Script de reprise automatique en cas d'interruption
+
+```bash
+#!/bin/bash
+# resume_multi_instance.sh - Reprend un entraînement interrompu
+
+BUCKETS="assets/abstraction/precomputed_buckets.pkl"
+ORIGINAL_RUN="runs/training_original"
+RESUME_RUN="runs/training_resumed_$(date +%Y%m%d_%H%M%S)"
+ITERS=5000000
+INSTANCES=8
+
+if [ ! -d "$ORIGINAL_RUN" ]; then
+  echo "Error: Original run directory not found: $ORIGINAL_RUN"
+  exit 1
+fi
+
+echo "Resuming from: $ORIGINAL_RUN"
+echo "New logs: $RESUME_RUN"
+
+python -m holdem.cli.train_blueprint \
+  --buckets "$BUCKETS" \
+  --logdir "$RESUME_RUN" \
+  --iters $ITERS \
+  --num-instances $INSTANCES \
+  --checkpoint-interval 25000 \
+  --resume-from "$ORIGINAL_RUN" \
+  --tensorboard
+
+echo "Training resumed and complete!"
+echo "View results: ls $RESUME_RUN/"
+```
 
 ### Script de lancement automatisé
 
