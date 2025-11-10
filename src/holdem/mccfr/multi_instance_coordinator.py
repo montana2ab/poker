@@ -396,8 +396,11 @@ class MultiInstanceCoordinator:
                 checkpoints.append(None)
                 continue
             
-            # Find the latest checkpoint
-            checkpoint_files = list(checkpoint_dir.glob("checkpoint_*.pkl"))
+            # Find the latest checkpoint (excluding _regrets.pkl files which are auxiliary)
+            checkpoint_files = [
+                f for f in checkpoint_dir.glob("checkpoint_*.pkl")
+                if not f.stem.endswith("_regrets")
+            ]
             if not checkpoint_files:
                 logger.warning(f"No checkpoint files found for instance {i}")
                 checkpoints.append(None)

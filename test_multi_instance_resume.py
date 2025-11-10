@@ -9,16 +9,17 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
-
-# Mock heavy dependencies
+# Mock heavy dependencies before any imports
+sys.modules['numpy'] = MagicMock()
 sys.modules['sklearn'] = MagicMock()
 sys.modules['sklearn.cluster'] = MagicMock()
 sys.modules['eval7'] = MagicMock()
 sys.modules['torch'] = MagicMock()
 sys.modules['torch.utils'] = MagicMock()
 sys.modules['torch.utils.tensorboard'] = MagicMock()
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 
 def test_find_resume_checkpoints():
