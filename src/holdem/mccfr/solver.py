@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, Dict
 from holdem.types import MCCFRConfig, Street
 from holdem.abstraction.bucketing import HandBucketing
+from holdem.abstraction.state_encode import INFOSET_VERSION
 from holdem.mccfr.mccfr_os import OutcomeSampler
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.utils.logging import get_logger
@@ -382,6 +383,7 @@ class MCCFRSolver:
             'elapsed_days': elapsed_seconds / 86400,
             'metrics': metrics,
             'rng_state': rng_state,
+            'infoset_version': INFOSET_VERSION,  # Track infoset encoding version
             'bucket_metadata': {
                 'bucket_file_sha': bucket_sha,
                 'k_preflop': self.bucketing.config.k_preflop,
@@ -562,7 +564,7 @@ class MCCFRSolver:
             Iteration number from checkpoint (0 if metadata not found)
             
         Raises:
-            ValueError: If bucket validation fails
+            ValueError: If bucket validation fails or infoset version is incompatible
         """
         from holdem.utils.serialization import load_json, load_pickle
         
@@ -574,6 +576,23 @@ class MCCFRSolver:
             return 0
         
         metadata = load_json(metadata_path)
+        
+        # Validate infoset version
+        checkpoint_version = metadata.get('infoset_version', None)
+        if checkpoint_version is None:
+            logger.warning(f"Checkpoint has no infoset_version (legacy checkpoint). "
+                          f"Current version: {INFOSET_VERSION}. "
+                          f"Loading may fail if infoset formats are incompatible.")
+        elif checkpoint_version != INFOSET_VERSION:
+            raise ValueError(
+                f"Infoset version mismatch!\n"
+                f"Current version: {INFOSET_VERSION}\n"
+                f"Checkpoint version: {checkpoint_version}\n"
+                f"Cannot safely resume training with incompatible infoset encoding.\n"
+                f"Please retrain from scratch with the current version."
+            )
+        else:
+            logger.info(f"Infoset version validated: {checkpoint_version}")
         
         # Validate bucket configuration
         if validate_buckets and 'bucket_metadata' in metadata:

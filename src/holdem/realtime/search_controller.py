@@ -48,13 +48,16 @@ class SearchController:
         """Get action for current state."""
         start_time = time.time()
         
-        # Encode current infoset
+        # Encode current infoset with versioned format
+        # Convert action history to abbreviated format
+        action_sequence = self.encoder.encode_action_history(history)
         infoset = self.encoder.encode_infoset(
             our_cards,
             state.board,
             state.street,
-            self.encoder.encode_history(history)
-        )
+            action_sequence,
+            use_versioning=True  # Use new versioned format (v2)
+        )[0]
         
         # Try real-time search
         try:
