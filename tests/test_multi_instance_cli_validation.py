@@ -24,9 +24,10 @@ sys.modules['cv2'] = MagicMock()
 sys.modules['PIL'] = MagicMock()
 
 
-def test_multi_instance_rejects_time_budget_from_cli():
-    """Test that --num-instances rejects --time-budget from CLI."""
+def test_multi_instance_accepts_time_budget_from_cli():
+    """Test that --num-instances now accepts --time-budget from CLI."""
     from holdem.cli.train_blueprint import main
+    from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
     
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create fake buckets file
@@ -42,16 +43,27 @@ def test_multi_instance_rejects_time_budget_from_cli():
         ]
         
         with patch('sys.argv', test_args):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            
-            # ArgumentParser.error() calls sys.exit(2)
-            assert exc_info.value.code == 2
+            with patch('holdem.cli.train_blueprint.HandBucketing.load') as mock_load:
+                with patch.object(MultiInstanceCoordinator, 'train') as mock_train:
+                    # Mock the bucketing load
+                    mock_load.return_value = MagicMock()
+                    # Mock the train method to avoid actually training
+                    mock_train.return_value = 0
+                    
+                    # This should succeed without raising SystemExit
+                    try:
+                        result = main()
+                        assert result == 0 or result is None
+                    except SystemExit as e:
+                        # Should not exit with error code
+                        if e.code != 0 and e.code is not None:
+                            pytest.fail(f"Expected success but got exit code {e.code}")
 
 
-def test_multi_instance_rejects_time_budget_from_yaml():
-    """Test that --num-instances rejects time_budget_seconds from YAML config."""
+def test_multi_instance_accepts_time_budget_from_yaml():
+    """Test that --num-instances now accepts time_budget_seconds from YAML config."""
     from holdem.cli.train_blueprint import main
+    from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
     
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create YAML config with time_budget_seconds
@@ -80,14 +92,20 @@ def test_multi_instance_rejects_time_budget_from_yaml():
         
         with patch('sys.argv', test_args):
             with patch('holdem.cli.train_blueprint.HandBucketing.load') as mock_load:
-                # Mock the bucketing load to avoid file issues
-                mock_load.return_value = MagicMock()
-                
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                
-                # ArgumentParser.error() calls sys.exit(2)
-                assert exc_info.value.code == 2
+                with patch.object(MultiInstanceCoordinator, 'train') as mock_train:
+                    # Mock the bucketing load to avoid file issues
+                    mock_load.return_value = MagicMock()
+                    # Mock the train method to avoid actually training
+                    mock_train.return_value = 0
+                    
+                    # This should succeed without raising SystemExit
+                    try:
+                        result = main()
+                        assert result == 0 or result is None
+                    except SystemExit as e:
+                        # Should not exit with error code
+                        if e.code != 0 and e.code is not None:
+                            pytest.fail(f"Expected success but got exit code {e.code}")
 
 
 def test_multi_instance_accepts_iters_from_cli():
