@@ -58,22 +58,43 @@ Cette commande va :
 
 #### Paramètres compatibles
 
-- `--checkpoint-interval` : Intervalle de sauvegarde des checkpoints
+- `--checkpoint-interval` : Intervalle de sauvegarde des checkpoints (mode itération)
+- `--snapshot-interval` : Intervalle de sauvegarde des snapshots en secondes (mode time-budget)
 - `--discount-interval` : Intervalle de discount
 - `--epsilon` : Epsilon d'exploration
 - `--tensorboard` / `--no-tensorboard` : Activer/désactiver TensorBoard
 - `--config` : Fichier de configuration YAML
+- `--time-budget` : ✅ **NOUVEAU** - Budget de temps en secondes (chaque instance utilise le budget complet)
+- `--iters` : Nombre d'itérations (distribué entre les instances)
 - Tous les autres paramètres MCCFR standards
 
 #### Paramètres incompatibles
 
-❌ `--time-budget` : Non supporté en mode multi-instance (utilisez `--iters`)
 ❌ `--num-workers` : Chaque instance utilise automatiquement 1 worker
-❌ `--resume-from` : Le reprise de checkpoint n'est pas supportée en mode multi-instance
+❌ `--resume-from` : La reprise de checkpoint n'est pas supportée en mode multi-instance
+
+## Modes de fonctionnement
+
+### Mode itération (--iters)
+
+Dans ce mode, les itérations sont **distribuées** entre les instances :
+- Chaque instance reçoit une portion du nombre total d'itérations
+- Les ranges d'itérations ne se chevauchent pas
+- Utile quand vous voulez un nombre total d'itérations spécifique
+
+### Mode time-budget (--time-budget)
+
+Dans ce mode, chaque instance fonctionne **indépendamment** pour le budget de temps complet :
+- Toutes les instances s'exécutent pendant la même durée
+- Chaque instance explore l'espace de jeu de façon indépendante
+- Utile pour des entraînements de longue durée (plusieurs jours)
+- Produit plusieurs stratégies indépendantes que vous pouvez comparer
 
 ## Exemples d'utilisation
 
-### Exemple 1 : Entraînement rapide avec 4 instances
+### Mode itération
+
+#### Exemple 1 : Entraînement rapide avec 4 instances
 
 ```bash
 python -m holdem.cli.train_blueprint \
@@ -90,7 +111,7 @@ python -m holdem.cli.train_blueprint \
 - Instance 2 : itérations 250,000 - 374,999
 - Instance 3 : itérations 375,000 - 499,999
 
-### Exemple 2 : Gros entraînement avec 8 instances
+#### Exemple 2 : Gros entraînement avec 8 instances
 
 ```bash
 python -m holdem.cli.train_blueprint \
@@ -104,7 +125,43 @@ python -m holdem.cli.train_blueprint \
 
 **Résultat** : Chaque instance traite 1,250,000 itérations
 
-### Exemple 3 : Utilisation avec fichier de configuration
+### Mode time-budget
+
+#### Exemple 3 : Entraînement de 8 heures avec 4 instances
+
+```bash
+python -m holdem.cli.train_blueprint \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/8hours_4_instances \
+  --time-budget 28800 \
+  --num-instances 4 \
+  --snapshot-interval 1800
+```
+
+**Résultat** :
+- Toutes les 4 instances s'exécutent pendant 8 heures (28800 secondes)
+- Chaque instance explore l'espace de jeu indépendamment
+- Snapshots sauvegardés toutes les 30 minutes (1800 secondes)
+- 4 stratégies indépendantes produites
+
+#### Exemple 4 : Entraînement longue durée (3 jours) avec 6 instances
+
+```bash
+python -m holdem.cli.train_blueprint \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/3days_6_instances \
+  --time-budget 259200 \
+  --num-instances 6 \
+  --snapshot-interval 3600 \
+  --epsilon 0.6
+```
+
+**Résultat** :
+- Toutes les 6 instances s'exécutent pendant 3 jours (259200 secondes)
+- Snapshots sauvegardés toutes les heures (3600 secondes)
+- 6 stratégies indépendantes pour comparaison
+
+#### Exemple 5 : Utilisation avec fichier de configuration (mode itération)
 
 Créez `configs/multi_instance.yaml` :
 
@@ -129,7 +186,32 @@ python -m holdem.cli.train_blueprint \
   --num-instances 6
 ```
 
-### Exemple 4 : Nombre impair d'instances
+#### Exemple 6 : Utilisation avec fichier de configuration (mode time-budget)
+
+Créez `configs/multi_instance_timebudget.yaml` :
+
+```yaml
+# Configuration MCCFR avec time-budget
+time_budget_seconds: 86400  # 1 jour
+snapshot_interval_seconds: 3600  # 1 heure
+discount_interval: 5000
+exploration_epsilon: 0.6
+enable_pruning: true
+pruning_threshold: -300000000.0
+pruning_probability: 0.95
+```
+
+Puis lancez :
+
+```bash
+python -m holdem.cli.train_blueprint \
+  --config configs/multi_instance_timebudget.yaml \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/timebudget_multi \
+  --num-instances 4
+```
+
+#### Exemple 7 : Nombre impair d'instances (mode itération)
 
 ```bash
 python -m holdem.cli.train_blueprint \
@@ -145,6 +227,8 @@ python -m holdem.cli.train_blueprint \
 - Instance 2 : 333,333 itérations (666,667 - 999,999)
 
 Le reste est automatiquement distribué aux premières instances.
+
+**Note** : En mode time-budget, toutes les instances s'exécutent pour la même durée, donc le nombre d'instances (pair ou impair) n'a pas d'importance.
 
 ## Structure des fichiers de sortie
 
@@ -346,19 +430,21 @@ python -m holdem.cli.train_blueprint \
 
 ### Quand utiliser chaque mode ?
 
-| Critère | Mode parallèle | Mode multi-instance |
-|---------|----------------|---------------------|
-| **Machine** | Single | Single ou cluster |
-| **Itérations** | < 5M | > 5M |
-| **Isolation** | Non nécessaire | Importante |
-| **Checkpoints** | 1 seul souhaité | Multiples OK |
-| **Flexibilité** | Moins | Plus |
+| Critère | Mode parallèle | Mode multi-instance (itération) | Mode multi-instance (time-budget) |
+|---------|----------------|--------------------------------|----------------------------------|
+| **Machine** | Single | Single ou cluster | Single ou cluster |
+| **Itérations** | < 5M | > 5M | N/A |
+| **Durée** | Variable | Variable | Fixe (heures/jours) |
+| **Isolation** | Non nécessaire | Importante | Importante |
+| **Checkpoints** | 1 seul souhaité | Multiples OK | Multiples OK |
+| **Flexibilité** | Moins | Plus | Maximum |
+| **Comparaison** | Non | Oui (ranges différentes) | Oui (explorations différentes) |
 
 ## Dépannage
 
-### Problème : "Multi-instance mode requires --iters"
+### Problème : "Multi-instance mode requires either --iters or --time-budget"
 
-**Solution** : Le mode multi-instance nécessite `--iters`. N'utilisez pas `--time-budget`.
+**Solution** : Le mode multi-instance nécessite soit `--iters` soit `--time-budget`. Spécifiez l'un des deux.
 
 ### Problème : "cannot be used with --num-workers"
 
@@ -370,7 +456,7 @@ python -m holdem.cli.train_blueprint \
 1. Vérifiez l'utilisation CPU : `top` ou `htop`
 2. Vérifiez la mémoire disponible : `free -h`
 3. Réduisez le nombre d'instances si nécessaire
-4. Vérifiez l'I/O disque (checkpoints)
+4. Vérifiez l'I/O disque (checkpoints/snapshots)
 
 ### Problème : Toutes les instances échouent
 
@@ -381,6 +467,12 @@ python -m holdem.cli.train_blueprint \
 4. Vérifiez la compatibilité des buckets
 
 ## Questions fréquentes
+
+### Q : Quelle est la différence entre mode itération et mode time-budget en multi-instance ?
+
+**R** : 
+- **Mode itération** (`--iters`) : Les itérations totales sont divisées entre les instances. Chaque instance traite un range spécifique sans chevauchement.
+- **Mode time-budget** (`--time-budget`) : Toutes les instances s'exécutent pour la même durée indépendamment. Chacune explore l'espace de jeu de façon unique.
 
 ### Q : Puis-je reprendre un entraînement multi-instance ?
 

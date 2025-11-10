@@ -70,13 +70,14 @@ def _run_solver_instance(
     logdir: Path,
     use_tensorboard: bool,
     progress_file: Path,
-    start_iter: int,
-    end_iter: int
+    use_time_budget: bool,
+    start_iter: int = 0,
+    end_iter: int = None
 ):
     """Run a single solver instance in a separate process.
     
-    This function runs in its own process and trains the solver for
-    a specific range of iterations.
+    This function runs in its own process and trains the solver either for
+    a specific time budget or a specific range of iterations.
     
     Args:
         instance_id: Unique ID for this instance
@@ -86,37 +87,76 @@ def _run_solver_instance(
         logdir: Directory for this instance's logs
         use_tensorboard: Enable TensorBoard
         progress_file: File to write progress updates
-        start_iter: Starting iteration (inclusive)
-        end_iter: Ending iteration (exclusive)
+        use_time_budget: Whether to use time-budget mode (True) or iteration mode (False)
+        start_iter: Starting iteration (inclusive) - only used in iteration mode
+        end_iter: Ending iteration (exclusive) - only used in iteration mode
     """
     # Setup instance-specific logger
     instance_logger = setup_logger(f"instance_{instance_id}", logdir / f"instance_{instance_id}.log")
     
     try:
-        instance_logger.info(f"Instance {instance_id} starting: iterations {start_iter} to {end_iter-1}")
-        
-        # Create a modified config for this instance's iteration range
-        instance_config = MCCFRConfig(
-            num_iterations=end_iter - start_iter,
-            checkpoint_interval=config.checkpoint_interval,
-            discount_interval=config.discount_interval,
-            regret_discount_alpha=config.regret_discount_alpha,
-            strategy_discount_beta=config.strategy_discount_beta,
-            exploration_epsilon=config.exploration_epsilon,
-            enable_pruning=config.enable_pruning,
-            pruning_threshold=config.pruning_threshold,
-            pruning_probability=config.pruning_probability,
-            use_linear_weighting=config.use_linear_weighting,
-            num_workers=1,  # Force single worker per instance
-            batch_size=config.batch_size,
-            time_budget_seconds=None,  # Use iteration-based for instances
-            snapshot_interval_seconds=None,
-            epsilon_schedule=config.epsilon_schedule,
-            adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
-            adaptive_epsilon_target_ips=config.adaptive_epsilon_target_ips,
-            adaptive_epsilon_convergence_threshold=config.adaptive_epsilon_convergence_threshold,
-            adaptive_epsilon_window_size=config.adaptive_epsilon_window_size
-        )
+        if use_time_budget:
+            instance_logger.info(f"Instance {instance_id} starting: time budget {config.time_budget_seconds:.0f}s")
+            
+            # Create config for time-budget mode
+            instance_config = MCCFRConfig(
+                time_budget_seconds=config.time_budget_seconds,
+                snapshot_interval_seconds=config.snapshot_interval_seconds,
+                discount_interval=config.discount_interval,
+                regret_discount_alpha=config.regret_discount_alpha,
+                strategy_discount_beta=config.strategy_discount_beta,
+                exploration_epsilon=config.exploration_epsilon,
+                enable_pruning=config.enable_pruning,
+                pruning_threshold=config.pruning_threshold,
+                pruning_probability=config.pruning_probability,
+                use_linear_weighting=config.use_linear_weighting,
+                num_workers=1,  # Force single worker per instance
+                batch_size=config.batch_size,
+                num_iterations=None,  # No iteration limit in time-budget mode
+                checkpoint_interval=None,
+                epsilon_schedule=config.epsilon_schedule,
+                adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
+                adaptive_epsilon_target_ips=config.adaptive_epsilon_target_ips,
+                adaptive_epsilon_convergence_threshold=config.adaptive_epsilon_convergence_threshold,
+                adaptive_epsilon_window_size=config.adaptive_epsilon_window_size
+            )
+            
+            # Create initial progress tracking (time-based)
+            progress = InstanceProgress(instance_id, 0, -1)  # -1 indicates time-based mode
+            progress.update(0, "running")
+            _write_progress(progress_file, progress)
+            
+        else:
+            # Iteration-based mode
+            instance_logger.info(f"Instance {instance_id} starting: iterations {start_iter} to {end_iter-1}")
+            
+            # Create a modified config for this instance's iteration range
+            instance_config = MCCFRConfig(
+                num_iterations=end_iter - start_iter,
+                checkpoint_interval=config.checkpoint_interval,
+                discount_interval=config.discount_interval,
+                regret_discount_alpha=config.regret_discount_alpha,
+                strategy_discount_beta=config.strategy_discount_beta,
+                exploration_epsilon=config.exploration_epsilon,
+                enable_pruning=config.enable_pruning,
+                pruning_threshold=config.pruning_threshold,
+                pruning_probability=config.pruning_probability,
+                use_linear_weighting=config.use_linear_weighting,
+                num_workers=1,  # Force single worker per instance
+                batch_size=config.batch_size,
+                time_budget_seconds=None,  # Use iteration-based for instances
+                snapshot_interval_seconds=None,
+                epsilon_schedule=config.epsilon_schedule,
+                adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
+                adaptive_epsilon_target_ips=config.adaptive_epsilon_target_ips,
+                adaptive_epsilon_convergence_threshold=config.adaptive_epsilon_convergence_threshold,
+                adaptive_epsilon_window_size=config.adaptive_epsilon_window_size
+            )
+            
+            # Create initial progress tracking (iteration-based)
+            progress = InstanceProgress(instance_id, start_iter, end_iter)
+            progress.update(start_iter, "running")
+            _write_progress(progress_file, progress)
         
         # Create solver
         solver = MCCFRSolver(
@@ -125,17 +165,13 @@ def _run_solver_instance(
             num_players=num_players
         )
         
-        # Override iteration counter to reflect actual iteration numbers
-        solver.iteration = start_iter
+        # Override iteration counter to reflect actual iteration numbers (iteration mode only)
+        if not use_time_budget:
+            solver.iteration = start_iter
         
         # Create instance-specific logdir
         instance_logdir = logdir / f"instance_{instance_id}"
         instance_logdir.mkdir(parents=True, exist_ok=True)
-        
-        # Write initial progress
-        progress = InstanceProgress(instance_id, start_iter, end_iter)
-        progress.update(start_iter, "running")
-        _write_progress(progress_file, progress)
         
         # Hook into solver's iteration loop to report progress
         original_train = solver.train
@@ -145,15 +181,38 @@ def _run_solver_instance(
             # Patch the sampler to report progress
             original_sample = solver.sampler.sample_iteration
             
-            def sample_with_progress(iteration):
-                result = original_sample(iteration)
-                # Update progress every 100 iterations
-                if iteration % 100 == 0:
-                    progress.update(iteration, "running")
-                    _write_progress(progress_file, progress)
-                return result
-            
-            solver.sampler.sample_iteration = sample_with_progress
+            if use_time_budget:
+                # Time-budget mode: report progress based on time elapsed
+                import time
+                start_training_time = time.time()
+                
+                def sample_with_progress_time(iteration):
+                    result = original_sample(iteration)
+                    # Update progress every 100 iterations
+                    if iteration % 100 == 0:
+                        elapsed = time.time() - start_training_time
+                        progress.current_iter = iteration
+                        progress.update(iteration, "running")
+                        # Add elapsed time info for time-budget mode
+                        progress_data = progress.to_dict()
+                        progress_data['elapsed_seconds'] = elapsed
+                        progress_data['time_budget_seconds'] = config.time_budget_seconds
+                        progress_data['time_progress_pct'] = 100.0 * elapsed / config.time_budget_seconds if config.time_budget_seconds else 0
+                        _write_progress_dict(progress_file, progress_data)
+                    return result
+                
+                solver.sampler.sample_iteration = sample_with_progress_time
+            else:
+                # Iteration-based mode: report progress based on iterations
+                def sample_with_progress_iter(iteration):
+                    result = original_sample(iteration)
+                    # Update progress every 100 iterations
+                    if iteration % 100 == 0:
+                        progress.update(iteration, "running")
+                        _write_progress(progress_file, progress)
+                    return result
+                
+                solver.sampler.sample_iteration = sample_with_progress_iter
             
             # Run training
             return original_train(*args, **kwargs)
@@ -165,14 +224,21 @@ def _run_solver_instance(
         solver.train(logdir=instance_logdir, use_tensorboard=use_tensorboard)
         
         # Mark as completed
-        progress.update(end_iter - 1, "completed")
-        _write_progress(progress_file, progress)
+        if use_time_budget:
+            # For time-budget mode, mark with final iteration count
+            progress.update(solver.iteration, "completed")
+            progress_data = progress.to_dict()
+            progress_data['final_iteration'] = solver.iteration
+            _write_progress_dict(progress_file, progress_data)
+        else:
+            progress.update(end_iter - 1, "completed")
+            _write_progress(progress_file, progress)
         
         instance_logger.info(f"Instance {instance_id} completed successfully")
         
     except KeyboardInterrupt:
         instance_logger.info(f"Instance {instance_id} interrupted by user")
-        progress = InstanceProgress(instance_id, start_iter, end_iter)
+        progress = InstanceProgress(instance_id, start_iter if not use_time_budget else 0, end_iter if not use_time_budget else -1)
         progress.status = "interrupted"
         _write_progress(progress_file, progress)
         
@@ -181,7 +247,7 @@ def _run_solver_instance(
         error_msg = f"Instance {instance_id} failed: {str(e)}\n{traceback.format_exc()}"
         instance_logger.error(error_msg)
         
-        progress = InstanceProgress(instance_id, start_iter, end_iter)
+        progress = InstanceProgress(instance_id, start_iter if not use_time_budget else 0, end_iter if not use_time_budget else -1)
         progress.status = "failed"
         progress.error_msg = str(e)
         _write_progress(progress_file, progress)
@@ -194,6 +260,14 @@ def _write_progress(progress_file: Path, progress: InstanceProgress):
     temp_file = progress_file.with_suffix('.tmp')
     with open(temp_file, 'w') as f:
         json.dump(progress.to_dict(), f, indent=2)
+    temp_file.replace(progress_file)
+
+
+def _write_progress_dict(progress_file: Path, progress_dict: Dict):
+    """Write progress dictionary to a file (atomic operation)."""
+    temp_file = progress_file.with_suffix('.tmp')
+    with open(temp_file, 'w') as f:
+        json.dump(progress_dict, f, indent=2)
     temp_file.replace(progress_file)
 
 
@@ -223,15 +297,11 @@ class MultiInstanceCoordinator:
         self.bucketing = bucketing
         self.num_players = num_players
         
-        # Validate configuration
-        if config.time_budget_seconds is not None:
+        # Validate configuration: must have either time_budget or num_iterations
+        if config.time_budget_seconds is None and config.num_iterations is None:
             raise ValueError(
-                "Multi-instance mode does not support time-budget training. "
-                "Please specify --iters instead of --time-budget."
+                "Multi-instance mode requires either --iters or --time-budget to be specified"
             )
-        
-        if config.num_iterations is None:
-            raise ValueError("Multi-instance mode requires --iters to be specified")
         
         # Force single worker per instance
         if config.num_workers != 1:
@@ -242,11 +312,21 @@ class MultiInstanceCoordinator:
             config.num_workers = 1
         
         logger.info(f"Initialized multi-instance coordinator with {num_instances} instances")
-        logger.info(f"Total iterations: {config.num_iterations}")
+        
+        # Determine training mode
+        self.use_time_budget = config.time_budget_seconds is not None
+        
+        if self.use_time_budget:
+            logger.info(f"Training mode: Time-budget ({config.time_budget_seconds:.0f}s = {config.time_budget_seconds / 86400:.2f} days)")
+            logger.info(f"Each instance will run for the full time budget independently")
+        else:
+            logger.info(f"Training mode: Iteration-based ({config.num_iterations} total iterations)")
+            logger.info(f"Iterations will be distributed across instances")
+        
         logger.info(f"Each instance will run with 1 worker")
         
-        # Calculate iteration ranges for each instance
-        self.iteration_ranges = self._calculate_iteration_ranges()
+        # Calculate iteration ranges for each instance (only for iteration-based mode)
+        self.iteration_ranges = self._calculate_iteration_ranges() if not self.use_time_budget else None
         
         # Process management
         self._processes: List[mp.Process] = []
@@ -309,29 +389,56 @@ class MultiInstanceCoordinator:
         # Launch instances
         mp_context = mp.get_context('spawn')
         
-        for i, (start_iter, end_iter) in enumerate(self.iteration_ranges):
-            progress_file = progress_dir / f"instance_{i}_progress.json"
-            self._progress_files.append(progress_file)
-            
-            # Create process
-            p = mp_context.Process(
-                target=_run_solver_instance,
-                args=(
-                    i,
-                    self.config,
-                    self.bucketing,
-                    self.num_players,
-                    logdir,
-                    use_tensorboard,
-                    progress_file,
-                    start_iter,
-                    end_iter
+        if self.use_time_budget:
+            # Time-budget mode: all instances run for the same time budget
+            for i in range(self.num_instances):
+                progress_file = progress_dir / f"instance_{i}_progress.json"
+                self._progress_files.append(progress_file)
+                
+                # Create process
+                p = mp_context.Process(
+                    target=_run_solver_instance,
+                    args=(
+                        i,
+                        self.config,
+                        self.bucketing,
+                        self.num_players,
+                        logdir,
+                        use_tensorboard,
+                        progress_file,
+                        True,  # use_time_budget
+                    )
                 )
-            )
-            p.start()
-            self._processes.append(p)
-            
-            logger.info(f"Launched instance {i} (PID: {p.pid})")
+                p.start()
+                self._processes.append(p)
+                
+                logger.info(f"Launched instance {i} (PID: {p.pid}) - time budget: {self.config.time_budget_seconds:.0f}s")
+        else:
+            # Iteration-based mode: distribute iterations among instances
+            for i, (start_iter, end_iter) in enumerate(self.iteration_ranges):
+                progress_file = progress_dir / f"instance_{i}_progress.json"
+                self._progress_files.append(progress_file)
+                
+                # Create process
+                p = mp_context.Process(
+                    target=_run_solver_instance,
+                    args=(
+                        i,
+                        self.config,
+                        self.bucketing,
+                        self.num_players,
+                        logdir,
+                        use_tensorboard,
+                        progress_file,
+                        False,  # use_time_budget
+                        start_iter,
+                        end_iter
+                    )
+                )
+                p.start()
+                self._processes.append(p)
+                
+                logger.info(f"Launched instance {i} (PID: {p.pid}) - iterations {start_iter} to {end_iter-1}")
         
         # Monitor progress
         self._monitor_progress(progress_dir)
@@ -397,7 +504,19 @@ class MultiInstanceCoordinator:
             return
         
         # Calculate overall progress
-        total_progress = sum(p['progress_pct'] for p in progress_data) / len(progress_data)
+        if self.use_time_budget:
+            # For time-budget mode, use time_progress_pct if available
+            total_progress = 0
+            for p in progress_data:
+                if 'time_progress_pct' in p:
+                    total_progress += p['time_progress_pct']
+                else:
+                    # Fallback: estimate based on progress_pct
+                    total_progress += p.get('progress_pct', 0)
+            total_progress /= len(progress_data)
+        else:
+            # For iteration mode, use iteration-based progress
+            total_progress = sum(p.get('progress_pct', 0) for p in progress_data) / len(progress_data)
         
         logger.info(f"=" * 60)
         logger.info(f"Overall Progress: {total_progress:.1f}%")
@@ -412,10 +531,22 @@ class MultiInstanceCoordinator:
                 'interrupted': '⏸️'
             }.get(p['status'], '?')
             
-            logger.info(
-                f"Instance {p['instance_id']}: {status_symbol} {p['progress_pct']:.1f}% "
-                f"(iter {p['current_iter']}/{p['end_iter']})"
-            )
+            if self.use_time_budget:
+                # Time-budget mode: show time elapsed and current iteration
+                elapsed = p.get('elapsed_seconds', 0)
+                time_budget = p.get('time_budget_seconds', self.config.time_budget_seconds)
+                time_pct = p.get('time_progress_pct', 0)
+                current_iter = p.get('current_iter', 0)
+                logger.info(
+                    f"Instance {p['instance_id']}: {status_symbol} {time_pct:.1f}% "
+                    f"(elapsed {elapsed:.0f}s/{time_budget:.0f}s, iter {current_iter})"
+                )
+            else:
+                # Iteration mode: show iteration progress
+                logger.info(
+                    f"Instance {p['instance_id']}: {status_symbol} {p.get('progress_pct', 0):.1f}% "
+                    f"(iter {p.get('current_iter', 0)}/{p.get('end_iter', 0)})"
+                )
         
         logger.info(f"=" * 60)
     

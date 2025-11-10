@@ -120,8 +120,9 @@ def main():
     # Multi-instance parallel training
     parser.add_argument("--num-instances", type=int,
                        help="Launch multiple independent solver instances in parallel (each with 1 worker). "
-                            "Iterations are automatically distributed among instances. "
-                            "Requires --iters to be specified. Cannot be used with --time-budget or --num-workers.")
+                            "In iteration mode (--iters), iterations are distributed among instances. "
+                            "In time-budget mode (--time-budget), each instance runs independently for the full time budget. "
+                            "Cannot be used with --num-workers or --resume-from.")
     
     args = parser.parse_args()
     
@@ -129,9 +130,6 @@ def main():
     if args.num_instances is not None:
         if args.num_instances < 1:
             parser.error("--num-instances must be >= 1")
-        
-        if args.time_budget is not None:
-            parser.error("--num-instances cannot be used with --time-budget. Use --iters instead.")
         
         if args.num_workers is not None and args.num_workers != 1:
             parser.error("--num-instances requires each instance to use 1 worker. "
@@ -156,11 +154,7 @@ def main():
     if config.time_budget_seconds is None and config.num_iterations is None:
         parser.error("Either --iters, --time-budget, or a config file with one of these must be provided")
     
-    # Validate multi-instance mode after config merge
-    if args.num_instances is not None:
-        if config.time_budget_seconds is not None:
-            parser.error("--num-instances cannot be used with time-budget mode. "
-                        "Please use --iters or remove time_budget_seconds from your config file.")
+    # Note: Multi-instance mode now supports both iteration-based and time-budget modes
     
     # Load buckets
     logger.info(f"Loading buckets from {args.buckets}")
