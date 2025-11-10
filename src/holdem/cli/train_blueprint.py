@@ -156,6 +156,12 @@ def main():
     if config.time_budget_seconds is None and config.num_iterations is None:
         parser.error("Either --iters, --time-budget, or a config file with one of these must be provided")
     
+    # Validate multi-instance mode after config merge
+    if args.num_instances is not None:
+        if config.time_budget_seconds is not None:
+            parser.error("--num-instances cannot be used with time-budget mode. "
+                        "Please use --iters or remove time_budget_seconds from your config file.")
+    
     # Load buckets
     logger.info(f"Loading buckets from {args.buckets}")
     bucketing = HandBucketing.load(args.buckets)
