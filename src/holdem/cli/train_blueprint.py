@@ -69,6 +69,10 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
     if args.batch_size is not None:
         config_dict['batch_size'] = args.batch_size
     
+    # Multi-player configuration
+    if args.num_players is not None:
+        config_dict['num_players'] = args.num_players
+    
     # Chunked training configuration
     if hasattr(args, 'chunked') and args.chunked:
         config_dict['enable_chunked_training'] = True
@@ -145,6 +149,10 @@ def main():
                        help="Delay in seconds between chunk restarts to allow RAM to clear (default: 5.0)")
     
     args = parser.parse_args()
+    
+    # Validate num_players
+    if args.num_players is not None and not (2 <= args.num_players <= 6):
+        parser.error("--num-players must be between 2 and 6")
     
     # Validate chunked training mode
     if args.chunked:
@@ -242,6 +250,8 @@ def main():
     
     # Standard single-solver mode (with optional multi-worker parallelism)
     # Log training mode
+    logger.info(f"Player configuration: {config.num_players} players ({config.num_players - 1} opponents)")
+    
     if config.time_budget_seconds is not None:
         days = config.time_budget_seconds / 86400
         hours = config.time_budget_seconds / 3600

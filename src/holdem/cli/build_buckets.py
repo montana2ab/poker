@@ -22,6 +22,8 @@ def main():
                        help="Number of turn buckets")
     parser.add_argument("--k-river", type=int, default=64,
                        help="Number of river buckets")
+    parser.add_argument("--num-players", type=int, default=2,
+                       help="Number of players (2-6). Default: 2 (heads-up)")
     parser.add_argument("--config", type=Path,
                        help="Output config file path")
     parser.add_argument("--out", type=Path, required=True,
@@ -31,6 +33,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate num_players
+    if not (2 <= args.num_players <= 6):
+        parser.error("--num-players must be between 2 and 6")
+    
     # Create config
     config = BucketConfig(
         k_preflop=args.k_preflop,
@@ -38,7 +44,8 @@ def main():
         k_turn=args.k_turn,
         k_river=args.k_river,
         num_samples=args.hands,
-        seed=args.seed
+        seed=args.seed,
+        num_players=args.num_players
     )
     
     # Save config if requested
@@ -50,6 +57,7 @@ def main():
     
     # Build buckets
     logger.info("Building hand buckets...")
+    logger.info(f"  Players: {config.num_players} ({config.num_players - 1} opponents)")
     logger.info(f"  Preflop: {config.k_preflop} buckets")
     logger.info(f"  Flop: {config.k_flop} buckets")
     logger.info(f"  Turn: {config.k_turn} buckets")

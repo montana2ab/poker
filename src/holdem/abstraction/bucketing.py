@@ -31,7 +31,11 @@ class HandBucketing:
             num_samples = self.config.num_samples
         
         rng = get_rng(self.config.seed)
+        num_players = self.config.num_players
+        num_opponents = max(1, num_players - 1)
+        
         logger.info(f"Building buckets with {num_samples} samples per street")
+        logger.info(f"Player configuration: {num_players} players ({num_opponents} opponents)")
         
         # Build buckets for each street
         for street in Street:
@@ -56,7 +60,7 @@ class HandBucketing:
                         pot=100.0,  # Default pot
                         stack=200.0,  # Default stack (SPR=2)
                         is_in_position=True,  # Default position
-                        num_opponents=1,
+                        num_opponents=num_opponents,  # Use configured number of opponents
                         equity_samples=100,  # Faster for training
                         future_equity_samples=50  # Faster for training
                     )
