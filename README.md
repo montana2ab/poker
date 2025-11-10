@@ -137,6 +137,18 @@ python -m holdem.cli.train_blueprint --iters 5000000 \
 
 💡 **DCFR Features**: Training uses Linear MCCFR with DCFR/CFR+ adaptive discounting by default for faster convergence. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) for configuration options and warm-start functionality.
 
+💡 **Multi-Instance Training**: For large-scale training or distributed setups, use `--num-instances` to launch multiple independent solver instances:
+
+```bash
+# Launch 4 independent instances, each processing 625k iterations
+python -m holdem.cli.train_blueprint --iters 2500000 \
+  --buckets assets/abstraction/precomputed_buckets.pkl \
+  --logdir runs/multi_instance \
+  --num-instances 4
+```
+
+See [GUIDE_MULTI_INSTANCE.md](GUIDE_MULTI_INSTANCE.md) for detailed documentation (in French) or run `python examples/multi_instance_demo.py` for examples.
+
 ### 4. Evaluate Blueprint
 
 Test the blueprint strategy against baselines:

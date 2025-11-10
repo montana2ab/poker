@@ -117,7 +117,31 @@ def main():
     parser.add_argument("--batch-size", type=int,
                        help="Number of iterations per worker batch (only for parallel training)")
     
+    # Multi-instance parallel training
+    parser.add_argument("--num-instances", type=int,
+                       help="Launch multiple independent solver instances in parallel (each with 1 worker). "
+                            "Iterations are automatically distributed among instances. "
+                            "Requires --iters to be specified. Cannot be used with --time-budget or --num-workers.")
+    
     args = parser.parse_args()
+    
+    # Validate multi-instance mode
+    if args.num_instances is not None:
+        if args.num_instances < 1:
+            parser.error("--num-instances must be >= 1")
+        
+        if args.time_budget is not None:
+            parser.error("--num-instances cannot be used with --time-budget. Use --iters instead.")
+        
+        if args.num_workers is not None and args.num_workers != 1:
+            parser.error("--num-instances requires each instance to use 1 worker. "
+                        "Do not specify --num-workers or set it to 1.")
+        
+        if args.resume_from is not None:
+            parser.error("--num-instances cannot be used with --resume-from")
+        
+        # Force num_workers to 1 for multi-instance mode
+        args.num_workers = 1
     
     # Load YAML config if provided
     yaml_config = None
@@ -136,6 +160,25 @@ def main():
     logger.info(f"Loading buckets from {args.buckets}")
     bucketing = HandBucketing.load(args.buckets)
     
+    # Multi-instance mode: Launch multiple independent solver instances
+    if args.num_instances is not None:
+        logger.info("=" * 60)
+        logger.info(f"MULTI-INSTANCE MODE: Launching {args.num_instances} independent solver instances")
+        logger.info("=" * 60)
+        
+        from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
+        
+        coordinator = MultiInstanceCoordinator(
+            num_instances=args.num_instances,
+            config=config,
+            bucketing=bucketing,
+            num_players=args.num_players
+        )
+        
+        result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard)
+        return result
+    
+    # Standard single-solver mode (with optional multi-worker parallelism)
     # Log training mode
     if config.time_budget_seconds is not None:
         days = config.time_budget_seconds / 86400
