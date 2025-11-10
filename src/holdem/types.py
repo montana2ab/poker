@@ -176,6 +176,11 @@ class MCCFRConfig:
     adaptive_extension_ratio: float = 0.15  # Allow epsilon decrease delay up to 15% if criteria not met
     adaptive_force_after_ratio: float = 0.30  # Force epsilon decrease after 30% extension if never met
     
+    # Chunked training parameters
+    enable_chunked_training: bool = False  # Enable chunked training mode (process restart after each chunk)
+    chunk_size_iterations: Optional[int] = None  # Number of iterations per chunk (e.g., 100000)
+    chunk_size_minutes: Optional[float] = None  # Time duration per chunk in minutes (e.g., 60.0 for 1 hour)
+    
 
 @dataclass
 class SearchConfig:
