@@ -122,7 +122,7 @@ def main():
                        help="Launch multiple independent solver instances in parallel (each with 1 worker). "
                             "In iteration mode (--iters), iterations are distributed among instances. "
                             "In time-budget mode (--time-budget), each instance runs independently for the full time budget. "
-                            "Cannot be used with --num-workers or --resume-from.")
+                            "Cannot be used with --num-workers. Supports --resume-from to continue previous multi-instance run.")
     
     args = parser.parse_args()
     
@@ -135,8 +135,8 @@ def main():
             parser.error("--num-instances requires each instance to use 1 worker. "
                         "Do not specify --num-workers or set it to 1.")
         
-        if args.resume_from is not None:
-            parser.error("--num-instances cannot be used with --resume-from")
+        # Resume is now supported in multi-instance mode
+        # No need to error out if resume_from is specified
         
         # Force num_workers to 1 for multi-instance mode
         args.num_workers = 1
@@ -164,6 +164,8 @@ def main():
     if args.num_instances is not None:
         logger.info("=" * 60)
         logger.info(f"MULTI-INSTANCE MODE: Launching {args.num_instances} independent solver instances")
+        if args.resume_from:
+            logger.info(f"RESUME MODE: Will attempt to resume from {args.resume_from}")
         logger.info("=" * 60)
         
         from holdem.mccfr.multi_instance_coordinator import MultiInstanceCoordinator
@@ -175,7 +177,7 @@ def main():
             num_players=args.num_players
         )
         
-        result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard)
+        result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard, resume_from=args.resume_from)
         return result
     
     # Standard single-solver mode (with optional multi-worker parallelism)
