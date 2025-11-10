@@ -207,6 +207,56 @@ enable_pruning: true
   --chunked \
   --chunk-iterations 50000 \
   --chunk-minutes 30
+
+# Chunked with multi-instance
+# Each of the 5 instances will run in chunked mode
+python -m holdem.cli.train_blueprint \
+  --buckets data/buckets.pkl \
+  --logdir runs/chunked_multi \
+  --iters 1000000 \
+  --num-instances 5 \
+  --chunked \
+  --chunk-minutes 10
+```
+
+### Chunked with Multi-Instance Mode
+
+You can combine chunked training with multi-instance mode to get the benefits of both:
+- **Parallelism**: Multiple instances run simultaneously
+- **Memory management**: Each instance restarts after each chunk to free RAM
+
+When using both `--chunked` and `--num-instances`:
+- Each instance runs in chunked mode independently
+- Each instance will complete one chunk and exit
+- To continue training, restart the entire multi-instance command
+- All instances will automatically resume from their respective checkpoints
+
+Example:
+```bash
+# First run: Each of 5 instances runs one chunk (10 minutes each)
+python -m holdem.cli.train_blueprint \
+  --config configs/training_config.yaml \
+  --buckets assets/abstraction/buckets.pkl \
+  --logdir runs/chunked_multi \
+  --num-instances 5 \
+  --chunked \
+  --chunk-minutes 10
+
+# After all instances complete one chunk, restart to continue
+# (same command - will automatically resume)
+python -m holdem.cli.train_blueprint \
+  --config configs/training_config.yaml \
+  --buckets assets/abstraction/buckets.pkl \
+  --logdir runs/chunked_multi \
+  --num-instances 5 \
+  --chunked \
+  --chunk-minutes 10
+```
+
+This is useful for:
+- Large-scale training on memory-constrained systems
+- Job schedulers with time limits (SLURM, PBS, etc.)
+- Maximizing both parallelism and memory efficiency
 ```
 
 ## Usage Workflow
@@ -415,9 +465,9 @@ python examples/chunked_training_example.py
 
 ## Limitations
 
-- Chunked mode is not compatible with multi-instance mode (`--num-instances`)
 - Each chunk runs in a single process (chunked mode works best with `num_workers=1`)
 - Very short chunks may have overhead from process restart
+- When using chunked mode with multi-instance mode (`--num-instances`), each instance will run one chunk and exit. You need to restart the entire multi-instance command to continue training.
 
 ## Comparison with Standard Training
 
