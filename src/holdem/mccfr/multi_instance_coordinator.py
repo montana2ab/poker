@@ -116,9 +116,7 @@ def _run_solver_instance(
                 checkpoint_interval=None,
                 epsilon_schedule=config.epsilon_schedule,
                 adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
-                adaptive_epsilon_target_ips=config.adaptive_epsilon_target_ips,
-                adaptive_epsilon_convergence_threshold=config.adaptive_epsilon_convergence_threshold,
-                adaptive_epsilon_window_size=config.adaptive_epsilon_window_size
+                adaptive_target_ips=config.adaptive_target_ips
             )
             
             # Create initial progress tracking (time-based)
@@ -148,9 +146,7 @@ def _run_solver_instance(
                 snapshot_interval_seconds=None,
                 epsilon_schedule=config.epsilon_schedule,
                 adaptive_epsilon_enabled=config.adaptive_epsilon_enabled,
-                adaptive_epsilon_target_ips=config.adaptive_epsilon_target_ips,
-                adaptive_epsilon_convergence_threshold=config.adaptive_epsilon_convergence_threshold,
-                adaptive_epsilon_window_size=config.adaptive_epsilon_window_size
+                adaptive_target_ips=config.adaptive_target_ips
             )
             
             # Create initial progress tracking (iteration-based)
