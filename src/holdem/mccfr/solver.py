@@ -100,6 +100,7 @@ class MCCFRSolver:
         last_snapshot_time = start_time
         last_checkpoint_time = start_time
         last_log_time = start_time
+        last_log_iteration = 0  # Track iteration number at last log
         timer = Timer()
         timer.start()
         
@@ -208,13 +209,9 @@ class MCCFRSolver:
                 timer.start()
                 
                 # Calculate iterations since last log
-                if self.iteration % 10000 == 0:
-                    iter_count = 10000
-                else:
-                    # For time-budget mode when logging happens due to time
-                    iter_count = self.iteration - int(last_log_time - start_time) * int(10000 / 60)
-                    if iter_count <= 0:
-                        iter_count = 1
+                iter_count = self.iteration - last_log_iteration
+                if iter_count <= 0:
+                    iter_count = 1  # Safeguard against division by zero
                 
                 iter_per_sec = iter_count / elapsed if elapsed > 0 else 0
                 
@@ -240,6 +237,7 @@ class MCCFRSolver:
                     )
                 
                 last_log_time = current_time
+                last_log_iteration = self.iteration
                 
                 # Log performance metrics to TensorBoard
                 if self.writer:
