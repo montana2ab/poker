@@ -9,10 +9,10 @@ class TestActionAbstraction:
     """Test cases for action abstraction with street and position."""
     
     def test_preflop_actions(self):
-        """Test that preflop uses original abstraction."""
+        """Test that preflop uses enriched action abstraction."""
         actions = ActionAbstraction.get_available_actions(
             pot=100.0,
-            stack=200.0,
+            stack=400.0,  # Increased stack to include all actions
             current_bet=0,
             player_bet=0,
             can_check=True,
@@ -20,19 +20,19 @@ class TestActionAbstraction:
             in_position=True
         )
         
-        # Preflop should have: CHECK_CALL, 0.25p, 0.5p, 1.0p, 2.0p, ALL_IN
+        # Preflop IP should have rich menu: CHECK_CALL + 10 bet sizes + ALL_IN
         assert AbstractAction.CHECK_CALL in actions
         assert AbstractAction.BET_QUARTER_POT in actions
+        assert AbstractAction.BET_THIRD_POT in actions
         assert AbstractAction.BET_HALF_POT in actions
+        assert AbstractAction.BET_TWO_THIRDS_POT in actions
+        assert AbstractAction.BET_THREE_QUARTERS_POT in actions
         assert AbstractAction.BET_POT in actions
+        assert AbstractAction.BET_OVERBET_150 in actions
         assert AbstractAction.BET_DOUBLE_POT in actions
+        assert AbstractAction.BET_TWO_HALF_POT in actions
+        assert AbstractAction.BET_TRIPLE_POT in actions
         assert AbstractAction.ALL_IN in actions
-        
-        # Should not have new bet sizes
-        assert AbstractAction.BET_THIRD_POT not in actions
-        assert AbstractAction.BET_TWO_THIRDS_POT not in actions
-        assert AbstractAction.BET_THREE_QUARTERS_POT not in actions
-        assert AbstractAction.BET_OVERBET_150 not in actions
     
     def test_flop_ip_actions(self):
         """Test flop in position actions: {33, 75, 100, 150}."""
@@ -289,7 +289,7 @@ class TestActionAbstraction:
         action_facing_check = ActionAbstraction.abstract_to_concrete(
             AbstractAction.BET_POT,
             pot=100.0,
-            stack=200.0,
+            stack=300.0,  # Increased stack to avoid all-in threshold
             current_bet=0,
             player_bet=0,
             can_check=True
@@ -301,7 +301,7 @@ class TestActionAbstraction:
         action_facing_bet = ActionAbstraction.abstract_to_concrete(
             AbstractAction.BET_POT,
             pot=150.0,  # pot = 100 + 50 (opponent's bet)
-            stack=200.0,
+            stack=300.0,  # Increased stack to avoid all-in threshold
             current_bet=50.0,
             player_bet=0,
             can_check=False
@@ -318,7 +318,7 @@ class TestActionAbstraction:
         action = ActionAbstraction.abstract_to_concrete(
             AbstractAction.BET_OVERBET_150,
             pot=100.0,
-            stack=300.0,
+            stack=400.0,  # Increased stack to avoid all-in threshold
             current_bet=0,
             player_bet=0,
             can_check=True
@@ -330,7 +330,7 @@ class TestActionAbstraction:
         action = ActionAbstraction.abstract_to_concrete(
             AbstractAction.BET_OVERBET_150,
             pot=150.0,  # 100 original + 50 bet
-            stack=300.0,
+            stack=400.0,  # Increased stack to avoid all-in threshold
             current_bet=50.0,
             player_bet=0,
             can_check=False
@@ -381,7 +381,7 @@ class TestActionAbstraction:
         assert actions == expected_order, f"Expected {expected_order}, got {actions}"
     
     def test_preflop_action_order(self):
-        """Test that preflop actions maintain canonical order."""
+        """Test that preflop actions maintain canonical order with enriched abstraction."""
         actions = ActionAbstraction.get_available_actions(
             pot=3.0,
             stack=200.0,
@@ -392,16 +392,22 @@ class TestActionAbstraction:
             in_position=True
         )
         
-        # Expected order for preflop: FOLD, CHECK_CALL, BET_25, BET_50, BET_100, BET_200, ALL_IN
-        # But since BET_25 is BET_QUARTER_POT and we check if stack >= pot * size
-        # With pot=3.0 and stack=200.0, we can afford all bets
+        # Expected order for enriched preflop: FOLD, CHECK_CALL, all bet sizes in order, ALL_IN
+        # With pot=3.0 and stack=200.0 (remaining stack ~199 after calling 1.0)
+        # We can afford all bets up to reasonable sizes
         expected_order = [
             AbstractAction.FOLD,
             AbstractAction.CHECK_CALL,
             AbstractAction.BET_QUARTER_POT,
+            AbstractAction.BET_THIRD_POT,
             AbstractAction.BET_HALF_POT,
+            AbstractAction.BET_TWO_THIRDS_POT,
+            AbstractAction.BET_THREE_QUARTERS_POT,
             AbstractAction.BET_POT,
+            AbstractAction.BET_OVERBET_150,
             AbstractAction.BET_DOUBLE_POT,
+            AbstractAction.BET_TWO_HALF_POT,
+            AbstractAction.BET_TRIPLE_POT,
             AbstractAction.ALL_IN
         ]
         
