@@ -217,7 +217,7 @@ def main():
             num_instances=args.num_instances,
             config=config,
             bucketing=bucketing,
-            num_players=args.num_players
+            num_players=config.num_players  # Use from config for consistency
         )
         
         result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard, resume_from=args.resume_from)
@@ -241,7 +241,7 @@ def main():
             config=config,
             bucketing=bucketing,
             logdir=args.logdir,
-            num_players=args.num_players,
+            num_players=config.num_players,  # Use from config for consistency
             use_tensorboard=args.tensorboard
         )
         
@@ -287,14 +287,14 @@ def main():
         from holdem.mccfr.parallel_solver import ParallelMCCFRSolver
         solver = ParallelMCCFRSolver(
             config=config,
-            bucketing=bucketing,
-            num_players=args.num_players
+            bucketing=bucketing
+            # num_players now read from config.num_players
         )
     else:
         solver = MCCFRSolver(
             config=config,
-            bucketing=bucketing,
-            num_players=args.num_players
+            bucketing=bucketing
+            # num_players now read from config.num_players
         )
     
     # Resume from checkpoint if provided

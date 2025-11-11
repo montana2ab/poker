@@ -55,11 +55,12 @@ class MCCFRSolver:
         self,
         config: MCCFRConfig,
         bucketing: HandBucketing,
-        num_players: int = 2
+        num_players: int = None  # Optional override; if None, uses config.num_players
     ):
         self.config = config
         self.bucketing = bucketing
-        self.num_players = num_players
+        # Use config.num_players if num_players not explicitly provided
+        self.num_players = num_players if num_players is not None else config.num_players
         
         # Note: We pass the preflop_equity_samples to bucketing during construction
         # to avoid mutating it here. The bucketing object should be initialized
@@ -67,7 +68,7 @@ class MCCFRSolver:
         
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
-            num_players=num_players,
+            num_players=self.num_players,
             epsilon=config.exploration_epsilon,
             use_linear_weighting=config.use_linear_weighting,
             enable_pruning=config.enable_pruning,
