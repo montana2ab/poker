@@ -2,11 +2,16 @@
 
 import eval7
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from holdem.types import Card, Street, TableState
 from holdem.utils.logging import get_logger
 
 logger = get_logger("abstraction.features")
+
+# Global cache for preflop equity calculations
+# Key: (hole_sorted_tuple, num_opponents, num_samples)
+# Value: equity (float)
+_preflop_equity_cache: Dict[Tuple[Tuple[str, str], int, int], float] = {}
 
 
 def card_to_eval7(card: Card) -> eval7.Card:
@@ -17,9 +22,22 @@ def card_to_eval7(card: Card) -> eval7.Card:
 
 
 def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: int = 1, num_samples: int = 1000) -> float:
-    """Calculate hand equity using Monte Carlo simulation."""
+    """Calculate hand equity using Monte Carlo simulation.
+    
+    For preflop equity (empty board), results are cached by (hole_sorted, num_opponents, num_samples)
+    to avoid redundant calculations during training.
+    """
     if not hole_cards or len(hole_cards) != 2:
         return 0.0
+    
+    # Check cache for preflop equity (no board cards)
+    if not board or len(board) == 0:
+        # Create sorted tuple of hole cards for cache key
+        hole_str = tuple(sorted([f"{c.rank}{c.suit}" for c in hole_cards]))
+        cache_key = (hole_str, num_opponents, num_samples)
+        
+        if cache_key in _preflop_equity_cache:
+            return _preflop_equity_cache[cache_key]
     
     try:
         # Convert to eval7 cards
@@ -77,6 +95,13 @@ def calculate_equity(hole_cards: List[Card], board: List[Card], num_opponents: i
                 deck.cards.append(card)
         
         equity = (wins + ties * 0.5) / num_samples
+        
+        # Cache preflop equity for future lookups
+        if not board or len(board) == 0:
+            hole_str = tuple(sorted([f"{c.rank}{c.suit}" for c in hole_cards]))
+            cache_key = (hole_str, num_opponents, num_samples)
+            _preflop_equity_cache[cache_key] = equity
+        
         return equity
         
     except Exception as e:

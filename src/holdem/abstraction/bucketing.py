@@ -19,11 +19,11 @@ logger = get_logger("abstraction.bucketing")
 class HandBucketing:
     """K-means clustering for hand abstraction."""
     
-    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 100):
+    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 40):
         self.config = config
         self.models: Dict[Street, KMeans] = {}
         self.fitted = False
-        self.preflop_equity_samples = preflop_equity_samples  # Configurable for training vs. runtime
+        self.preflop_equity_samples = preflop_equity_samples  # 40 for training (faster, cached), 100+ for runtime
     
     def build(self, num_samples: int = None):
         """Build buckets by clustering sampled hands."""
@@ -31,7 +31,11 @@ class HandBucketing:
             num_samples = self.config.num_samples
         
         rng = get_rng(self.config.seed)
+        num_players = self.config.num_players
+        num_opponents = max(1, num_players - 1)
+        
         logger.info(f"Building buckets with {num_samples} samples per street")
+        logger.info(f"Player configuration: {num_players} players ({num_opponents} opponents)")
         
         # Build buckets for each street
         for street in Street:
@@ -45,7 +49,8 @@ class HandBucketing:
                 
                 # Use appropriate feature extraction based on street
                 if street == Street.PREFLOP:
-                    features = extract_preflop_features(hole_cards, equity_samples=100)
+                    # Use 40 samples for training (faster, cached) as per Pluribus recommendations
+                    features = extract_preflop_features(hole_cards, equity_samples=40)
                 else:
                     # Postflop: use comprehensive feature vector
                     # Use default context values for training
@@ -56,7 +61,7 @@ class HandBucketing:
                         pot=100.0,  # Default pot
                         stack=200.0,  # Default stack (SPR=2)
                         is_in_position=True,  # Default position
-                        num_opponents=1,
+                        num_opponents=num_opponents,  # Use configured number of opponents
                         equity_samples=100,  # Faster for training
                         future_equity_samples=50  # Faster for training
                     )

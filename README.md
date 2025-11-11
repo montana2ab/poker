@@ -6,8 +6,11 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 > **⚠️ BREAKING CHANGE (v0.2.0)**: Action abstraction has been updated with improved bet sizing and renamed actions (`BET_ONE_HALF_POT` → `BET_OVERBET_150`). **Old checkpoints and trained policies are incompatible** with the new action space. You must retrain from scratch. See [ACTION_ABSTRACTION_FIX_SUMMARY.md](ACTION_ABSTRACTION_FIX_SUMMARY.md) for details.
 
+> **🎉 NEW: Multi-Player (6-max) Support**: The system now supports 2-6 player games with full 6-max position support (BTN/SB/BB/UTG/MP/CO). See [GUIDE_6MAX_TRAINING.md](GUIDE_6MAX_TRAINING.md) for details.
+
 ## Features
 
+- **Multi-Player Support**: Full support for 2-6 players with position-aware features. Train blueprints for heads-up, 3-max, or 6-max poker with dedicated position handling (BTN, SB, BB, UTG, MP, CO)
 - **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
 - **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: Linear MCCFR with DCFR/CFR+ adaptive discounting, dynamic regret pruning, and warm-start from checkpoints. Chunked training mode for memory-constrained environments (automatic process restart with full state preservation). Outcome sampling with validation metrics (L2 regret slope, policy entropy). Exports average policy to JSON/PyTorch format. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md) and [CHUNKED_TRAINING.md](CHUNKED_TRAINING.md) for details.
@@ -105,11 +108,21 @@ python -m holdem.cli.profile_wizard --window-title "MyPokerTable" \
 Generate hand clusters for abstraction:
 
 ```bash
+# Heads-up (2 players) - default
 python -m holdem.cli.build_buckets --hands 500000 \
   --k-preflop 24 --k-flop 80 --k-turn 80 --k-river 64 \
   --config assets/abstraction/buckets_config.yaml \
   --out assets/abstraction/precomputed_buckets.pkl
+
+# 6-max (6 players)
+python -m holdem.cli.build_buckets --hands 500000 \
+  --num-players 6 \
+  --k-preflop 24 --k-flop 80 --k-turn 80 --k-river 64 \
+  --config assets/abstraction/6max_buckets_config.yaml \
+  --out assets/abstraction/6max_buckets.pkl
 ```
+
+📖 **For 6-max training, see [GUIDE_6MAX_TRAINING.md](GUIDE_6MAX_TRAINING.md) for complete instructions.**
 
 ### 3. Train Blueprint Strategy
 
@@ -126,6 +139,12 @@ python -m holdem.cli.train_blueprint --iters 2500000 \
   --buckets assets/abstraction/precomputed_buckets.pkl \
   --logdir runs/blueprint \
   --num-workers 0 --batch-size 100
+
+# 6-max training with configuration file
+python -m holdem.cli.train_blueprint \
+  --config configs/6max_training.yaml \
+  --buckets assets/abstraction/6max_buckets.pkl \
+  --logdir runs/6max_blueprint
 
 # Resume training from checkpoint with warm-start
 python -m holdem.cli.train_blueprint --iters 5000000 \

@@ -55,11 +55,12 @@ class MCCFRSolver:
         self,
         config: MCCFRConfig,
         bucketing: HandBucketing,
-        num_players: int = 2
+        num_players: int = None  # Optional override; if None, uses config.num_players
     ):
         self.config = config
         self.bucketing = bucketing
-        self.num_players = num_players
+        # Use config.num_players if num_players not explicitly provided
+        self.num_players = num_players if num_players is not None else config.num_players
         
         # Note: We pass the preflop_equity_samples to bucketing during construction
         # to avoid mutating it here. The bucketing object should be initialized
@@ -67,7 +68,7 @@ class MCCFRSolver:
         
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
-            num_players=num_players,
+            num_players=self.num_players,
             epsilon=config.exploration_epsilon,
             use_linear_weighting=config.use_linear_weighting,
             enable_pruning=config.enable_pruning,
@@ -412,6 +413,7 @@ class MCCFRSolver:
             'elapsed_days': elapsed_seconds / 86400,
             'metrics': metrics,
             'rng_state': rng_state,
+            'num_players': self.num_players,  # Critical: save num_players
             'infoset_version': INFOSET_VERSION,  # Track infoset encoding version
             'bucket_metadata': {
                 'bucket_file_sha': bucket_sha,
@@ -420,7 +422,8 @@ class MCCFRSolver:
                 'k_turn': self.bucketing.config.k_turn,
                 'k_river': self.bucketing.config.k_river,
                 'num_samples': self.bucketing.config.num_samples,
-                'seed': self.bucketing.config.seed
+                'seed': self.bucketing.config.seed,
+                'num_players': self.bucketing.config.num_players
             }
         }
         
@@ -508,6 +511,7 @@ class MCCFRSolver:
             'k_river': self.bucketing.config.k_river,
             'num_samples': self.bucketing.config.num_samples,
             'seed': self.bucketing.config.seed,
+            'num_players': self.bucketing.config.num_players,  # Critical: include num_players in hash
         }
         
         # Include cluster centers if available (most critical part)
@@ -559,11 +563,12 @@ class MCCFRSolver:
         metrics = self._calculate_metrics(iteration, cumulative_seconds)
         metadata = {
             'iteration': iteration,
-            'elapsed_seconds': cumulative_seconds,  # Store cumulative time
+            'elapsed_seconds': cumulative_seconds,  # Store cumulative time (t_global)
             'chunk_elapsed_seconds': elapsed_seconds,  # Also store chunk time for debugging
             'metrics': metrics,
             'rng_state': rng_state,
             'epsilon': self._current_epsilon,
+            'num_players': self.num_players,  # Critical: save num_players for validation
             'regret_discount_alpha': self.config.regret_discount_alpha,
             'strategy_discount_beta': self.config.strategy_discount_beta,
             'bucket_metadata': {
@@ -573,7 +578,8 @@ class MCCFRSolver:
                 'k_turn': self.bucketing.config.k_turn,
                 'k_river': self.bucketing.config.k_river,
                 'num_samples': self.bucketing.config.num_samples,
-                'seed': self.bucketing.config.seed
+                'seed': self.bucketing.config.seed,
+                'num_players': self.bucketing.config.num_players  # Also in bucket metadata
             }
         }
         
@@ -655,6 +661,21 @@ class MCCFRSolver:
                 )
             
             logger.info("Bucket configuration validated successfully")
+        
+        # Validate num_players matches
+        checkpoint_num_players = metadata.get('num_players', None)
+        if checkpoint_num_players is not None:
+            if checkpoint_num_players != self.num_players:
+                raise ValueError(
+                    f"num_players mismatch!\n"
+                    f"Current training: {self.num_players} players\n"
+                    f"Checkpoint: {checkpoint_num_players} players\n"
+                    f"Cannot resume training with different player count.\n"
+                    f"Please use a checkpoint trained with {self.num_players} players."
+                )
+            logger.info(f"num_players validated: {checkpoint_num_players} players")
+        else:
+            logger.warning("Checkpoint has no num_players metadata (legacy checkpoint). Assuming 2 players.")
         
         # Restore RNG state
         if 'rng_state' in metadata:

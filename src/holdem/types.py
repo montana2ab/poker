@@ -13,6 +13,82 @@ class Street(Enum):
     RIVER = 3
 
 
+class Position(Enum):
+    """Player positions for 6-max poker.
+    
+    Position values indicate order relative to button:
+    - BTN (Button): 0 - Best position, acts last postflop
+    - SB (Small Blind): 1 - Acts first postflop (worst position)
+    - BB (Big Blind): 2 - Acts second postflop
+    - UTG (Under The Gun): 3 - First to act preflop (after blinds)
+    - MP (Middle Position): 4 - Middle position
+    - CO (Cutoff): 5 - Second best position, one before button
+    
+    For heads-up (2-player), only BTN and BB are used:
+    - BTN acts first preflop, last postflop (SB+BTN combined)
+    - BB acts last preflop, first postflop
+    """
+    BTN = 0  # Button
+    SB = 1   # Small Blind
+    BB = 2   # Big Blind  
+    UTG = 3  # Under The Gun
+    MP = 4   # Middle Position
+    CO = 5   # Cutoff
+    
+    @classmethod
+    def from_player_count_and_seat(cls, num_players: int, seat_offset: int) -> "Position":
+        """Get position from number of players and seat offset from button.
+        
+        Args:
+            num_players: Total number of players (2-6)
+            seat_offset: Seats from button (0=BTN, 1=SB/next, etc.)
+            
+        Returns:
+            Position enum value
+        """
+        if num_players == 2:
+            # Heads-up: BTN (0) and BB (1)
+            return cls.BTN if seat_offset == 0 else cls.BB
+        elif num_players == 3:
+            # 3-max: BTN, SB, BB
+            positions = [cls.BTN, cls.SB, cls.BB]
+            return positions[seat_offset % 3]
+        elif num_players == 4:
+            # 4-max: BTN, SB, BB, CO
+            positions = [cls.BTN, cls.SB, cls.BB, cls.CO]
+            return positions[seat_offset % 4]
+        elif num_players == 5:
+            # 5-max: BTN, SB, BB, UTG, CO
+            positions = [cls.BTN, cls.SB, cls.BB, cls.UTG, cls.CO]
+            return positions[seat_offset % 5]
+        elif num_players == 6:
+            # 6-max: BTN, SB, BB, UTG, MP, CO (full lineup)
+            positions = [cls.BTN, cls.SB, cls.BB, cls.UTG, cls.MP, cls.CO]
+            return positions[seat_offset % 6]
+        else:
+            raise ValueError(f"Unsupported number of players: {num_players}. Must be 2-6.")
+    
+    def is_in_position_postflop(self, num_players: int) -> bool:
+        """Check if this position is 'in position' (IP) postflop.
+        
+        In position means acting after most opponents postflop.
+        
+        Args:
+            num_players: Total number of players
+            
+        Returns:
+            True if position is considered IP postflop
+        """
+        # CO and BTN are always in position
+        if self in [Position.CO, Position.BTN]:
+            return True
+        # MP is in position in 6-max
+        if self == Position.MP and num_players >= 5:
+            return True
+        # Other positions (SB, BB, UTG) are out of position
+        return False
+
+
 class ActionType(Enum):
     """Available action types."""
     FOLD = "fold"
@@ -110,6 +186,7 @@ class BucketConfig:
     k_river: int = 64
     num_samples: int = 500000
     seed: int = 42
+    num_players: int = 2  # Number of players (2-6); affects position-aware features
 
 
 @dataclass
@@ -119,6 +196,9 @@ class MCCFRConfig:
     checkpoint_interval: int = 100000
     discount_factor: float = 1.0  # CFR+ uses adaptive discount
     exploration_epsilon: float = 0.6  # For outcome sampling (static value if epsilon_schedule not provided)
+    
+    # Multi-player configuration
+    num_players: int = 2  # Number of players (2-6). Default: 2 (heads-up)
     
     # Epsilon schedule - list of (iteration, epsilon) tuples for step-based decay
     # Example: [(0, 0.6), (1000000, 0.3), (2000000, 0.1)]

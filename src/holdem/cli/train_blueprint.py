@@ -69,6 +69,10 @@ def create_mccfr_config(args, yaml_config: dict = None) -> MCCFRConfig:
     if args.batch_size is not None:
         config_dict['batch_size'] = args.batch_size
     
+    # Multi-player configuration
+    if args.num_players is not None:
+        config_dict['num_players'] = args.num_players
+    
     # Chunked training configuration
     if hasattr(args, 'chunked') and args.chunked:
         config_dict['enable_chunked_training'] = True
@@ -146,6 +150,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate num_players
+    if args.num_players is not None and not (2 <= args.num_players <= 6):
+        parser.error("--num-players must be between 2 and 6")
+    
     # Validate chunked training mode
     if args.chunked:
         if args.chunk_iterations is None and args.chunk_minutes is None:
@@ -209,7 +217,7 @@ def main():
             num_instances=args.num_instances,
             config=config,
             bucketing=bucketing,
-            num_players=args.num_players
+            num_players=config.num_players  # Use from config for consistency
         )
         
         result = coordinator.train(logdir=args.logdir, use_tensorboard=args.tensorboard, resume_from=args.resume_from)
@@ -233,7 +241,7 @@ def main():
             config=config,
             bucketing=bucketing,
             logdir=args.logdir,
-            num_players=args.num_players,
+            num_players=config.num_players,  # Use from config for consistency
             use_tensorboard=args.tensorboard
         )
         
@@ -242,6 +250,8 @@ def main():
     
     # Standard single-solver mode (with optional multi-worker parallelism)
     # Log training mode
+    logger.info(f"Player configuration: {config.num_players} players ({config.num_players - 1} opponents)")
+    
     if config.time_budget_seconds is not None:
         days = config.time_budget_seconds / 86400
         hours = config.time_budget_seconds / 3600
@@ -277,14 +287,14 @@ def main():
         from holdem.mccfr.parallel_solver import ParallelMCCFRSolver
         solver = ParallelMCCFRSolver(
             config=config,
-            bucketing=bucketing,
-            num_players=args.num_players
+            bucketing=bucketing
+            # num_players now read from config.num_players
         )
     else:
         solver = MCCFRSolver(
             config=config,
-            bucketing=bucketing,
-            num_players=args.num_players
+            bucketing=bucketing
+            # num_players now read from config.num_players
         )
     
     # Resume from checkpoint if provided

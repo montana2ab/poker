@@ -273,11 +273,12 @@ class ParallelMCCFRSolver:
         self,
         config: MCCFRConfig,
         bucketing: HandBucketing,
-        num_players: int = 2
+        num_players: int = None  # Optional override; if None, uses config.num_players
     ):
         self.config = config
         self.bucketing = bucketing
-        self.num_players = num_players
+        # Use config.num_players if num_players not explicitly provided
+        self.num_players = num_players if num_players is not None else config.num_players
         
         # Create multiprocessing context with 'spawn' for cross-platform compatibility
         # Use get_context() instead of set_start_method() to avoid conflicts

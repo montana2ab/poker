@@ -1,0 +1,82 @@
+# 6-max Poker Training Configuration
+# Configuration for training a 6-max (6-player) poker AI blueprint strategy
+
+# Bucket configuration
+bucket:
+  k_preflop: 24         # Number of preflop buckets
+  k_flop: 80            # Number of flop buckets
+  k_turn: 80            # Number of turn buckets
+  k_river: 64           # Number of river buckets
+  num_samples: 500000   # Samples per street for clustering
+  seed: 42              # Random seed for reproducibility
+  num_players: 6        # Number of players (6-max configuration)
+
+# MCCFR training configuration
+mccfr:
+  num_players: 6                    # Number of players (must match bucket config)
+  num_iterations: 5000000           # Total training iterations (5M for 6-max)
+  checkpoint_interval: 250000       # Save checkpoint every 250k iterations
+  
+  # Exploration settings
+  exploration_epsilon: 0.6          # Initial exploration epsilon
+  
+  # Epsilon schedule for adaptive exploration decay
+  # Format: [[iteration, epsilon], ...]
+  epsilon_schedule:
+    - [0, 0.6]
+    - [2000000, 0.4]
+    - [4000000, 0.2]
+  
+  # Linear MCCFR settings
+  use_linear_weighting: true        # Use Linear MCCFR (recommended)
+  
+  # Discounting settings
+  discount_mode: "dcfr"             # Use DCFR/CFR+ adaptive discounting
+  discount_interval: 1000           # Apply discount every N iterations
+  dcfr_reset_negative_regrets: true # Reset negative regrets (CFR+ behavior)
+  
+  # Pruning settings (Pluribus-style)
+  enable_pruning: true
+  pruning_threshold: -300000000.0   # Pluribus threshold
+  pruning_probability: 0.95         # Probability to skip when below threshold
+  
+  # Parallel training
+  num_workers: 0                    # 0 = use all CPU cores
+  batch_size: 100                   # Iterations per worker batch
+  
+  # Logging
+  tensorboard_log_interval: 1000    # Log to TensorBoard every N iterations
+  
+  # Preflop optimization
+  preflop_equity_samples: 100       # Equity samples for preflop (0 to disable)
+
+# Real-time search configuration (for play)
+search:
+  time_budget_ms: 80                # Time budget per decision
+  min_iterations: 100               # Minimum CFR iterations
+  depth_limit: 1                    # Streets to look ahead
+  
+  # KL regularization toward blueprint
+  kl_weight: 1.0                    # Base KL weight
+  kl_weight_flop: 0.30              # Flop-specific weight
+  kl_weight_turn: 0.50              # Turn-specific weight
+  kl_weight_river: 0.70             # River-specific weight
+  kl_weight_oop_bonus: 0.10         # Bonus when out of position
+  
+  # Public card sampling (Pluribus technique)
+  samples_per_solve: 10             # Board samples per solve (1 = no sampling)
+  
+  # Parallel solving
+  num_workers: 1                    # Workers for real-time solving
+
+# RT Resolver configuration
+rt:
+  max_depth: 1                      # Streets to look ahead
+  time_ms: 80                       # Time budget per decision
+  min_iterations: 400               # Minimum iterations
+  max_iterations: 1200              # Maximum iterations
+  samples_per_leaf: 10              # Rollout samples per leaf
+  action_set_mode: "balanced"       # tight/balanced/loose
+  use_cfv: true                     # Use blueprint CFV at leaves
+  kl_weight: 0.5                    # KL weight toward blueprint
+  samples_per_solve: 10             # Board samples per solve
