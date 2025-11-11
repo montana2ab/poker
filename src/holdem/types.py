@@ -295,6 +295,13 @@ class SearchConfig:
     # Public card sampling (board sampling) - Pluribus technique
     samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
     
+    # Leaf continuation strategies (k=4 policies at leaves)
+    use_leaf_policies: bool = False  # Enable multiple leaf policies (blueprint/fold-biased/call-biased/raise-biased)
+    leaf_policy_default: str = "blueprint"  # Default leaf policy: "blueprint", "fold_biased", "call_biased", "raise_biased"
+    
+    # Unsafe search from round start
+    resolve_from_round_start: bool = False  # Start re-solve at beginning of current round, freeze only our actions
+    
     def get_kl_weight(self, street: Street, is_oop: bool = False) -> float:
         """Get kl_weight for a specific street and position.
         
@@ -356,6 +363,13 @@ class RTResolverConfig:
     
     # Public card sampling (board sampling) - Pluribus technique
     samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
+    
+    # Leaf continuation strategies (k=4 policies at leaves)
+    use_leaf_policies: bool = False  # Enable multiple leaf policies at leaves
+    leaf_policy_default: str = "blueprint"  # Default leaf policy
+    
+    # Unsafe search from round start
+    resolve_from_round_start: bool = False  # Start re-solve at beginning of current round
 
 
 @dataclass
