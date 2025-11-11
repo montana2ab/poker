@@ -24,7 +24,8 @@ class OutcomeSampler:
         use_linear_weighting: bool = True,
         enable_pruning: bool = True,
         pruning_threshold: float = -300_000_000.0,
-        pruning_probability: float = 0.95
+        pruning_probability: float = 0.95,
+        min_unpruned_ratio: float = 0.05
     ):
         self.bucketing = bucketing
         self.num_players = num_players
@@ -36,10 +37,15 @@ class OutcomeSampler:
         # Linear MCCFR parameters
         self.use_linear_weighting = use_linear_weighting
         
-        # Dynamic pruning parameters
+        # Dynamic pruning parameters (Pluribus parity)
         self.enable_pruning = enable_pruning
         self.pruning_threshold = pruning_threshold
         self.pruning_probability = pruning_probability
+        
+        # Iteration tracking for ensuring minimum unpruned coverage
+        self.min_unpruned_ratio = min_unpruned_ratio  # e.g., 0.05 = 5%
+        self.total_iterations = 0
+        self.pruned_iterations = 0
     
     def set_epsilon(self, epsilon: float):
         """Update exploration epsilon.
@@ -49,8 +55,31 @@ class OutcomeSampler:
         """
         self.epsilon = epsilon
     
+    def get_pruning_stats(self) -> Dict[str, float]:
+        """Get pruning statistics.
+        
+        Returns:
+            Dictionary with pruning statistics:
+            - total_iterations: Total number of iterations
+            - pruned_iterations: Number of pruned iterations
+            - pruning_ratio: Ratio of pruned iterations
+            - unpruned_ratio: Ratio of unpruned iterations
+        """
+        pruning_ratio = self.pruned_iterations / max(1, self.total_iterations)
+        unpruned_ratio = 1.0 - pruning_ratio
+        
+        return {
+            'total_iterations': self.total_iterations,
+            'pruned_iterations': self.pruned_iterations,
+            'pruning_ratio': pruning_ratio,
+            'unpruned_ratio': unpruned_ratio
+        }
+    
     def sample_iteration(self, iteration: int) -> float:
         """Run one iteration of outcome sampling MCCFR."""
+        # Track iterations for pruning coverage
+        self.total_iterations += 1
+        
         # Sample hands for all players
         hands = self._deal_hands()
         
@@ -121,18 +150,31 @@ class OutcomeSampler:
             use_versioning=True  # Use new versioned format (v2)
         )
         
-        # Dynamic pruning: skip iteration if conditions are met
-        # Don't prune at river or terminal nodes
+        # Dynamic pruning with Pluribus parity rules:
+        # 1. Never prune on river
+        # 2. Never prune terminal actions (fold)
+        # 3. Ensure at least min_unpruned_ratio (5%) of iterations are not pruned
         # Note: Each infoset is visited at most once per iteration in outcome sampling,
         # so this check is not repeated unnecessarily within the same iteration.
         is_river = (street == Street.RIVER)
+        
+        # Check if any action would lead to terminal state (fold action)
+        has_fold_action = AbstractAction.FOLD in actions
+        
+        # Calculate current unpruned ratio
+        current_unpruned_ratio = 1.0 - (self.pruned_iterations / max(1, self.total_iterations))
+        must_not_prune = current_unpruned_ratio < self.min_unpruned_ratio
+        
         if (self.enable_pruning and 
             not is_river and 
+            not has_fold_action and  # Never prune when fold is an option (terminal action)
+            not must_not_prune and  # Ensure minimum coverage
             current_player == sample_player and
             self.regret_tracker.should_prune(infoset, actions, self.pruning_threshold)):
             # Sample q ∈ [0,1) and skip with pruning_probability
             if self.rng.random() < self.pruning_probability:
                 # Skip this iteration - return neutral utility
+                self.pruned_iterations += 1
                 return 0.0
         
         # Get current strategy

@@ -9,7 +9,7 @@ from holdem.types import Action, ActionType, Street
 class AbstractAction(Enum):
     """Abstract action buckets.
     
-    Canonical order: [FOLD, CHECK_CALL, BET_33, BET_66, BET_75, BET_100, BET_150, ALL_IN]
+    Canonical order: [FOLD, CHECK_CALL, BET_25, BET_33, BET_50, BET_66, BET_75, BET_100, BET_150, BET_200, BET_250, BET_300, ALL_IN]
     This order should be maintained everywhere to ensure strategy/regret alignment.
     """
     FOLD = "fold"
@@ -22,6 +22,8 @@ class AbstractAction(Enum):
     BET_POT = "bet_1.0p"
     BET_OVERBET_150 = "bet_1.5p"  # Renamed from BET_ONE_HALF_POT (1.5× pot, not 0.5×)
     BET_DOUBLE_POT = "bet_2.0p"
+    BET_TWO_HALF_POT = "bet_2.5p"  # 2.5× pot overbet
+    BET_TRIPLE_POT = "bet_3.0p"  # 3× pot overbet
     ALL_IN = "all_in"
 
 
@@ -75,8 +77,15 @@ class ActionAbstraction:
         if remaining_stack > 0:
             # Define available bet sizes per street and position
             if street == Street.PREFLOP:
-                # Preflop: use original abstraction
-                bet_sizes = [0.25, 0.5, 1.0, 2.0]
+                # Preflop: richer action abstraction with position-specific sizings
+                # Up to ~14 actions total: FOLD, CHECK_CALL, ~10 bet sizes, ALL_IN
+                # Position-specific: more sizes IP, fewer OOP
+                if in_position:
+                    # IP: full range of sizes for exploitation
+                    bet_sizes = [0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0]
+                else:
+                    # OOP: slightly reduced menu (avoid some middle sizes)
+                    bet_sizes = [0.33, 0.5, 0.66, 0.75, 1.0, 1.5, 2.0, 2.5]
             elif street == Street.FLOP:
                 if in_position:
                     # Flop IP: {33, 75, 100, 150}
@@ -103,7 +112,9 @@ class ActionAbstraction:
                 0.75: AbstractAction.BET_THREE_QUARTERS_POT,
                 1.0: AbstractAction.BET_POT,
                 1.5: AbstractAction.BET_OVERBET_150,
-                2.0: AbstractAction.BET_DOUBLE_POT
+                2.0: AbstractAction.BET_DOUBLE_POT,
+                2.5: AbstractAction.BET_TWO_HALF_POT,
+                3.0: AbstractAction.BET_TRIPLE_POT
             }
             
             for size in bet_sizes:
@@ -171,7 +182,9 @@ class ActionAbstraction:
                 AbstractAction.BET_THREE_QUARTERS_POT: 0.75,
                 AbstractAction.BET_POT: 1.0,
                 AbstractAction.BET_OVERBET_150: 1.5,
-                AbstractAction.BET_DOUBLE_POT: 2.0
+                AbstractAction.BET_DOUBLE_POT: 2.0,
+                AbstractAction.BET_TWO_HALF_POT: 2.5,
+                AbstractAction.BET_TRIPLE_POT: 3.0
             }
             
             fraction = pot_fraction_map.get(abstract_action, 1.0)
@@ -185,8 +198,11 @@ class ActionAbstraction:
                 # Facing check: bet = fraction * pot
                 bet_amount = fraction * pot
             else:
-                # Facing bet: raise to = fraction * (pot + call_amount)
-                bet_amount = fraction * (pot + to_call)
+                # Facing bet: use "to-size" convention
+                # Calculate total raise-to amount: fraction * (pot + call_amount)
+                total_raise_to = fraction * (pot + to_call)
+                # bet_amount is the additional raise beyond the call
+                bet_amount = total_raise_to - to_call
             
             # Round to chip increment (e.g., 1 BB or smallest chip)
             bet_amount = round(bet_amount / min_chip_increment) * min_chip_increment
@@ -256,7 +272,11 @@ class ActionAbstraction:
                 return AbstractAction.BET_POT
             elif ratio < 1.75:  # Closest to 1.5
                 return AbstractAction.BET_OVERBET_150
-            else:
+            elif ratio < 2.25:  # Closest to 2.0
                 return AbstractAction.BET_DOUBLE_POT
+            elif ratio < 2.75:  # Closest to 2.5
+                return AbstractAction.BET_TWO_HALF_POT
+            else:  # >= 2.75, closest to 3.0
+                return AbstractAction.BET_TRIPLE_POT
         
         return AbstractAction.CHECK_CALL
