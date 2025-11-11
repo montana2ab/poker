@@ -35,6 +35,57 @@ class SubgameResolver:
             'river': {'IP': [], 'OOP': []}
         }
     
+    def get_leaf_strategy(
+        self,
+        infoset: str,
+        actions: List[AbstractAction],
+        is_leaf: bool = False
+    ) -> Dict[AbstractAction, float]:
+        """Get strategy at a node, applying leaf policies if at a leaf.
+        
+        Args:
+            infoset: Information set identifier
+            actions: Available actions at this node
+            is_leaf: Whether this is a leaf node in depth-limited search
+            
+        Returns:
+            Strategy (probability distribution over actions)
+        """
+        # Get blueprint strategy
+        blueprint_strategy = self.blueprint.get_strategy(infoset)
+        
+        # If not using leaf policies or not at a leaf, return blueprint
+        if not self.config.use_leaf_policies or not is_leaf:
+            return blueprint_strategy
+        
+        # Apply leaf continuation strategy
+        from holdem.realtime.leaf_continuations import LeafPolicy, LeafContinuationStrategy
+        
+        # Map string policy name to enum
+        policy_map = {
+            'blueprint': LeafPolicy.BLUEPRINT,
+            'fold_biased': LeafPolicy.FOLD_BIASED,
+            'call_biased': LeafPolicy.CALL_BIASED,
+            'raise_biased': LeafPolicy.RAISE_BIASED
+        }
+        
+        policy = policy_map.get(self.config.leaf_policy_default, LeafPolicy.BLUEPRINT)
+        
+        # Create strategy manager and apply bias
+        strategy_manager = LeafContinuationStrategy(default_policy=policy)
+        biased_strategy = strategy_manager.get_biased_strategy(
+            blueprint_strategy,
+            policy,
+            actions
+        )
+        
+        logger.debug(
+            f"Applied leaf policy {policy.value} at infoset {infoset[:20]}... "
+            f"(is_leaf={is_leaf})"
+        )
+        
+        return biased_strategy
+    
     def warm_start_from_blueprint(self, infoset: str, actions: List[AbstractAction]):
         """Warm-start regrets from blueprint strategy.
         
@@ -58,6 +109,67 @@ class SubgameResolver:
                 self.regret_tracker.update_regret(infoset, action, initial_regret, weight=1.0)
             
             logger.debug(f"Warm-started infoset {infoset} from blueprint")
+    
+    def reconstruct_round_history(
+        self,
+        full_history: List[str],
+        current_street: Street,
+        freeze_our_actions: bool = True
+    ) -> tuple[List[str], List[str]]:
+        """Reconstruct action history from the beginning of the current round.
+        
+        When resolve_from_round_start is enabled, we start the subgame at the
+        beginning of the current betting round (street) instead of the current state.
+        This provides a cleaner game tree but may reduce accuracy if the actual
+        play diverged significantly from the blueprint.
+        
+        Args:
+            full_history: Complete action history from hand start
+            current_street: Current street/round
+            freeze_our_actions: If True, freeze our actions in this round (unsafe search)
+            
+        Returns:
+            Tuple of (round_start_history, frozen_our_actions)
+            - round_start_history: Actions up to the start of current round
+            - frozen_our_actions: Our actions in current round (to freeze if unsafe)
+        """
+        # Find where current round starts in history
+        # Street transitions happen after check-check or call actions
+        round_start_idx = 0
+        our_actions_this_round = []
+        
+        # Parse history to find round boundaries
+        # Format: "p0_bet_1.0p", "p1_call", etc.
+        for i, action_str in enumerate(full_history):
+            parts = action_str.split('_')
+            if len(parts) < 2:
+                continue
+            
+            player = parts[0]  # e.g., "p0", "p1"
+            action = '_'.join(parts[1:])  # e.g., "bet_1.0p", "call", "check"
+            
+            # Check if this action closes a round
+            if action in ['call', 'check_call'] or (action == 'check' and i > 0 and 'check' in full_history[i-1]):
+                # This might be a street transition
+                # In a real implementation, track street changes more carefully
+                pass
+        
+        # For now, return simplified result
+        # TODO: Implement full round boundary detection
+        round_start_history = full_history[:round_start_idx] if round_start_idx > 0 else []
+        
+        if freeze_our_actions:
+            # Extract our actions from current round
+            # This is a placeholder - in production, track which actions are ours
+            our_actions_this_round = []
+        
+        logger.debug(
+            f"Reconstructed round history: street={current_street.name}, "
+            f"round_start_len={len(round_start_history)}, "
+            f"frozen_actions={len(our_actions_this_round)}"
+        )
+        
+        return round_start_history, our_actions_this_round
     
     def solve_with_sampling(
         self,
