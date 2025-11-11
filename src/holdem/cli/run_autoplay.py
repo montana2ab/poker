@@ -13,6 +13,7 @@ from holdem.vision.parse_state import StateParser
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
+from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 from holdem.control.executor import ActionExecutor
 from holdem.control.safety import SafetyChecker
 from holdem.utils.logging import setup_logger
@@ -38,6 +39,11 @@ def main():
                        help="Confirm each action")
     parser.add_argument("--i-understand-the-tos", action="store_true",
                        help="Required flag to enable auto-play")
+    parser.add_argument("--cfv-net", type=Path,
+                       default=Path("assets/cfv_net/6max_mid_125k_m2.onnx"),
+                       help="Path to CFV net ONNX model (default: assets/cfv_net/6max_mid_125k_m2.onnx)")
+    parser.add_argument("--no-cfv-net", action="store_true",
+                       help="Disable CFV net and use only blueprint/rollouts for leaf evaluation")
     
     args = parser.parse_args()
     
@@ -92,12 +98,53 @@ def main():
     ocr_engine = OCREngine()
     state_parser = StateParser(profile, card_recognizer, ocr_engine)
     
+    # Create leaf evaluator based on arguments
+    if args.no_cfv_net:
+        # Use blueprint/rollouts mode
+        leaf_evaluator = LeafEvaluator(
+            blueprint=policy,
+            mode="blueprint",
+            use_cfv=True,
+            num_rollout_samples=10,
+            enable_cache=True,
+            cache_max_size=10000
+        )
+        logger.info("Using blueprint/rollouts for leaf evaluation (CFV net disabled)")
+    else:
+        # Use CFV net mode if model file exists
+        if args.cfv_net.exists():
+            leaf_evaluator = LeafEvaluator(
+                blueprint=policy,
+                mode="cfv_net",
+                cfv_net_config={
+                    "checkpoint": str(args.cfv_net),
+                    "cache_max_size": 10000,
+                    "gating": {
+                        "tau_flop": 0.20,
+                        "tau_turn": 0.16,
+                        "tau_river": 0.12,
+                    },
+                }
+            )
+            logger.info(f"Using CFV net for leaf evaluation: {args.cfv_net}")
+        else:
+            # Fallback to blueprint/rollouts if CFV net file doesn't exist
+            leaf_evaluator = LeafEvaluator(
+                blueprint=policy,
+                mode="blueprint",
+                use_cfv=True,
+                num_rollout_samples=10,
+                enable_cache=True,
+                cache_max_size=10000
+            )
+            logger.warning(f"CFV net file not found: {args.cfv_net}, using blueprint/rollouts instead")
+    
     search_config = SearchConfig(
         time_budget_ms=args.time_budget_ms,
         min_iterations=args.min_iters,
         num_workers=args.num_workers
     )
-    search_controller = SearchController(search_config, bucketing, policy)
+    search_controller = SearchController(search_config, bucketing, policy, leaf_evaluator)
     
     control_config = ControlConfig(
         dry_run=False,

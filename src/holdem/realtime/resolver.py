@@ -1,7 +1,7 @@
 """Subgame resolver with KL regularization."""
 
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from holdem.types import SearchConfig, Card, Street, TableState
 from holdem.abstraction.actions import AbstractAction
 from holdem.mccfr.policy_store import PolicyStore
@@ -10,6 +10,9 @@ from holdem.realtime.subgame import SubgameTree
 from holdem.utils.rng import get_rng
 from holdem.utils.logging import get_logger
 from holdem.utils.deck import sample_public_cards
+
+if TYPE_CHECKING:
+    from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 
 logger = get_logger("realtime.resolver")
 
@@ -20,10 +23,12 @@ class SubgameResolver:
     def __init__(
         self,
         config: SearchConfig,
-        blueprint: PolicyStore
+        blueprint: PolicyStore,
+        leaf_evaluator: Optional['LeafEvaluator'] = None
     ):
         self.config = config
         self.blueprint = blueprint
+        self.leaf_evaluator = leaf_evaluator
         self.regret_tracker = RegretTracker()
         self.rng = get_rng()
         
