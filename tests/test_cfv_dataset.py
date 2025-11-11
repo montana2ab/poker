@@ -294,3 +294,59 @@ def test_compression():
             file_size = shard_file.stat().st_size
             assert file_size > 0, "Shard file should not be empty"
             assert file_size < 1000000, "Shard file seems too large (compression may have failed)"
+
+
+def test_numpy_types_serialization():
+    """Test that numpy types are properly converted to JSON-serializable types."""
+    import numpy as np
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create writer
+        with CFVDatasetWriter(tmpdir, shard_size=10) as writer:
+            # Generate example with numpy types (simulating what collect_cfv_data.py does)
+            rng = np.random.RandomState(42)
+            
+            for i in range(5):
+                # Simulate the actual usage in collect_cfv_data.py
+                bucket_id = rng.randint(0, 200)  # Returns numpy.int64
+                weight = rng.uniform(0.5, 1.0)   # Returns numpy.float64
+                public_bucket = rng.randint(0, 1000)  # Returns numpy.int64
+                
+                example = {
+                    "street": "FLOP",
+                    "num_players": int(rng.choice([2, 3, 4, 5, 6])),  # This should be converted
+                    "hero_pos": "BTN",
+                    "spr": float(rng.uniform(2.0, 10.0)),
+                    "public_bucket": int(public_bucket),  # Convert numpy int64 to Python int
+                    "ranges": {
+                        "BTN": [[int(bucket_id), float(weight)]]  # Must convert numpy types
+                    },
+                    "scalars": {
+                        "pot_norm": float(rng.uniform(0.0, 1.0)),
+                        "to_call_over_pot": float(rng.uniform(0.0, 0.5)),
+                        "last_bet_over_pot": float(rng.uniform(0.0, 0.5)),
+                        "aset": "balanced"
+                    },
+                    "target_cfv_bb": float(rng.uniform(-5.0, 5.0))
+                }
+                
+                # This should not raise TypeError
+                writer.add_example(example)
+        
+        # Verify we can read back the data
+        reader = CFVDatasetReader(tmpdir, shuffle=False)
+        examples = list(reader)
+        assert len(examples) == 5
+        
+        # Verify all values are Python native types
+        for example in examples:
+            assert isinstance(example['num_players'], int)
+            assert isinstance(example['public_bucket'], int)
+            assert isinstance(example['spr'], float)
+            assert isinstance(example['target_cfv_bb'], float)
+            
+            # Check ranges values
+            for pos, ranges in example['ranges'].items():
+                for bucket_id, weight in ranges:
+                    assert isinstance(bucket_id, int), f"bucket_id should be int, got {type(bucket_id)}"
+                    assert isinstance(weight, float), f"weight should be float, got {type(weight)}"
