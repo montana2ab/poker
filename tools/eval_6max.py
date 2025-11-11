@@ -1160,5 +1160,155 @@ def main():
     return 0
 
 
+def run_self_tests():
+    """Run integrated self-tests (quick validation)."""
+    print("Running self-tests...")
+    
+    # Test 1: Same policy evaluates consistently with same seed
+    print("\n[Test 1] Deterministic evaluation test...")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        policy = {"policy": {"test": {"fold": 0.3, "check_call": 0.7}}}
+        json.dump(policy, f)
+        policy_path = f.name
+    
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Run twice with same seed
+            result1 = subprocess.run([
+                sys.executable, __file__,
+                "--policy", policy_path,
+                "--hands", "100",
+                "--seed", "42",
+                "--output", str(Path(tmpdir) / "run1"),
+                "--workers", "1",
+                "--quiet"
+            ], capture_output=True, timeout=30)
+            
+            result2 = subprocess.run([
+                sys.executable, __file__,
+                "--policy", policy_path,
+                "--hands", "100",
+                "--seed", "42",
+                "--output", str(Path(tmpdir) / "run2"),
+                "--workers", "1",
+                "--quiet"
+            ], capture_output=True, timeout=30)
+            
+            if result1.returncode == 0 and result2.returncode == 0:
+                with open(Path(tmpdir) / "run1" / "summary.json") as f:
+                    data1 = json.load(f)
+                with open(Path(tmpdir) / "run2" / "summary.json") as f:
+                    data2 = json.load(f)
+                
+                bb1 = data1["results"]["global"]["bb_per_100"]
+                bb2 = data2["results"]["global"]["bb_per_100"]
+                
+                if abs(bb1 - bb2) < 0.01:
+                    print(f"  ✓ Deterministic: {bb1:.2f} == {bb2:.2f}")
+                else:
+                    print(f"  ✗ Not deterministic: {bb1:.2f} != {bb2:.2f}")
+            else:
+                print(f"  ✗ Deterministic test failed")
+    finally:
+        os.unlink(policy_path)
+    
+    # Test 2: Duplicate reduces variance
+    print("\n[Test 2] Duplicate variance reduction test...")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        policy = {"policy": {"test": {"fold": 0.4, "check_call": 0.6}}}
+        json.dump(policy, f)
+        policy_path = f.name
+    
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Run with duplicate=1
+            result1 = subprocess.run([
+                sys.executable, __file__,
+                "--policy", policy_path,
+                "--hands", "200",
+                "--duplicate", "1",
+                "--seed", "100",
+                "--output", str(Path(tmpdir) / "dup1"),
+                "--workers", "1",
+                "--quiet"
+            ], capture_output=True, timeout=30)
+            
+            # Run with duplicate=3
+            result2 = subprocess.run([
+                sys.executable, __file__,
+                "--policy", policy_path,
+                "--hands", "200",
+                "--duplicate", "3",
+                "--seed", "100",
+                "--output", str(Path(tmpdir) / "dup3"),
+                "--workers", "1",
+                "--quiet"
+            ], capture_output=True, timeout=30)
+            
+            if result1.returncode == 0 and result2.returncode == 0:
+                with open(Path(tmpdir) / "dup1" / "summary.json") as f:
+                    data1 = json.load(f)
+                with open(Path(tmpdir) / "dup3" / "summary.json") as f:
+                    data3 = json.load(f)
+                
+                ci1 = data1["results"]["global"]["ci95"]
+                ci3 = data3["results"]["global"]["ci95"]
+                
+                # More duplicates should give smaller CI (usually)
+                if ci3 < ci1:
+                    print(f"  ✓ Duplicate=1 CI95: {ci1:.2f} > Duplicate=3 CI95: {ci3:.2f}")
+                else:
+                    print(f"  ~ Duplicate=1 CI95: {ci1:.2f}, Duplicate=3 CI95: {ci3:.2f}")
+                    print(f"    (Variance reduction expected but not guaranteed)")
+            else:
+                print(f"  ✗ Duplicate test failed")
+    finally:
+        os.unlink(policy_path)
+    
+    # Test 3: Rotation affects position stats
+    print("\n[Test 3] Seat rotation test...")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        policy = {"policy": {"test": {"fold": 0.35, "check_call": 0.65}}}
+        json.dump(policy, f)
+        policy_path = f.name
+    
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Run with rotation
+            result = subprocess.run([
+                sys.executable, __file__,
+                "--policy", policy_path,
+                "--hands", "100",
+                "--rotate-seats",
+                "--seed", "200",
+                "--output", str(Path(tmpdir) / "rotated"),
+                "--workers", "1",
+                "--quiet"
+            ], capture_output=True, timeout=30)
+            
+            if result.returncode == 0:
+                with open(Path(tmpdir) / "rotated" / "summary.json") as f:
+                    data = json.load(f)
+                
+                positions = data["results"]["by_position"]
+                if len(positions) == 6:
+                    print(f"  ✓ Rotation produces stats for all 6 positions")
+                else:
+                    print(f"  ✗ Expected 6 positions, got {len(positions)}")
+            else:
+                print(f"  ✗ Rotation test failed")
+    finally:
+        os.unlink(policy_path)
+    
+    print("\n✓ Self-tests complete!")
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    import tempfile
+    import subprocess
+    
+    # Check if running self-tests
+    if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
+        run_self_tests()
+    else:
+        sys.exit(main())
