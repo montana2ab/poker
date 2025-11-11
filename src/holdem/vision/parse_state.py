@@ -268,6 +268,29 @@ class StateParser:
                     bet_this_round = parsed_bet
                     logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
 
+            # Extract player action (CALL, CHECK, BET, RAISE, FOLD, ALL-IN)
+            last_action = None
+            action_reg = player_region.get('action_region', {})
+            x, y, w, h = action_reg.get('x', 0), action_reg.get('y', 0), \
+                         action_reg.get('width', 0), action_reg.get('height', 0)
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                action_img = img[y:y+h, x:x+w]
+                detected_action = self.ocr_engine.detect_action(action_img)
+                if detected_action:
+                    # Map detected action string to ActionType enum
+                    from holdem.types import ActionType
+                    action_map = {
+                        'FOLD': ActionType.FOLD,
+                        'CHECK': ActionType.CHECK,
+                        'CALL': ActionType.CALL,
+                        'BET': ActionType.BET,
+                        'RAISE': ActionType.RAISE,
+                        'ALL-IN': ActionType.ALLIN,
+                    }
+                    last_action = action_map.get(detected_action)
+                    if last_action:
+                        logger.info(f"Player {table_position} action detected: {detected_action}")
+
             # Extract hole cards
             hole_cards = None
             if hero_pos is not None and table_position == hero_pos:
@@ -283,9 +306,10 @@ class StateParser:
                 stack=stack,
                 position=table_position,
                 bet_this_round=bet_this_round,
-                folded=False,
-                all_in=False,
-                hole_cards=hole_cards
+                folded=(last_action == ActionType.FOLD if last_action else False),
+                all_in=(last_action == ActionType.ALLIN if last_action else False),
+                hole_cards=hole_cards,
+                last_action=last_action
             )
             players.append(player)
 
@@ -336,31 +360,111 @@ class StateParser:
     def _parse_button_position(self, img: np.ndarray) -> int:
         """Parse dealer button position from image.
         
-        If dealer_button_region is defined in profile, use OCR or template matching
-        to detect which player has the button. Otherwise, return default position 0.
+        Supports two detection modes:
+        1. dealer_button_regions (list): Check each player position for button presence
+        2. dealer_button_region (single): Use OCR/template matching on button area
         
         Returns:
             Position index (0-based) of the player with the dealer button.
         """
-        if not hasattr(self.profile, 'dealer_button_region') or self.profile.dealer_button_region is None:
-            logger.debug("No dealer_button_region defined, defaulting to position 0")
-            return 0
-        
-        region = self.profile.dealer_button_region
-        x, y, w, h = region.get('x', 0), region.get('y', 0), \
-                     region.get('width', 0), region.get('height', 0)
-        
-        if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
-            button_region = img[y:y+h, x:x+w]
+        # Mode 1: Check dealer_button_regions (list of regions, one per player)
+        if hasattr(self.profile, 'dealer_button_regions') and self.profile.dealer_button_regions:
+            button_positions = self.profile.dealer_button_regions
+            best_score = 0.0
+            best_position = 0
             
-            # TODO: Implement button detection logic
-            # This could use template matching for a dealer button icon,
-            # or OCR if the button shows text like "D" or "DEALER"
-            # For now, we return position 0 as default
-            logger.debug("Button detection not yet implemented, defaulting to position 0")
-            return 0
+            for pos_idx, btn_region in enumerate(button_positions):
+                if not btn_region:
+                    continue
+                    
+                x = btn_region.get('x', 0)
+                y = btn_region.get('y', 0)
+                w = btn_region.get('width', 0)
+                h = btn_region.get('height', 0)
+                
+                if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                    btn_img = img[y:y+h, x:x+w]
+                    
+                    # Check for button presence using multiple methods
+                    score = self._detect_button_presence(btn_img)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_position = pos_idx
+            
+            if best_score > 0.3:  # Threshold for confidence
+                logger.info(f"Detected dealer button at position {best_position} (score: {best_score:.2f})")
+                return best_position
+            else:
+                logger.debug(f"No dealer button detected with confidence (best score: {best_score:.2f})")
         
+        # Mode 2: Single dealer_button_region (legacy support)
+        if hasattr(self.profile, 'dealer_button_region') and self.profile.dealer_button_region:
+            region = self.profile.dealer_button_region
+            x, y, w, h = region.get('x', 0), region.get('y', 0), \
+                         region.get('width', 0), region.get('height', 0)
+            
+            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                button_region = img[y:y+h, x:x+w]
+                
+                # Try OCR to detect "D" or "DEALER" text
+                text = self.ocr_engine.read_text(button_region)
+                if text and ('D' in text.upper() or 'DEALER' in text.upper()):
+                    logger.info(f"Detected dealer button via OCR: {text}")
+                    return 0  # Single region doesn't specify position
+        
+        logger.debug("No dealer_button_regions or dealer_button_region defined, defaulting to position 0")
         return 0
+    
+    def _detect_button_presence(self, img: np.ndarray) -> float:
+        """Detect presence of dealer button in image region.
+        
+        Uses multiple heuristics to detect button:
+        - Color-based detection (dealer buttons are often bright/distinctive)
+        - Shape detection (circular buttons)
+        - OCR for "D" or "DEALER" text
+        
+        Returns:
+            Confidence score (0.0 to 1.0)
+        """
+        if img.size == 0:
+            return 0.0
+        
+        score = 0.0
+        
+        # Method 1: OCR for "D" or "DEALER" text
+        try:
+            text = self.ocr_engine.read_text(img, preprocess=False)
+            text_upper = text.upper() if text else ""
+            if 'D' in text_upper or 'DEALER' in text_upper or 'BTN' in text_upper:
+                score += 0.6
+                logger.debug(f"Button OCR match: {text}")
+        except Exception as e:
+            logger.debug(f"OCR error in button detection: {e}")
+        
+        # Method 2: Color-based detection (bright/distinctive colors)
+        try:
+            # Convert to HSV for better color detection
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img
+            
+            # Check for bright regions (dealer button is often bright)
+            mean_intensity = np.mean(gray)
+            if mean_intensity > 150:  # Bright region
+                score += 0.2
+                logger.debug(f"Button brightness match: {mean_intensity:.1f}")
+            
+            # Check for high contrast (button vs background)
+            std_intensity = np.std(gray)
+            if std_intensity > 30:  # High contrast
+                score += 0.2
+                logger.debug(f"Button contrast match: {std_intensity:.1f}")
+        except Exception as e:
+            logger.debug(f"Image processing error in button detection: {e}")
+        
+        return min(score, 1.0)
     
     def _calculate_multiway_position(
         self, 
