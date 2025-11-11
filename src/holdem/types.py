@@ -138,6 +138,7 @@ class PlayerState:
     all_in: bool = False
     position: int = 0  # 0=BTN, 1=SB, 2=BB, etc.
     hole_cards: Optional[List[Card]] = None
+    last_action: Optional[ActionType] = None  # Last action taken by this player
 
 
 @dataclass

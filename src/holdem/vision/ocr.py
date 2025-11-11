@@ -112,3 +112,43 @@ class OCREngine:
         if num is not None:
             return int(num)
         return None
+    
+    def detect_action(self, img: np.ndarray) -> Optional[str]:
+        """Detect player action from image (CALL, CHECK, BET, RAISE, FOLD, ALL-IN).
+        
+        Returns:
+            Action string in uppercase (e.g., "CALL", "RAISE") or None if not detected
+        """
+        text = self.read_text(img, preprocess=True)
+        if not text:
+            return None
+        
+        # Normalize text: uppercase and remove extra spaces
+        text_norm = text.upper().strip()
+        
+        # Define action keywords and their variations
+        action_keywords = {
+            'FOLD': ['FOLD', 'FOLDED', 'FOLDS'],
+            'CHECK': ['CHECK', 'CHECKS', 'CHECKED'],
+            'CALL': ['CALL', 'CALLS', 'CALLED'],
+            'BET': ['BET', 'BETS', 'BETTING'],
+            'RAISE': ['RAISE', 'RAISES', 'RAISED'],
+            'ALL-IN': ['ALL-IN', 'ALLIN', 'ALL IN', 'ALL_IN'],
+        }
+        
+        # Try to match action keywords
+        for action, variations in action_keywords.items():
+            for keyword in variations:
+                if keyword in text_norm:
+                    logger.debug(f"Detected action '{action}' from text: {text}")
+                    return action
+        
+        # Check for partial matches (at least 4 characters matching)
+        for action, variations in action_keywords.items():
+            for keyword in variations:
+                if len(keyword) >= 4 and keyword[:4] in text_norm:
+                    logger.debug(f"Partial match: detected action '{action}' from text: {text}")
+                    return action
+        
+        logger.debug(f"No action detected from text: {text}")
+        return None
