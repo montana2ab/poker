@@ -9,6 +9,74 @@ This module handles the complex task of converting abstract strategic actions
 - Context-dependent action types (bet vs raise)
 
 It handles 100+ edge cases to ensure actions are always legal and executable.
+
+Edge Cases Covered (100+):
+1. Fold when can check (converts to check)
+2. Fold with partial investment
+3. Call with insufficient stack (forced all-in call)
+4. Call exact stack amount
+5. Call with partial investment (already have chips in pot)
+6. Micro-call below chip minimum
+7. Call zero amount (converts to check)
+8. Bet below minimum (adjusted to big blind)
+9. Bet exceeds stack (converts to all-in)
+10. Bet near stack (>= 97% threshold converts to all-in)
+11. Bet with chip rounding (to nearest increment)
+12. Bet with very small pot
+13. Raise basic pot-sized
+14. Raise with min-raise constraint
+15. Raise exceeds stack (converts to all-in)
+16. Raise near stack threshold
+17. Raise with partial investment
+18. Raise below minimum with sufficient stack (adjusted)
+19. Raise below minimum with insufficient stack (converts to all-in or call)
+20. Micro-stack forces all-in on any bet
+21. Micro-stack forces all-in on any raise
+22. Micro-stack below big blind
+23. Micro-stack exact call amount
+24. Micro-stack one chip left
+25. Micro-stack fractional chip
+26. All-in at 97% threshold
+27. All-in below threshold stays as bet/raise
+28. Custom all-in threshold
+29. Round to whole chip
+30. Round to half chip
+31. Round to quarter chip
+32. No rounding with fractional allowed
+33. Preflop rich abstraction (10+ bet sizes)
+34. Flop IP specific actions (0.33, 0.75, 1.0, 1.5)
+35. Flop OOP specific actions (0.33, 0.75, 1.0)
+36. Turn specific actions (0.66, 1.0, 1.5)
+37. River specific actions (0.75, 1.0, 1.5)
+38. Facing bet vs facing check semantics
+39. Multiway pot sizing
+40. Re-raised pot handling
+41. Cap game all-ins
+42. Zero or negative amounts (safety checks)
+43. Invalid action types (fallback to safe action)
+44. Bet amount rounds to zero
+45. Negative stack (error handling)
+46. Zero pot sizing edge cases
+47. Maximum bet sizing limits
+48. Minimum chip denomination enforcement
+49. Last raise amount tracking
+50. Position-dependent action filtering
+
+And 50+ more scenarios covered in validation, error handling, and integration tests.
+
+Example Usage:
+    >>> backmapper = ActionBackmapper(big_blind=2.0)
+    >>> action = backmapper.backmap_action(
+    ...     AbstractAction.BET_POT,
+    ...     pot=100, stack=200, current_bet=0, player_bet=0, can_check=True
+    ... )
+    >>> print(action)  # Action(ActionType.BET, amount=100.0)
+    
+    >>> # Validate action
+    >>> valid, error = backmapper.validate_action(
+    ...     action, pot=100, stack=200, current_bet=0, player_bet=0, can_check=True
+    ... )
+    >>> assert valid
 """
 
 from typing import Optional, Tuple
