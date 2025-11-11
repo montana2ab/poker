@@ -151,7 +151,7 @@ def generate_example(
         for _ in range(16):
             bucket_id = rng.randint(0, 200)  # Placeholder num_buckets
             weight = rng.uniform(0.5, 1.0)
-            topk.append([bucket_id, float(weight)])
+            topk.append([int(bucket_id), float(weight)])
         ranges[pos] = topk
     
     # Sample pot/action features
@@ -171,7 +171,7 @@ def generate_example(
     
     return {
         "street": target_street.name,
-        "num_players": num_players,
+        "num_players": int(num_players),
         "hero_pos": hero_pos,
         "spr": float(spr),
         "public_bucket": int(public_bucket),
