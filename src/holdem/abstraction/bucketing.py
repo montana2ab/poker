@@ -19,11 +19,11 @@ logger = get_logger("abstraction.bucketing")
 class HandBucketing:
     """K-means clustering for hand abstraction."""
     
-    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 100):
+    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 40):
         self.config = config
         self.models: Dict[Street, KMeans] = {}
         self.fitted = False
-        self.preflop_equity_samples = preflop_equity_samples  # Configurable for training vs. runtime
+        self.preflop_equity_samples = preflop_equity_samples  # 40 for training (faster, cached), 100+ for runtime
     
     def build(self, num_samples: int = None):
         """Build buckets by clustering sampled hands."""
@@ -49,7 +49,8 @@ class HandBucketing:
                 
                 # Use appropriate feature extraction based on street
                 if street == Street.PREFLOP:
-                    features = extract_preflop_features(hole_cards, equity_samples=100)
+                    # Use 40 samples for training (faster, cached) as per Pluribus recommendations
+                    features = extract_preflop_features(hole_cards, equity_samples=40)
                 else:
                     # Postflop: use comprehensive feature vector
                     # Use default context values for training

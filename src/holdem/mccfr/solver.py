@@ -413,6 +413,7 @@ class MCCFRSolver:
             'elapsed_days': elapsed_seconds / 86400,
             'metrics': metrics,
             'rng_state': rng_state,
+            'num_players': self.num_players,  # Critical: save num_players
             'infoset_version': INFOSET_VERSION,  # Track infoset encoding version
             'bucket_metadata': {
                 'bucket_file_sha': bucket_sha,
@@ -421,7 +422,8 @@ class MCCFRSolver:
                 'k_turn': self.bucketing.config.k_turn,
                 'k_river': self.bucketing.config.k_river,
                 'num_samples': self.bucketing.config.num_samples,
-                'seed': self.bucketing.config.seed
+                'seed': self.bucketing.config.seed,
+                'num_players': self.bucketing.config.num_players
             }
         }
         
@@ -560,11 +562,12 @@ class MCCFRSolver:
         metrics = self._calculate_metrics(iteration, cumulative_seconds)
         metadata = {
             'iteration': iteration,
-            'elapsed_seconds': cumulative_seconds,  # Store cumulative time
+            'elapsed_seconds': cumulative_seconds,  # Store cumulative time (t_global)
             'chunk_elapsed_seconds': elapsed_seconds,  # Also store chunk time for debugging
             'metrics': metrics,
             'rng_state': rng_state,
             'epsilon': self._current_epsilon,
+            'num_players': self.num_players,  # Critical: save num_players for validation
             'regret_discount_alpha': self.config.regret_discount_alpha,
             'strategy_discount_beta': self.config.strategy_discount_beta,
             'bucket_metadata': {
@@ -574,7 +577,8 @@ class MCCFRSolver:
                 'k_turn': self.bucketing.config.k_turn,
                 'k_river': self.bucketing.config.k_river,
                 'num_samples': self.bucketing.config.num_samples,
-                'seed': self.bucketing.config.seed
+                'seed': self.bucketing.config.seed,
+                'num_players': self.bucketing.config.num_players  # Also in bucket metadata
             }
         }
         
