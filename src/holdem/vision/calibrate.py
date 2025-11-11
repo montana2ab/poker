@@ -24,6 +24,7 @@ class TableProfile:
         self.button_regions: Dict[str, Dict[str, int]] = {}  # Fold, Call, Raise, etc.
         self.dealer_button_region: Optional[Dict[str, int]] = None  # Single region (legacy)
         self.dealer_button_regions: List[Dict[str, int]] = []  # One region per player position
+        self.chat_region: Optional[Dict[str, int]] = None  # Chat/history region for event parsing
         self.reference_image: Optional[np.ndarray] = None
         self.keypoints: List = []
         self.descriptors: Optional[np.ndarray] = None
@@ -44,6 +45,7 @@ class TableProfile:
             "button_regions": self.button_regions,
             "dealer_button_region": self.dealer_button_region,
             "dealer_button_regions": self.dealer_button_regions,
+            "chat_region": self.chat_region,
             "hero_position": self.hero_position,
             "hero_templates_dir": self.hero_templates_dir,
         }
@@ -77,6 +79,7 @@ class TableProfile:
         profile.button_regions = data.get("button_regions", {})
         profile.dealer_button_region = data.get("dealer_button_region")
         profile.dealer_button_regions = data.get("dealer_button_regions", [])
+        profile.chat_region = data.get("chat_region")
         profile.hero_position = data.get("hero_position")
         profile.hero_templates_dir = data.get("hero_templates_dir")
         
