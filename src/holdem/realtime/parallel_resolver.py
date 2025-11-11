@@ -3,7 +3,7 @@
 import numpy as np
 import multiprocessing as mp
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional, TYPE_CHECKING
 from holdem.types import SearchConfig, Card, Street
 from holdem.abstraction.actions import AbstractAction
 from holdem.mccfr.policy_store import PolicyStore
@@ -11,6 +11,9 @@ from holdem.mccfr.regrets import RegretTracker
 from holdem.realtime.subgame import SubgameTree
 from holdem.utils.rng import get_rng
 from holdem.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 
 logger = get_logger("realtime.parallel_resolver")
 
@@ -112,10 +115,12 @@ class ParallelSubgameResolver:
     def __init__(
         self,
         config: SearchConfig,
-        blueprint: PolicyStore
+        blueprint: PolicyStore,
+        leaf_evaluator: Optional['LeafEvaluator'] = None
     ):
         self.config = config
         self.blueprint = blueprint
+        self.leaf_evaluator = leaf_evaluator
         
         # Create multiprocessing context with 'spawn' for cross-platform compatibility
         # Use get_context() instead of set_start_method() to avoid conflicts

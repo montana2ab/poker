@@ -1,7 +1,7 @@
 """Search controller for real-time decision making."""
 
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 from holdem.types import TableState, Card, Street, SearchConfig
 from holdem.abstraction.actions import AbstractAction
 from holdem.abstraction.state_encode import StateEncoder
@@ -11,6 +11,9 @@ from holdem.realtime.belief import BeliefState
 from holdem.realtime.subgame import SubgameBuilder
 from holdem.realtime.resolver import SubgameResolver
 from holdem.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 
 logger = get_logger("realtime.search_controller")
 
@@ -22,11 +25,13 @@ class SearchController:
         self,
         config: SearchConfig,
         bucketing: HandBucketing,
-        blueprint: PolicyStore
+        blueprint: PolicyStore,
+        leaf_evaluator: Optional['LeafEvaluator'] = None
     ):
         self.config = config
         self.bucketing = bucketing
         self.blueprint = blueprint
+        self.leaf_evaluator = leaf_evaluator
         self.encoder = StateEncoder(bucketing)
         self.belief = BeliefState()
         self.subgame_builder = SubgameBuilder(depth_limit=config.depth_limit)
@@ -34,10 +39,10 @@ class SearchController:
         # Choose resolver based on num_workers
         if config.num_workers > 1 or config.num_workers == 0:
             from holdem.realtime.parallel_resolver import ParallelSubgameResolver
-            self.resolver = ParallelSubgameResolver(config, blueprint)
+            self.resolver = ParallelSubgameResolver(config, blueprint, leaf_evaluator)
             logger.info(f"Using parallel resolver with {config.num_workers} worker(s)")
         else:
-            self.resolver = SubgameResolver(config, blueprint)
+            self.resolver = SubgameResolver(config, blueprint, leaf_evaluator)
     
     def get_action(
         self,
