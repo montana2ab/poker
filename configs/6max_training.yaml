@@ -80,3 +80,21 @@ rt:
   use_cfv: true                     # Use blueprint CFV at leaves
   kl_weight: 0.5                    # KL weight toward blueprint
   samples_per_solve: 10             # Board samples per solve
+  
+  # Leaf evaluation configuration
+  leaf:
+    mode: "rollout"                 # rollout, blueprint, or cfv_net
+    # CFV Net configuration (if mode="cfv_net")
+    cfv_net:
+      checkpoint: "assets/cfv_net/6max_best.onnx"
+      stats: "assets/cfv_net/stats.json"
+      cache_max_size: 10000
+      gating:
+        tau_flop: 0.20              # PI width threshold for flop (bb)
+        tau_turn: 0.16              # PI width threshold for turn
+        tau_river: 0.12             # PI width threshold for river
+        ood_sigma: 4.0              # Out-of-distribution threshold (std devs)
+        clamp_abs_bb: 25.0          # Absolute value clamp (bb)
+        boost_ip: 1.10              # Multiplier for in-position
+        boost_oop: 0.90             # Multiplier for out-of-position
+      fallback: "rollout"           # Fallback mode when gating rejects
