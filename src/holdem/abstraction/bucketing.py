@@ -17,16 +17,27 @@ logger = get_logger("abstraction.bucketing")
 
 
 class HandBucketing:
-    """K-means clustering for hand abstraction."""
+    """K-means clustering for hand abstraction.
     
-    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 40):
+    Supports two modes for preflop abstraction:
+    1. K-means clustering (default): Groups similar hands into k_preflop buckets
+    2. Lossless 169: Maps each hand to exactly one of 169 canonical hand types (perfect abstraction)
+    """
+    
+    def __init__(self, config: BucketConfig, preflop_equity_samples: int = 40, use_lossless_preflop: bool = False):
         self.config = config
         self.models: Dict[Street, KMeans] = {}
         self.fitted = False
         self.preflop_equity_samples = preflop_equity_samples  # 40 for training (faster, cached), 100+ for runtime
+        self.use_lossless_preflop = use_lossless_preflop  # Whether to use lossless 169 abstraction for preflop
     
     def build(self, num_samples: int = None):
-        """Build buckets by clustering sampled hands."""
+        """Build buckets by clustering sampled hands.
+        
+        If use_lossless_preflop is True, preflop will use the lossless 169 abstraction
+        instead of k-means clustering. This provides perfect preflop hand abstraction
+        with exactly one bucket per hand type (AA, AKs, AKo, etc.).
+        """
         if num_samples is None:
             num_samples = self.config.num_samples
         
@@ -39,6 +50,12 @@ class HandBucketing:
         
         # Build buckets for each street
         for street in Street:
+            # Skip k-means for preflop if using lossless abstraction
+            if street == Street.PREFLOP and self.use_lossless_preflop:
+                logger.info(f"Using lossless 169 abstraction for PREFLOP (skipping k-means)")
+                # No model needed - will use preflop_lossless.get_bucket_169() directly
+                continue
+            
             k = self._get_k_for_street(street)
             logger.info(f"Building {k} buckets for {street.name}")
             
@@ -121,6 +138,9 @@ class HandBucketing:
                    pot: float = 100.0, stack: float = 200.0, is_in_position: bool = True) -> int:
         """Get bucket index for a hand.
         
+        For preflop with lossless abstraction enabled, returns bucket from 0-168 (169 total).
+        Otherwise uses k-means clustering.
+        
         Args:
             hole_cards: Player's hole cards
             board: Community cards
@@ -130,10 +150,15 @@ class HandBucketing:
             is_in_position: Whether player is in position
         
         Returns:
-            Bucket index (0 to k-1 for the street)
+            Bucket index (0 to k-1 for the street, or 0-168 for lossless preflop)
         """
-        if not self.fitted:
+        if not self.fitted and not (street == Street.PREFLOP and self.use_lossless_preflop):
             raise RuntimeError("Buckets not built yet. Call build() first.")
+        
+        # Use lossless 169 abstraction for preflop if enabled
+        if street == Street.PREFLOP and self.use_lossless_preflop:
+            from holdem.abstraction.preflop_lossless import get_bucket_169
+            return get_bucket_169(hole_cards)
         
         if street not in self.models:
             raise ValueError(f"No model for street {street}")
@@ -161,13 +186,14 @@ class HandBucketing:
     
     def save(self, path: Path):
         """Save bucketing models."""
-        if not self.fitted:
+        if not self.fitted and not self.use_lossless_preflop:
             raise RuntimeError("Cannot save unfitted buckets")
         
         data = {
             'config': vars(self.config),
             'models': self.models,
-            'fitted': self.fitted
+            'fitted': self.fitted,
+            'use_lossless_preflop': self.use_lossless_preflop
         }
         save_pickle(data, path)
         logger.info(f"Saved buckets to {path}")
@@ -177,10 +203,11 @@ class HandBucketing:
         """Load bucketing models."""
         data = load_pickle(path)
         config = BucketConfig(**data['config'])
-        bucketing = cls(config)
+        use_lossless_preflop = data.get('use_lossless_preflop', False)  # Default to False for backward compatibility
+        bucketing = cls(config, use_lossless_preflop=use_lossless_preflop)
         bucketing.models = data['models']
         bucketing.fitted = data['fitted']
-        logger.info(f"Loaded buckets from {path}")
+        logger.info(f"Loaded buckets from {path} (lossless_preflop={use_lossless_preflop})")
         return bucketing
 
 
