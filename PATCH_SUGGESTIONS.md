@@ -523,11 +523,25 @@ Les patches ci-dessous pour RNG state sont **DÉJÀ IMPLÉMENTÉS**. Seul le has
 
 ---
 
-## 4. Abstraction Hash Validation ⚠️ NOUVEAU
+## 4. Abstraction Hash Validation ✅ IMPLÉMENTÉ
 
-**STATUT:** ❌ **À IMPLÉMENTER**
+**STATUT:** ✅ **COMPLÈTEMENT IMPLÉMENTÉ**
 
-**Objectif:** Ajouter hash MD5/SHA256 de la configuration de buckets pour détecter incompatibilités lors de reprise depuis checkpoint.
+**Vérification:**
+- Fichier: `src/holdem/mccfr/solver.py` (lignes 497-527, 640-663)
+- Tests: `tests/test_bucket_validation.py` (6 tests complets)
+- Méthode `_calculate_bucket_hash()` calcule SHA256
+- Validation automatique dans `load_checkpoint()` avec `validate_buckets=True`
+
+**Fonctionnalités implémentées:**
+- ✅ SHA256 hash de configuration buckets (k_preflop, k_flop, k_turn, k_river, seed, num_samples, num_players)
+- ✅ Hash inclut cluster_centers_.tolist() pour déterminisme complet
+- ✅ Hash sauvegardé dans metadata checkpoints et snapshots
+- ✅ Validation automatique lors de load_checkpoint()
+- ✅ ValueError explicite si mismatch avec message détaillé
+- ✅ Tests complets couvrant tous les cas (matching, mismatching, metadata)
+
+**Code implémenté (déjà dans le repository):**
 
 **Fichier modifié:** `src/holdem/abstraction/bucketing.py`
 

@@ -36,8 +36,8 @@ Entraînement MCCFR,Negative Regret Pruning,Seuil -300M comme Pluribus,OK,src/ho
 Entraînement MCCFR,Exploration Epsilon,Epsilon configurable avec schedule,OK,src/holdem/types.py:121-125,epsilon_schedule avec decay step-based,Low,L,Expérimenter schedules adaptifs
 Entraînement MCCFR,Adaptive Epsilon,Epsilon adaptatif selon IPS et coverage,OK,src/holdem/mccfr/adaptive_epsilon.py:1-200,AdaptiveEpsilonScheduler complet,Low,L,Tuning paramètres adaptatifs
 Entraînement MCCFR,Parallel Training,Multi-process avec persistent workers,OK,src/holdem/mccfr/parallel_solver.py:1-500,Parallélisation spawn-based multi-platform,Low,L,Optimiser latence queues
-Entraînement MCCFR,Checkpointing,Sauvegarde périodique avec snapshot,OK,src/holdem/mccfr/solver.py:150-250,Checkpoint + snapshot système présent,Low,L,Ajouter hash abstraction pour validation
-Entraînement MCCFR,Reprise Déterministe,Restauration exacte état RNG/epsilon/iteration,OK,src/holdem/mccfr/solver.py:374+517+597,RNG state sauvegardé (get_state/set_state); epsilon et regret_tracker state aussi; reprise bit-exact,Low,L,✅ IMPLÉMENTÉ - Ajouter hash abstraction pour validation compatibilité
+Entraînement MCCFR,Checkpointing,Sauvegarde périodique avec snapshot,OK,src/holdem/mccfr/solver.py:150-250+497-527,Checkpoint + snapshot avec hash abstraction SHA256 présent,Low,L,✅ Hash abstraction implémenté - système complet
+Entraînement MCCFR,Reprise Déterministe,Restauration exacte état RNG/epsilon/iteration,OK,src/holdem/mccfr/solver.py:374+517+597+640-663,RNG state + epsilon + regret_tracker + validation hash abstraction; reprise bit-exact,Low,L,✅ COMPLET - Validation hash abstraction active
 Entraînement MCCFR,Blueprint Export,Export avg_policy en JSON/PyTorch,OK,src/holdem/mccfr/policy_store.py:1-200,Export JSON fonctionnel,Low,L,Ajouter export PyTorch natif
 Entraînement MCCFR,Stratégie Moyenne,Calcul stratégie moyenne pondérée,OK,src/holdem/mccfr/regrets.py:81-95,get_average_strategy implémenté,Low,L,Validation pondération linéaire
 Entraînement MCCFR,Time-Budget Training,Entraînement basé durée (ex: 8 jours),OK,src/holdem/types.py:142-143,time_budget_seconds configurable,Low,L,Tests de non-régression
@@ -65,7 +65,7 @@ Ingénierie,Memory Management,Empreinte mémoire regrets/stratégies optimisée,
 Ingénierie,Serialization,Sérialisation efficace pickle/msgpack,Partiel,src/holdem/utils/serialization.py:1-100,Pickle utilisé; manque msgpack,Low,L,Ajouter option msgpack pour I/O plus rapide
 Ingénierie,Tracing & Metrics,Instrumentation logging/metrics/profiling,Partiel,src/holdem/utils/logging.py:1-50,Logging présent; manque metrics détaillées,Moyenne,M,Ajouter métriques Prometheus/StatsD
 Ingénierie,TensorBoard,Visualisation training TensorBoard,OK,src/holdem/mccfr/solver.py:16-21,Support TensorBoard optionnel,Low,L,Enrichir visualisations (regrets/strategies)
-Ingénierie,Checkpointing Format,Format checkpoint versionné avec hash abstraction,Partiel,src/holdem/mccfr/policy_store.py:1-200,Checkpoints fonctionnels; manque hash versioning,Moyenne,M,Ajouter hash abstraction dans metadata checkpoint
+Ingénierie,Checkpointing Format,Format checkpoint versionné avec hash abstraction,OK,src/holdem/mccfr/solver.py:497-527+640-663,Hash abstraction SHA256 dans metadata avec validation,Low,L,✅ IMPLÉMENTÉ - Hash validation active dans checkpoints
 Ingénierie,Platform Support,Cross-platform Windows/macOS/Linux,OK,src/holdem/mccfr/parallel_solver.py:21-57,Détection plateforme + optimisations,Low,L,Tests CI multi-plateformes
 Runtime/Latence,Per-hand Budget,Limite temps par décision (80-200ms),OK,src/holdem/realtime/resolver.py:58-93,time_budget_ms configurable,Low,L,Tuning selon hardware
 Runtime/Latence,Latency Target,Mesure et respect cible latence,Partiel,,Timer présent; manque enforcement strict + alertes,Moyenne,M,Ajouter monitoring latence avec alertes
@@ -100,4 +100,4 @@ Vision,Debounce efficacité,Filter rate ≥ 50-70% frames bruitées,À mesurer,s
 Vision,OCR précision,MAE montants < 0.02 (2 centimes),À mesurer,,Pas de métrique MAE implémentée,Métrique manquante,Haute,Moyen,Implémenter vision/ocr_mae_amounts avec ground truth
 Abstraction,Collisions,collision_rate ≈ 0 (< 0.001),À vérifier,src/holdem/abstraction/bucketing.py,K-means avec seed fixe; collisions non mesurées,Métrique manquante,Moyen,Faible,Ajouter calcul collision_rate sur 100k boards tirés
 Leaf Cache,Hit rate,Cache hit_rate ≥ 0.6,À implémenter,src/holdem/rt_resolver/leaf_evaluator.py,Pas de cache implémenté explicitement,Cache manquant,Moyen,Moyen,Implémenter LRU cache avec statistiques hit_rate
-Entraînement MCCFR,Abstraction Hash,Hash MD5/SHA256 buckets pour validation compatibilité,Manquant,,Pas de hash abstraction dans checkpoints; risque incompatibilité,Moyenne,M,Implémenter compute_hash() dans BucketConfig + validation à la reprise
+Entraînement MCCFR,Abstraction Hash,Hash MD5/SHA256 buckets pour validation compatibilité,OK,src/holdem/mccfr/solver.py:497-527,SHA256 hash calculé avec cluster centers + validation checkpoint,Low,L,✅ IMPLÉMENTÉ - Tests présents dans tests/test_bucket_validation.py
