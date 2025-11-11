@@ -350,3 +350,45 @@ def test_numpy_types_serialization():
                 for bucket_id, weight in ranges:
                     assert isinstance(bucket_id, int), f"bucket_id should be int, got {type(bucket_id)}"
                     assert isinstance(weight, float), f"weight should be float, got {type(weight)}"
+
+
+def test_hash_seed_edge_cases():
+    """Test that dataset reader handles hash edge cases (negative/large values)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write dataset
+        with CFVDatasetWriter(tmpdir, shard_size=10) as writer:
+            for i in range(15):
+                example = {
+                    "street": "FLOP",
+                    "num_players": 6,
+                    "hero_pos": "BTN",
+                    "spr": 5.0,
+                    "public_bucket": i,
+                    "ranges": {"BTN": [[0, 1.0]]},
+                    "scalars": {
+                        "pot_norm": 1.0,
+                        "to_call_over_pot": 0.2,
+                        "last_bet_over_pot": 0.3,
+                        "aset": "balanced"
+                    },
+                    "target_cfv_bb": float(i)
+                }
+                writer.add_example(example)
+        
+        # Test with various seed values that might cause hash overflow
+        # These seeds, when combined with hash values, could exceed numpy's limits
+        test_seeds = [0, 42, 2**31, 2**32 - 100]
+        
+        for seed in test_seeds:
+            reader = CFVDatasetReader(tmpdir, shuffle=True, seed=seed)
+            
+            # This should not raise ValueError
+            examples = list(reader)
+            
+            # Verify we got all examples
+            assert len(examples) == 15
+            
+            # Verify examples are valid
+            for example in examples:
+                assert 'target_cfv_bb' in example
+                assert isinstance(example['target_cfv_bb'], float)

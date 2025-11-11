@@ -192,7 +192,9 @@ class CFVDatasetReader:
         
         # Optionally shuffle examples within shard
         if self.shuffle:
-            rng = np.random.RandomState(self.seed + hash(str(shard_path)))
+            # Ensure seed is in valid range [0, 2^32 - 1] by taking absolute value and modulo
+            seed_value = (self.seed + hash(str(shard_path))) % (2**32)
+            rng = np.random.RandomState(seed_value)
             rng.shuffle(examples)
         
         yield from examples
