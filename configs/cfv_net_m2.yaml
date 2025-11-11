@@ -1,0 +1,59 @@
+# CFV Net Configuration for M2 CPU
+# Optimized for M2 MacBook with ≤1ms inference time
+
+# Model architecture
+model:
+  hidden: [512, 512, 256]  # MLP hidden dimensions
+  dropout: 0.05             # Dropout probability
+  quantiles: [0.10, 0.90]   # Prediction quantiles
+
+# Optimizer settings
+opt:
+  lr: 1.0e-3               # Learning rate
+  batch_size: 2048         # Batch size (effective: 8k with accumulation)
+  grad_accumulation: 4     # Gradient accumulation steps
+  epochs: 20               # Maximum training epochs
+  weight_decay: 1.0e-4     # AdamW weight decay (L2)
+  grad_clip: 1.0           # Gradient clipping norm
+
+# Learning rate schedule
+sched:
+  type: cosine             # Cosine annealing
+  warmup_frac: 0.05        # Warmup fraction (5% of training)
+
+# Feature settings
+features:
+  topk_range: 16           # Top-K buckets per player range
+  embed_dim: 64            # Bucket embedding dimension
+
+# Loss weights
+loss:
+  mean_weight: 0.6         # Weight for mean (Huber) loss
+  quantile_weight: 0.2     # Weight per quantile (pinball) loss
+  huber_delta: 1.0         # Huber loss delta parameter
+
+# Dataset split
+split:
+  train: 0.96              # Training fraction
+  val: 0.02                # Validation fraction
+  test: 0.02               # Test fraction
+
+# Early stopping
+early_stop:
+  metric: mae              # Monitor MAE on validation set
+  patience: 3              # Epochs without improvement before stopping
+
+# Training settings
+train:
+  seed: 42                 # Random seed
+  log_interval: 100        # Log every N batches
+  val_interval: 1000       # Validate every N batches
+  num_workers: 4           # Data loading workers
+  pin_memory: true         # Pin memory for faster GPU transfer
+
+# Quality thresholds (for validation)
+quality:
+  max_mae: 0.30            # Maximum MAE (bb)
+  min_pi_coverage: 0.85    # Minimum PI90 coverage
+  max_ece: 0.05            # Maximum calibration error
+  max_inference_ms: 1.0    # Maximum inference time (M2 CPU)
