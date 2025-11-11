@@ -511,6 +511,7 @@ class MCCFRSolver:
             'k_river': self.bucketing.config.k_river,
             'num_samples': self.bucketing.config.num_samples,
             'seed': self.bucketing.config.seed,
+            'num_players': self.bucketing.config.num_players,  # Critical: include num_players in hash
         }
         
         # Include cluster centers if available (most critical part)
@@ -660,6 +661,21 @@ class MCCFRSolver:
                 )
             
             logger.info("Bucket configuration validated successfully")
+        
+        # Validate num_players matches
+        checkpoint_num_players = metadata.get('num_players', None)
+        if checkpoint_num_players is not None:
+            if checkpoint_num_players != self.num_players:
+                raise ValueError(
+                    f"num_players mismatch!\n"
+                    f"Current training: {self.num_players} players\n"
+                    f"Checkpoint: {checkpoint_num_players} players\n"
+                    f"Cannot resume training with different player count.\n"
+                    f"Please use a checkpoint trained with {self.num_players} players."
+                )
+            logger.info(f"num_players validated: {checkpoint_num_players} players")
+        else:
+            logger.warning("Checkpoint has no num_players metadata (legacy checkpoint). Assuming 2 players.")
         
         # Restore RNG state
         if 'rng_state' in metadata:
