@@ -195,12 +195,12 @@ def test_depth_limited_cfr():
     total_prob = sum(strategy.values())
     assert abs(total_prob - 1.0) < 0.1  # Should sum to ~1.0
     
-    # Check metrics
+    # Check metrics (using rt/* prefix)
     metrics = solver.get_metrics()
-    assert metrics['iterations'] >= 10
-    assert metrics['solve_time_ms'] > 0
+    assert metrics['rt/iterations'] >= 10
+    assert metrics['rt/decision_time_ms'] > 0
     
-    print(f"✓ DepthLimitedCFR works: {metrics['iterations']} iterations in {metrics['solve_time_ms']:.1f}ms")
+    print(f"✓ DepthLimitedCFR works: {int(metrics['rt/iterations'])} iterations in {metrics['rt/decision_time_ms']:.1f}ms")
 
 
 if __name__ == "__main__":
