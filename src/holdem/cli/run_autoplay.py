@@ -9,7 +9,7 @@ from holdem.vision.calibrate import TableProfile
 from holdem.vision.detect_table import TableDetector
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
-from holdem.vision.parse_state import StateParser
+from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
@@ -44,6 +44,8 @@ def main():
                        help="Path to CFV net ONNX model (default: assets/cfv_net/6max_mid_125k_m2.onnx)")
     parser.add_argument("--no-cfv-net", action="store_true",
                        help="Disable CFV net and use only blueprint/rollouts for leaf evaluation")
+    parser.add_argument("--disable-chat-parsing", action="store_true",
+                       help="Disable chat parsing (only use vision for state detection)")
     
     args = parser.parse_args()
     
@@ -96,7 +98,23 @@ def main():
         method="template"
     )
     ocr_engine = OCREngine()
-    state_parser = StateParser(profile, card_recognizer, ocr_engine)
+    
+    # Create chat-enabled state parser
+    enable_chat = not args.disable_chat_parsing
+    if enable_chat and profile.chat_region:
+        logger.info("Chat parsing enabled - will extract events from chat")
+    elif enable_chat and not profile.chat_region:
+        logger.warning("Chat parsing enabled but no chat_region in profile - only using vision")
+        enable_chat = False
+    else:
+        logger.info("Chat parsing disabled - only using vision")
+    
+    state_parser = ChatEnabledStateParser(
+        profile=profile,
+        card_recognizer=card_recognizer,
+        ocr_engine=ocr_engine,
+        enable_chat_parsing=enable_chat
+    )
     
     # Create leaf evaluator based on arguments
     if args.no_cfv_net:
@@ -180,11 +198,19 @@ def main():
                 continue
             
             warped = table_detector.detect(screenshot)
-            state = state_parser.parse(warped)
+            state, events = state_parser.parse_with_events(warped)
             
             if not state:
                 time.sleep(1.0)
                 continue
+            
+            # Log fused events if any
+            if events:
+                for event in events:
+                    sources_str = ", ".join(s.value for s in event.sources)
+                    confirmed = " [MULTI-SOURCE]" if event.is_multi_source() else ""
+                    logger.info(f"[EVENT] {event.event_type}: {event.action or event.street} "
+                              f"(sources: {sources_str}, confidence: {event.confidence:.2f}){confirmed}")
             
             # Reset history on new street
             if last_street != state.street:
