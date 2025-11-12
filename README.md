@@ -10,10 +10,12 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 
 > **✨ NEW: Enhanced OCR Preprocessing**: OCR quality significantly improved with multi-strategy preprocessing, adaptive upscaling for small text, and advanced image processing (CLAHE, bilateral filtering, morphological operations). Expected 30-50% accuracy improvement in challenging conditions. See [OCR_ENHANCEMENT_SUMMARY.md](OCR_ENHANCEMENT_SUMMARY.md) for details.
 
+> **🆕 NEW: Multiple OCR Backends**: The vision system now supports three OCR engines: PaddleOCR (default), EasyOCR, and Tesseract. Choose the best engine for your platform with the `--ocr-backend` argument. See [EASYOCR_INTEGRATION.md](EASYOCR_INTEGRATION.md) for details.
+
 ## Features
 
 - **Multi-Player Support**: Full support for 2-6 players with position-aware features. Train blueprints for heads-up, 3-max, or 6-max poker with dedicated position handling (BTN, SB, BB, UTG, MP, CO)
-- **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, **Enhanced OCR** with multi-strategy preprocessing (standard/sharp/bilateral/morphological), adaptive upscaling for small text, CLAHE contrast enhancement for stacks/pot/bets (PaddleOCR with pytesseract fallback), **VisionMetrics** for comprehensive performance tracking (OCR accuracy %, MAE for amounts, card recognition accuracy, configurable thresholds/alerts, JSON/text reporting)
+- **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, **Enhanced OCR** with multi-strategy preprocessing (standard/sharp/bilateral/morphological), adaptive upscaling for small text, CLAHE contrast enhancement for stacks/pot/bets (**Three OCR backends**: PaddleOCR (default), EasyOCR, or pytesseract - selectable via `--ocr-backend` argument), **VisionMetrics** for comprehensive performance tracking (OCR accuracy %, MAE for amounts, card recognition accuracy, configurable thresholds/alerts, JSON/text reporting)
 - **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: Linear MCCFR with DCFR/CFR+ adaptive discounting, dynamic regret pruning, and warm-start from checkpoints. Multiple training modes: iteration-based, time-budget, chunked (automatic restart), and multi-instance (distributed). Adaptive and scheduled epsilon decay. Outcome sampling with validation metrics (L2 regret slope, policy entropy per street). Exports average policy to JSON/PyTorch format. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md), [CHUNKED_TRAINING.md](CHUNKED_TRAINING.md), [ADAPTIVE_EPSILON_GUIDE.md](ADAPTIVE_EPSILON_GUIDE.md), and [GUIDE_MULTI_INSTANCE.md](GUIDE_MULTI_INSTANCE.md).
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with street and position-aware KL regularization toward blueprint, public card sampling (Pluribus technique), optional CFV Net neural network leaf evaluator, time-budgeted (e.g., 80ms) with parallel solving support, fallback to blueprint on timeout
@@ -830,7 +832,7 @@ MIT License - see LICENSE file for details
 1. Screen capture via `mss`
 2. Table detection using ORB/AKAZE feature matching with perspective warp
 3. Card recognition: Template matching + optional lightweight CNN
-4. OCR: PaddleOCR (primary) with pytesseract fallback
+4. OCR: Three backends available (PaddleOCR (default), EasyOCR, pytesseract) - selectable via `--ocr-backend` argument. See [EASYOCR_INTEGRATION.md](EASYOCR_INTEGRATION.md) for details.
 5. Parse complete `TableState` object
 
 ### Abstraction
