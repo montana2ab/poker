@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from holdem.vision.cards import CardRecognizer, create_mock_templates
+from holdem.vision.cards import CardRecognizer
 from holdem.vision.parse_state import StateParser
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.ocr import OCREngine
