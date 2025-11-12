@@ -220,7 +220,7 @@ class CardRecognizer:
             logger.warning("Empty or None image provided to recognize_cards")
             return cards
         
-        # Check if region likely contains cards (skip for hero cards as they're always present)
+        # Check if region likely contains cards (skip if requested or for hero templates by default)
         if not skip_empty_check:
             if not self._region_has_cards(img):
                 logger.info("Board region appears empty (likely preflop), skipping card recognition")
