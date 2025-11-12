@@ -11,7 +11,7 @@ A complete poker AI system combining Monte Carlo Counterfactual Regret Minimizat
 ## Features
 
 - **Multi-Player Support**: Full support for 2-6 players with position-aware features. Train blueprints for heads-up, 3-max, or 6-max poker with dedicated position handling (BTN, SB, BB, UTG, MP, CO)
-- **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback)
+- **Vision System**: Cross-platform screen capture (mss) with native window management (pywinauto on Windows, Quartz/pygetwindow on macOS, pygetwindow on Linux), table detection with ORB/AKAZE feature matching, card recognition via template matching + optional CNN, OCR for stacks/pot/bets (PaddleOCR with pytesseract fallback), **VisionMetrics** for comprehensive performance tracking (OCR accuracy %, MAE for amounts, card recognition accuracy, configurable thresholds/alerts, JSON/text reporting)
 - **Abstraction**: Street and position-aware action menus with proper bet sizing. Preflop: `{25%, 50%, 100%, 200%}`, Flop IP: `{33%, 75%, 100%, 150%}`, Flop OOP: `{33%, 75%, 100%}`, Turn: `{66%, 100%, 150%}`, River: `{75%, 100%, 150%, ALL-IN}` + k-means clustering per street based on equity, position, SPR, draws (see [FEATURE_EXTRACTION.md](FEATURE_EXTRACTION.md) for details on 10-dimensional preflop and 34-dimensional postflop feature vectors)
 - **Blueprint Training**: Linear MCCFR with DCFR/CFR+ adaptive discounting, dynamic regret pruning, and warm-start from checkpoints. Multiple training modes: iteration-based, time-budget, chunked (automatic restart), and multi-instance (distributed). Adaptive and scheduled epsilon decay. Outcome sampling with validation metrics (L2 regret slope, policy entropy per street). Exports average policy to JSON/PyTorch format. See [DCFR_IMPLEMENTATION.md](DCFR_IMPLEMENTATION.md), [CHUNKED_TRAINING.md](CHUNKED_TRAINING.md), [ADAPTIVE_EPSILON_GUIDE.md](ADAPTIVE_EPSILON_GUIDE.md), and [GUIDE_MULTI_INSTANCE.md](GUIDE_MULTI_INSTANCE.md).
 - **Real-time Search**: Belief updates for opponent ranges, limited subgame construction (current street + 1), re-solving with street and position-aware KL regularization toward blueprint, public card sampling (Pluribus technique), optional CFV Net neural network leaf evaluator, time-budgeted (e.g., 80ms) with parallel solving support, fallback to blueprint on timeout
@@ -810,6 +810,7 @@ See [EPSILON_SCHEDULE_FEATURES.md](EPSILON_SCHEDULE_FEATURES.md) for details.
 ### Vision & Calibration
 - **[Calibration Guide](CALIBRATION_GUIDE.md)** - Complete table calibration manual (English & Français)
 - **[PokerStars Setup](POKERSTARS_SETUP.md)** - PokerStars-specific configuration
+- **[VisionMetrics Guide](VISION_METRICS_GUIDE.md)** - Comprehensive performance tracking (OCR accuracy, MAE, alerts, reporting)
 
 ### Architecture & Implementation
 - **[Implementation Details](IMPLEMENTATION.md)** - Technical architecture overview

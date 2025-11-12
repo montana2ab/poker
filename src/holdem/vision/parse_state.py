@@ -2,6 +2,7 @@
 
 import cv2
 import numpy as np
+import time
 from pathlib import Path
 from typing import Optional, List
 import re
@@ -13,6 +14,14 @@ from holdem.vision.ocr import OCREngine
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.parse_state")
+
+# Import VisionMetrics if available
+try:
+    from holdem.vision.vision_metrics import VisionMetrics
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
+    VisionMetrics = None
 
 
 # Helper to robustly parse stack/amounts from OCR text (locale-aware)
@@ -47,17 +56,22 @@ class StateParser:
         profile: TableProfile,
         card_recognizer: CardRecognizer,
         ocr_engine: OCREngine,
-        debug_dir: Optional[Path] = None
+        debug_dir: Optional[Path] = None,
+        vision_metrics: Optional['VisionMetrics'] = None
     ):
         self.profile = profile
         self.card_recognizer = card_recognizer
         self.ocr_engine = ocr_engine
         self.debug_dir = debug_dir
+        self.vision_metrics = vision_metrics
         self._debug_counter = 0
     
     def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
         """Parse table state from screenshot."""
         try:
+            # Track parse latency if metrics are enabled
+            parse_start = time.time() if self.vision_metrics else None
+            
             # Increment debug counter for each parse call
             if self.debug_dir:
                 self._debug_counter += 1
@@ -149,6 +163,11 @@ class StateParser:
                 spr=spr
             )
             
+            # Record parse latency if metrics are enabled
+            if self.vision_metrics and parse_start is not None:
+                parse_latency_ms = (time.time() - parse_start) * 1000
+                self.vision_metrics.record_parse_latency(parse_latency_ms)
+            
             logger.debug(f"Parsed state: {street.name}, pot={pot}, current_bet={current_bet}, "
                         f"button={button_position}, hero_pos={hero_position}, is_IP={is_in_position}, "
                         f"to_call={to_call:.2f}, eff_stack={effective_stack:.2f}, SPR={spr:.2f}, "
@@ -186,6 +205,18 @@ class StateParser:
             
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
             
+            # Track card recognition metrics if enabled
+            if self.vision_metrics:
+                for card in cards:
+                    if card is not None:
+                        # Record card recognition (no ground truth in production)
+                        confidence = getattr(card, 'confidence', 0.0)
+                        self.vision_metrics.record_card_recognition(
+                            detected_card=str(card),
+                            expected_card=None,
+                            confidence=confidence
+                        )
+            
             # Log the result
             cards_str = ", ".join(str(c) for c in cards if c is not None)
             if cards_str:
@@ -211,6 +242,15 @@ class StateParser:
         if y + h <= img.shape[0] and x + w <= img.shape[1]:
             pot_region = img[y:y+h, x:x+w]
             pot = self.ocr_engine.extract_number(pot_region)
+            
+            # Track OCR and amount metrics if enabled
+            if self.vision_metrics and pot is not None:
+                self.vision_metrics.record_amount(
+                    detected_amount=pot,
+                    expected_amount=None,  # No ground truth in production
+                    category="pot"
+                )
+            
             return pot if pot is not None else 0.0
         
         return 0.0
@@ -238,6 +278,14 @@ class StateParser:
                 if parsed_stack is not None:
                     stack = parsed_stack
                     logger.info(f"Player {table_position} stack OCR: {stack:.2f}")
+                    
+                    # Track amount metrics if enabled
+                    if self.vision_metrics:
+                        self.vision_metrics.record_amount(
+                            detected_amount=stack,
+                            expected_amount=None,  # No ground truth in production
+                            category="stack"
+                        )
 
             # Extract name
             name_reg = player_region.get('name_region', {})
