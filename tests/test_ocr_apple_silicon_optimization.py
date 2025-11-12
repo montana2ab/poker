@@ -26,7 +26,7 @@ class TestAppleSiliconOptimization:
         assert isinstance(result, bool)
     
     @patch('holdem.vision.ocr._is_apple_silicon')
-    @patch('holdem.vision.ocr.PaddleOCR')
+    @patch('paddleocr.PaddleOCR')
     def test_ocr_init_apple_silicon_optimizations(self, mock_paddle_ocr, mock_is_apple_silicon):
         """Test that OCR engine uses optimized settings on Apple Silicon."""
         mock_is_apple_silicon.return_value = True
@@ -46,6 +46,7 @@ class TestAppleSiliconOptimization:
         assert call_kwargs['use_space_char'] is False, "Space char should be disabled"
         assert call_kwargs['rec_batch_num'] == 1, "Batch size should be 1"
         assert call_kwargs['det_limit_side_len'] == 640, "Detection limit should be 640"
+        assert call_kwargs['use_mp'] is False, "Multiprocessing should be disabled"
         
         # Verify the engine was configured correctly
         assert engine.backend == "paddleocr"
@@ -53,7 +54,7 @@ class TestAppleSiliconOptimization:
         assert engine.use_angle_cls is False
     
     @patch('holdem.vision.ocr._is_apple_silicon')
-    @patch('holdem.vision.ocr.PaddleOCR')
+    @patch('paddleocr.PaddleOCR')
     def test_ocr_init_non_apple_silicon(self, mock_paddle_ocr, mock_is_apple_silicon):
         """Test that OCR engine uses standard settings on non-Apple Silicon."""
         mock_is_apple_silicon.return_value = False
@@ -70,6 +71,7 @@ class TestAppleSiliconOptimization:
         assert call_kwargs['use_angle_cls'] is False, "Angle classification should be disabled"
         assert call_kwargs['use_gpu'] is False, "GPU should be disabled"
         assert call_kwargs['enable_mkldnn'] is False, "MKL-DNN should be disabled"
+        assert call_kwargs['use_mp'] is False, "Multiprocessing should be disabled"
         
         # Apple Silicon-specific settings should not be present
         assert 'use_space_char' not in call_kwargs or call_kwargs.get('use_space_char') is not False
@@ -80,7 +82,7 @@ class TestAppleSiliconOptimization:
         assert engine.paddle_ocr is mock_paddle_instance
     
     @patch('holdem.vision.ocr._is_apple_silicon')
-    @patch('holdem.vision.ocr.PaddleOCR')
+    @patch('paddleocr.PaddleOCR')
     def test_ocr_fallback_on_paddleocr_failure(self, mock_paddle_ocr, mock_is_apple_silicon):
         """Test that OCR engine falls back to pytesseract if PaddleOCR fails."""
         mock_is_apple_silicon.return_value = True
@@ -93,7 +95,7 @@ class TestAppleSiliconOptimization:
         assert engine.paddle_ocr is None
     
     @patch('holdem.vision.ocr._is_apple_silicon')
-    @patch('holdem.vision.ocr.PaddleOCR')
+    @patch('paddleocr.PaddleOCR')
     def test_read_paddle_with_angle_cls_disabled(self, mock_paddle_ocr, mock_is_apple_silicon):
         """Test that _read_paddle uses cls=False when angle classification is disabled."""
         mock_is_apple_silicon.return_value = True
