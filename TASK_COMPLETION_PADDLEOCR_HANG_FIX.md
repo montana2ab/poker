@@ -2,7 +2,7 @@
 
 ## Problem Statement (French)
 ```
-je bloque tourjours la depuis l installation de paddelocr
+je bloque toujours la depuis l installation de paddleocr
 ```
 
 **Translation**: "I'm always stuck there since installing PaddleOCR"
