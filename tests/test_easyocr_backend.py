@@ -10,33 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from holdem.vision.ocr import OCREngine
-
-
-def create_test_text_image(text: str, height: int = 40, width: int = 200) -> np.ndarray:
-    """Create a synthetic image with text for testing."""
-    # Create white background
-    img = np.ones((height, width, 3), dtype=np.uint8) * 255
-    
-    # Add text
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.8
-    thickness = 2
-    color = (0, 0, 0)  # Black text
-    
-    # Get text size to center it
-    (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
-    x = (width - text_width) // 2
-    y = (height + text_height) // 2
-    
-    cv2.putText(img, text, (x, y), font, font_scale, color, thickness)
-    
-    # Add some noise to make it more realistic
-    noise = np.random.normal(0, 5, img.shape).astype(np.uint8)
-    img = cv2.add(img, noise)
-    
-    return img
-
-
+from tests.test_utils import create_test_text_image
 class TestEasyOCRBackend:
     """Test EasyOCR backend integration."""
     
