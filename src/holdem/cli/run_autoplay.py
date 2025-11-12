@@ -10,6 +10,7 @@ from holdem.vision.detect_table import TableDetector
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
+from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig, get_vision_metrics
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
@@ -51,8 +52,31 @@ def main():
                        help="OCR backend to use (paddleocr, easyocr, or pytesseract). Overrides --force-tesseract flag.")
     parser.add_argument("--force-tesseract", action="store_true",
                        help="Force use of Tesseract OCR instead of PaddleOCR (deprecated, use --ocr-backend pytesseract instead)")
+    parser.add_argument("--enable-vision-metrics", action="store_true", default=True,
+                       help="Enable vision metrics tracking (default: enabled)")
+    parser.add_argument("--disable-vision-metrics", action="store_true",
+                       help="Disable vision metrics tracking")
+    parser.add_argument("--metrics-report-interval", type=int, default=60,
+                       help="Seconds between metrics reports (0 = only at end, default: 60)")
+    parser.add_argument("--metrics-output", type=Path,
+                       help="File to save metrics report (optional, default: console only)")
+    parser.add_argument("--metrics-format", type=str, choices=["text", "json"], default="text",
+                       help="Metrics report format (text or json, default: text)")
     
     args = parser.parse_args()
+    
+    # Determine if vision metrics should be enabled
+    enable_metrics = args.enable_vision_metrics and not args.disable_vision_metrics
+    
+    # Create vision metrics instance if enabled
+    vision_metrics = None
+    if enable_metrics:
+        metrics_config = VisionMetricsConfig()
+        vision_metrics = VisionMetrics(metrics_config)
+        logger.info("Vision metrics tracking enabled")
+        logger.info(f"Metrics report interval: {args.metrics_report_interval}s")
+    else:
+        logger.info("Vision metrics tracking disabled")
     
     if not args.i_understand_the_tos:
         logger.error("Auto-play requires --i-understand-the-tos flag")
@@ -131,7 +155,8 @@ def main():
         profile=profile,
         card_recognizer=card_recognizer,
         ocr_engine=ocr_engine,
-        enable_chat_parsing=enable_chat
+        enable_chat_parsing=enable_chat,
+        vision_metrics=vision_metrics
     )
     
     # Create leaf evaluator based on arguments
@@ -192,6 +217,9 @@ def main():
     
     logger.info("Auto-play mode started")
     logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}, workers={args.num_workers}")
+    
+    # Track metrics reporting
+    last_metrics_report = time.time()
     
     try:
         # Track action history for belief updates
@@ -282,11 +310,46 @@ def main():
                     logger.error(f"[REAL-TIME SEARCH] Error: {e}", exc_info=True)
                     logger.info("[AUTO-PLAY] Skipping action due to error")
             
+            # Periodic metrics reporting
+            if enable_metrics and args.metrics_report_interval > 0:
+                current_time = time.time()
+                if current_time - last_metrics_report >= args.metrics_report_interval:
+                    logger.info("\n" + "="*80)
+                    logger.info("VISION METRICS REPORT")
+                    logger.info("="*80)
+                    report = vision_metrics.generate_report(format=args.metrics_format)
+                    if args.metrics_format == "text":
+                        logger.info(report)
+                    else:
+                        logger.info(report)
+                    last_metrics_report = current_time
+            
             time.sleep(2.0)
             
     except KeyboardInterrupt:
         logger.info("Stopping auto-play mode")
         executor.stop()
+    
+    # Generate final metrics report
+    if enable_metrics:
+        logger.info("\n" + "="*80)
+        logger.info("FINAL VISION METRICS REPORT")
+        logger.info("="*80)
+        report = vision_metrics.generate_report(format=args.metrics_format)
+        logger.info(report)
+        
+        # Save to file if requested
+        if args.metrics_output:
+            args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+            with open(args.metrics_output, 'w') as f:
+                f.write(report)
+            logger.info(f"Metrics report saved to {args.metrics_output}")
+        
+        # Export JSON lines for further analysis
+        if args.metrics_output:
+            jsonl_path = args.metrics_output.with_suffix('.jsonl')
+            vision_metrics.export_jsonlines(str(jsonl_path))
+            logger.info(f"Metrics data exported to {jsonl_path}")
 
 
 if __name__ == "__main__":
