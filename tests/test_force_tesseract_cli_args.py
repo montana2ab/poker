@@ -1,6 +1,5 @@
 """Test force-tesseract CLI arguments integration."""
 
-import sys
 from pathlib import Path
 
 
