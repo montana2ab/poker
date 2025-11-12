@@ -309,28 +309,55 @@ class OCREngine:
             logger.debug(f"Pytesseract error: {e}")
         return ""
 
-    def extract_number(self, img: np.ndarray) -> Optional[float]:
-        """Extract a number from image (for stacks, pot, bets)."""
+    def extract_number(self, img: np.ndarray, max_value: Optional[float] = None) -> Optional[float]:
+        """Extract a number from image (for stacks, pot, bets).
+        
+        Args:
+            img: Input image
+            max_value: Optional maximum valid value (e.g., 1000000 for reasonable poker amounts)
+        
+        Returns:
+            Extracted number or None if extraction failed or value is invalid
+        """
         text = self.read_text(img)
 
         # Remove common currency symbols and commas
         text = text.replace('$', '').replace(',', '').replace('€', '')
         text = text.replace('£', '').replace('¥', '')
 
-        # Extract first number found
-        match = re.search(r'[\d.]+', text)
+        # Extract first number found (including optional minus sign, at most one decimal point)
+        match = re.search(r'-?\d+(?:\.\d+)?', text)
         if match:
             try:
-                return float(match.group())
+                value = float(match.group())
+                
+                # Validate bounds - reject negative values (not valid for poker amounts)
+                if value < 0:
+                    logger.debug(f"Negative number rejected: {value}")
+                    return None
+                
+                if max_value is not None and value > max_value:
+                    logger.debug(f"Number {value} exceeds max_value {max_value}")
+                    return None
+                
+                return value
             except ValueError:
                 pass
 
         logger.debug(f"Could not extract number from: {text}")
         return None
 
-    def extract_integer(self, img: np.ndarray) -> Optional[int]:
-        """Extract an integer from image."""
-        num = self.extract_number(img)
+    def extract_integer(self, img: np.ndarray, max_value: Optional[int] = None) -> Optional[int]:
+        """Extract an integer from image.
+        
+        Args:
+            img: Input image
+            max_value: Optional maximum valid value
+        
+        Returns:
+            Extracted integer or None if extraction failed
+        """
+        num = self.extract_number(img, max_value=float(max_value) if max_value else None)
         if num is not None:
             return int(num)
         return None
