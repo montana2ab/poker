@@ -5,7 +5,7 @@
 User reported that the dry-run mode hangs after successfully recognizing board cards:
 
 ```
-je bloque tourjours la depuis l installation de paddelocr
+je bloque toujours la depuis l installation de paddelocr
 ```
 
 Translation: "I'm always stuck there since installing PaddleOCR"
