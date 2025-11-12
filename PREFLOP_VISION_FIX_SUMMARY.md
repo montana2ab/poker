@@ -203,7 +203,7 @@ parser = StateParser(
 ## Related Issues
 
 This fix addresses the issue reported:
-> "pour sur le susteme de vision quand il ny a pas de carte sur le board sa creer souvent un bug de reconnaissance des cartes hero"
+> "pour sur le système de vision quand il ny a pas de carte sur le board sa creer souvent un bug de reconnaissance des cartes hero"
 
 Translation: "for the vision system when there are no cards on the board it often creates a bug in hero card recognition"
 
