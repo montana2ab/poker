@@ -29,6 +29,8 @@ def create_empty_board_region():
 
 def create_board_with_cards():
     """Create a board region with cards (simulating flop/turn/river)."""
+    # Set seed for reproducible results
+    np.random.seed(42)
     # More varied image with patterns simulating cards
     img = np.random.randint(50, 200, (100, 350, 3), dtype=np.uint8)
     
