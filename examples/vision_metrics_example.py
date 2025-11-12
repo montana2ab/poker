@@ -193,12 +193,119 @@ def example_global_instance():
     print("Note: Use get_vision_metrics() to access the same instance everywhere")
 
 
+def example_enhanced_features():
+    """Example demonstrating enhanced features (MAPE, granular tracking, etc.)."""
+    print("\n\n" + "=" * 60)
+    print("EXAMPLE 6: Enhanced Features")
+    print("=" * 60)
+    
+    # Create metrics with enhanced configuration
+    config = VisionMetricsConfig(
+        amount_mae_warning=0.02,  # 2 cents
+        amount_mape_warning=0.002,  # 0.2%
+        amount_mape_alert_threshold=0.005,  # 0.5%
+        amount_mape_critical=0.01,  # 1.0%
+        latency_p95_threshold=50.0,  # 50ms
+        latency_p99_threshold=80.0,  # 80ms
+    )
+    metrics = VisionMetrics(config=config)
+    
+    # Set context for drift detection
+    print("\nSetting vision context...")
+    metrics.set_context(
+        ui_theme="dark",
+        resolution=(1920, 1080),
+        zoom_level=1.0,
+        profile_version="v1.2.3",
+        template_hash="abc123def456"
+    )
+    
+    # Record amounts with MAPE tracking
+    print("\nRecording amounts with MAPE tracking...")
+    metrics.record_amount(
+        detected_amount=100.5,
+        expected_amount=100.0,
+        category="stack",
+        field_name="stack_seat_0",
+        seat_position=0
+    )
+    metrics.record_amount(
+        detected_amount=201.0,
+        expected_amount=200.0,
+        category="pot",
+        field_name="pot_main"
+    )
+    
+    print(f"Amount MAE: {metrics.get_amount_mae():.4f} units")
+    print(f"Amount MAPE: {metrics.get_amount_mape():.2%}")
+    
+    # Record cards with street tracking
+    print("\nRecording cards with street tracking...")
+    metrics.record_card_recognition("Ah", expected_card="Ah", street="preflop", seat_position=0)
+    metrics.record_card_recognition("Kd", expected_card="Kd", street="preflop", seat_position=0)
+    metrics.record_card_recognition("Qs", expected_card="Qs", street="flop")
+    metrics.record_card_recognition("Jh", expected_card="Jh", street="flop")
+    metrics.record_card_recognition("Tc", expected_card="Tc", street="flop")
+    
+    print(f"Card Accuracy (All): {metrics.get_card_accuracy():.1%}")
+    print(f"Card Accuracy (Preflop): {metrics.get_card_accuracy(street='preflop'):.1%}")
+    print(f"Card Accuracy (Flop): {metrics.get_card_accuracy(street='flop'):.1%}")
+    
+    # Track latencies including p99
+    print("\nRecording latencies...")
+    for i in range(20):
+        metrics.record_parse_latency(40.0 + i)  # 40-59ms
+    
+    print(f"P50 Latency: {metrics.get_latency_percentile('parse', 50):.1f}ms")
+    print(f"P95 Latency: {metrics.get_latency_percentile('parse', 95):.1f}ms")
+    print(f"P99 Latency: {metrics.get_latency_percentile('parse', 99):.1f}ms")
+    
+    # Get confusion matrix
+    confusion = metrics.get_card_confusion_matrix()
+    if confusion:
+        print("\nCard Confusion Matrix:")
+        for key, values in list(confusion.items())[:3]:  # Show first 3
+            print(f"  {key}: {dict(values)}")
+
+
+def example_export_formats():
+    """Example demonstrating export formats (JSON Lines, Prometheus)."""
+    print("\n\n" + "=" * 60)
+    print("EXAMPLE 7: Export Formats")
+    print("=" * 60)
+    
+    metrics = VisionMetrics()
+    
+    # Add some data
+    metrics.set_context(ui_theme="light", resolution=(1920, 1080))
+    metrics.record_ocr("123", expected_text="123", latency_ms=10.0)
+    metrics.record_amount(100.5, expected_amount=100.0, category="stack")
+    metrics.record_card_recognition("Ah", expected_card="Ah", street="flop")
+    metrics.record_parse_latency(45.0)
+    
+    # Export to JSON Lines
+    print("\nJSON Lines export (to file):")
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.jsonl', delete=False) as f:
+        filepath = f.name
+    metrics.export_jsonlines(filepath)
+    print(f"  Exported to: {filepath}")
+    
+    # Export to Prometheus format
+    print("\nPrometheus metrics export:")
+    print("-" * 60)
+    prom_metrics = metrics.export_prometheus_metrics()
+    print(prom_metrics[:500] + "...")  # Show first 500 chars
+
+
 if __name__ == "__main__":
     example_basic_usage()
     example_with_alerts()
     example_report_generation()
     example_with_state_parser()
     example_global_instance()
+    example_enhanced_features()
+    example_export_formats()
     
     print("\n" + "=" * 60)
     print("Examples completed!")
