@@ -5,9 +5,6 @@ import numpy as np
 from datetime import datetime
 from unittest.mock import Mock
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from holdem.vision.ocr import OCREngine
 from holdem.vision.cards import CardRecognizer
