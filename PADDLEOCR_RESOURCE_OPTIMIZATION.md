@@ -240,4 +240,4 @@ This optimization successfully addresses the resource consumption issue with Pad
 - **Original Issue**: Resource consumption preventing dry-run execution
 - **PaddleOCR Documentation**: https://github.com/PaddlePaddle/PaddleOCR
 - **Related Enhancement**: OCR_ENHANCEMENT_SUMMARY.md (multi-strategy preprocessing)
-- **Code Location**: `src/holdem/vision/ocr.py` (line 39-57)
+- **Code Location**: `src/holdem/vision/ocr.py` (line 39-54)
