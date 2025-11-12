@@ -221,7 +221,7 @@ class CardRecognizer:
             return cards
         
         # Check if region likely contains cards (skip for hero cards as they're always present)
-        if not skip_empty_check and not use_hero_templates:
+        if not skip_empty_check:
             if not self._region_has_cards(img):
                 logger.info("Board region appears empty (likely preflop), skipping card recognition")
                 return [None] * num_cards
