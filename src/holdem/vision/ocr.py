@@ -3,10 +3,16 @@
 import re
 import cv2
 import numpy as np
+import platform
 from typing import Optional
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.ocr")
+
+
+def _is_apple_silicon() -> bool:
+    """Detect if running on Apple Silicon (M1, M2, M3, etc.)."""
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
 
 
 class OCREngine:
@@ -35,25 +41,58 @@ class OCREngine:
         self.enable_enhanced_preprocessing = enable_enhanced_preprocessing
         self.upscale_small_regions = upscale_small_regions
         self.min_upscale_height = min_upscale_height
+        self.use_angle_cls = False  # Track if angle classification is enabled
 
         if self.backend == "paddleocr":
             try:
                 from paddleocr import PaddleOCR
+                
+                # Platform-specific memory optimization for Apple Silicon
+                # Apple Silicon (M1/M2/M3) has limited memory bandwidth and benefits
+                # from ultra-low memory configuration
+                is_apple_silicon = _is_apple_silicon()
+                
                 # Resource-friendly configuration for PaddleOCR
                 # use_gpu=False: Force CPU usage to avoid GPU memory/driver issues
                 # enable_mkldnn=False: Disable Intel MKL-DNN to reduce memory usage
-                # use_angle_cls=True: Keep angle classification for rotated text
+                # use_angle_cls: Disable on Apple Silicon to save ~150-200MB RAM
+                #                Poker table text is always upright, so angle detection not needed
+                # use_space_char=False: Disable space character recognition (minor savings)
+                # rec_batch_num=1: Process one text region at a time (lower memory)
+                # det_limit_side_len=640: Use smaller detection size (vs default 960)
                 # show_log=False: Reduce console output
-                self.paddle_ocr = PaddleOCR(
-                    use_angle_cls=True,
-                    lang='en',
-                    show_log=False,
-                    use_gpu=False,
-                    enable_mkldnn=False
-                )
-                logger.info("PaddleOCR initialized with resource-friendly settings (CPU-only, MKL-DNN disabled)")
+                
+                if is_apple_silicon:
+                    # Ultra-low memory configuration for Apple Silicon
+                    self.paddle_ocr = PaddleOCR(
+                        use_angle_cls=False,  # Disable angle classification (~150-200MB savings)
+                        lang='en',
+                        show_log=False,
+                        use_gpu=False,
+                        enable_mkldnn=False,
+                        use_space_char=False,  # Poker amounts don't need spaces
+                        rec_batch_num=1,       # Process one region at a time
+                        det_limit_side_len=640,  # Smaller detection window
+                    )
+                    logger.info("PaddleOCR initialized with ultra-low memory settings for Apple Silicon (M1/M2/M3)")
+                    logger.info("Memory optimizations: angle_cls=off, space_char=off, batch=1, det_limit=640")
+                else:
+                    # Standard resource-friendly configuration for other platforms
+                    self.paddle_ocr = PaddleOCR(
+                        use_angle_cls=False,  # Poker text is always upright
+                        lang='en',
+                        show_log=False,
+                        use_gpu=False,
+                        enable_mkldnn=False,
+                    )
+                    logger.info("PaddleOCR initialized with resource-friendly settings (CPU-only, angle_cls disabled)")
+                    
             except ImportError:
                 logger.warning("PaddleOCR not available, falling back to pytesseract")
+                self.backend = "pytesseract"
+            except Exception as e:
+                logger.error(f"Failed to initialize PaddleOCR: {e}")
+                logger.warning("Falling back to pytesseract")
                 self.backend = "pytesseract"
 
         if self.backend == "pytesseract":
@@ -302,7 +341,8 @@ class OCREngine:
     def _read_paddle(self, img: np.ndarray) -> str:
         """Read using PaddleOCR."""
         try:
-            result = self.paddle_ocr.ocr(img, cls=True)
+            # Use angle classification only if it was enabled during initialization
+            result = self.paddle_ocr.ocr(img, cls=self.use_angle_cls)
             if result and len(result) > 0 and result[0]:
                 texts = [line[1][0] for line in result[0]]
                 return " ".join(texts)
