@@ -388,7 +388,8 @@ class StateParser:
                     logger.warning(f"Error saving player {player_pos} debug image: {e}")
             
             # Hole cards are 2 cards - use hero templates
-            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True)
+            # Skip empty check for hero cards as they should always be present when visible
+            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True, skip_empty_check=True)
             
             # Filter out None values
             valid_cards = [c for c in cards if c is not None]
