@@ -343,7 +343,7 @@ class VisionConfig:
     screen_region: Optional[Tuple[int, int, int, int]] = None  # (x, y, width, height)
     detection_method: str = "orb"  # 'orb' or 'akaze'
     card_recognition_method: str = "template"  # 'template' or 'cnn'
-    ocr_backend: str = "paddleocr"  # 'paddleocr' or 'pytesseract'
+    ocr_backend: str = "paddleocr"  # 'paddleocr', 'easyocr', or 'pytesseract'
     confidence_threshold: float = 0.8
 
 

@@ -46,8 +46,11 @@ def main():
                        help="Disable CFV net and use only blueprint/rollouts for leaf evaluation")
     parser.add_argument("--disable-chat-parsing", action="store_true",
                        help="Disable chat parsing (only use vision for state detection)")
+    parser.add_argument("--ocr-backend", type=str, choices=["paddleocr", "easyocr", "pytesseract"],
+                       default=None,
+                       help="OCR backend to use (paddleocr, easyocr, or pytesseract). Overrides --force-tesseract flag.")
     parser.add_argument("--force-tesseract", action="store_true",
-                       help="Force use of Tesseract OCR instead of PaddleOCR (useful if PaddleOCR has issues)")
+                       help="Force use of Tesseract OCR instead of PaddleOCR (deprecated, use --ocr-backend pytesseract instead)")
     
     args = parser.parse_args()
     
@@ -100,11 +103,19 @@ def main():
         method="template"
     )
     
-    # Use Tesseract if forced, otherwise default to PaddleOCR
-    ocr_backend = "pytesseract" if args.force_tesseract else "paddleocr"
+    # Determine OCR backend based on arguments
+    # --ocr-backend takes precedence over --force-tesseract
+    if args.ocr_backend:
+        ocr_backend = args.ocr_backend
+        logger.info(f"Using OCR backend: {ocr_backend} (specified via --ocr-backend)")
+    elif args.force_tesseract:
+        ocr_backend = "pytesseract"
+        logger.info("Using OCR backend: pytesseract (specified via --force-tesseract)")
+    else:
+        ocr_backend = "paddleocr"
+        logger.info("Using OCR backend: paddleocr (default)")
+    
     ocr_engine = OCREngine(backend=ocr_backend)
-    if args.force_tesseract:
-        logger.info("Forcing Tesseract OCR backend (--force-tesseract flag)")
     
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing

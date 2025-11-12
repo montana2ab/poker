@@ -16,7 +16,7 @@ def _is_apple_silicon() -> bool:
 
 
 class OCREngine:
-    """OCR engine with PaddleOCR primary and pytesseract fallback.
+    """OCR engine with PaddleOCR, EasyOCR, and pytesseract backends.
 
     Enhanced with advanced preprocessing techniques for improved accuracy:
     - Adaptive upscaling for small text regions
@@ -30,13 +30,14 @@ class OCREngine:
         """Initialize OCR engine.
 
         Args:
-            backend: OCR backend to use ("paddleocr" or "pytesseract")
+            backend: OCR backend to use ("paddleocr", "easyocr", or "pytesseract")
             enable_enhanced_preprocessing: Enable advanced multi-strategy preprocessing
             upscale_small_regions: Upscale small text regions before OCR
             min_upscale_height: Minimum height (in pixels) below which to upscale
         """
         self.backend = backend.lower()
         self.paddle_ocr = None
+        self.easy_ocr = None
         self.tesseract_available = False
         self.enable_enhanced_preprocessing = enable_enhanced_preprocessing
         self.upscale_small_regions = upscale_small_regions
@@ -98,6 +99,39 @@ class OCREngine:
                 logger.warning("Falling back to pytesseract")
                 self.backend = "pytesseract"
 
+        elif self.backend == "easyocr":
+            try:
+                import easyocr
+                
+                # Platform-specific optimization for Apple Silicon
+                is_apple_silicon = _is_apple_silicon()
+                
+                # EasyOCR configuration
+                # gpu=False: Force CPU usage for consistency and to avoid GPU issues
+                # For Apple Silicon, EasyOCR benefits from CPU-only mode
+                # verbose=False: Reduce console output
+                # quantize=True: Use quantized models for faster inference and lower memory
+                
+                self.easy_ocr = easyocr.Reader(
+                    ['en'],  # English language
+                    gpu=False,  # Use CPU for consistency
+                    verbose=False,  # Reduce console output
+                    quantize=True,  # Use quantized models for speed
+                )
+                
+                if is_apple_silicon:
+                    logger.info("EasyOCR initialized with CPU-only mode for Apple Silicon (M1/M2/M3)")
+                else:
+                    logger.info("EasyOCR initialized with CPU-only mode")
+                    
+            except ImportError:
+                logger.warning("EasyOCR not available, falling back to pytesseract")
+                self.backend = "pytesseract"
+            except Exception as e:
+                logger.error(f"Failed to initialize EasyOCR: {e}")
+                logger.warning("Falling back to pytesseract")
+                self.backend = "pytesseract"
+
         if self.backend == "pytesseract":
             try:
                 import pytesseract
@@ -120,6 +154,8 @@ class OCREngine:
             # No preprocessing, use image as-is
             if self.backend == "paddleocr" and self.paddle_ocr:
                 return self._read_paddle(img)
+            elif self.backend == "easyocr" and self.easy_ocr:
+                return self._read_easyocr(img)
             elif self.backend == "pytesseract" and self.tesseract_available:
                 return self._read_tesseract(img)
             else:
@@ -133,6 +169,8 @@ class OCREngine:
             preprocessed = self._preprocess(img)
             if self.backend == "paddleocr" and self.paddle_ocr:
                 return self._read_paddle(preprocessed)
+            elif self.backend == "easyocr" and self.easy_ocr:
+                return self._read_easyocr(preprocessed)
             elif self.backend == "pytesseract" and self.tesseract_available:
                 return self._read_tesseract(preprocessed)
             else:
@@ -314,6 +352,8 @@ class OCREngine:
                 preprocessed = strategy_func(img)
                 if self.backend == "paddleocr" and self.paddle_ocr:
                     text = self._read_paddle(preprocessed)
+                elif self.backend == "easyocr" and self.easy_ocr:
+                    text = self._read_easyocr(preprocessed)
                 elif self.backend == "pytesseract" and self.tesseract_available:
                     text = self._read_tesseract(preprocessed)
                 else:
@@ -351,6 +391,19 @@ class OCREngine:
                 return " ".join(texts)
         except Exception as e:
             logger.debug(f"PaddleOCR error: {e}")
+        return ""
+
+    def _read_easyocr(self, img: np.ndarray) -> str:
+        """Read using EasyOCR."""
+        try:
+            # EasyOCR readtext returns list of (bbox, text, confidence) tuples
+            # detail=0 returns just the text strings
+            result = self.easy_ocr.readtext(img, detail=0)
+            if result:
+                # Join all detected text with spaces
+                return " ".join(result)
+        except Exception as e:
+            logger.debug(f"EasyOCR error: {e}")
         return ""
 
     def _read_tesseract(self, img: np.ndarray) -> str:
