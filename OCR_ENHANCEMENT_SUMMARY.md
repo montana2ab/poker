@@ -211,6 +211,37 @@ The enhanced OCR automatically integrates with:
 
 No changes required to existing code - improvements apply automatically if OCR engine is recreated with new defaults.
 
+## CLI Option: Force Tesseract Backend
+
+For users experiencing issues with PaddleOCR, both `run_dry_run.py` and `run_autoplay.py` now support a `--force-tesseract` flag to force the use of Tesseract OCR instead:
+
+### Usage
+```bash
+# Dry run with Tesseract
+python src/holdem/cli/run_dry_run.py \
+  --profile assets/table_profiles/my_table.json \
+  --policy runs/blueprint/avg_policy.json \
+  --force-tesseract
+
+# Or using the wrapper
+./bin/holdem-dry-run \
+  --profile assets/table_profiles/my_table.json \
+  --policy runs/blueprint/avg_policy.json \
+  --force-tesseract
+```
+
+### When to Use
+- PaddleOCR installation issues (especially on certain platforms)
+- PaddleOCR hanging or memory issues
+- When Tesseract provides better results for your specific table/client
+- Testing/comparing OCR backends
+
+### Backend Differences
+- **PaddleOCR** (default): Deep learning-based, generally more accurate, but requires more memory
+- **Tesseract**: Traditional OCR engine, lighter weight, well-tested, good for simple text
+
+Both backends benefit from the enhanced preprocessing strategies described above.
+
 ## Testing
 
 All tests pass successfully:

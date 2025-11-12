@@ -61,6 +61,12 @@ You can use the commands in multiple ways:
   --profile assets/table_profiles/my_table.json \
   --policy runs/blueprint/avg_policy.json
 
+# Force Tesseract OCR if PaddleOCR has issues
+./bin/holdem-dry-run \
+  --profile assets/table_profiles/my_table.json \
+  --policy runs/blueprint/avg_policy.json \
+  --force-tesseract
+
 # OR using Python module syntax (requires PYTHONPATH or installation)
 python -m holdem.cli.profile_wizard --help
 python -m holdem.cli.build_buckets --help
@@ -97,6 +103,15 @@ export PYTHONPATH=/path/to/poker/src:$PYTHONPATH
 python -c "from holdem.vision.cards import create_mock_templates; \
            from pathlib import Path; \
            create_mock_templates(Path('assets/templates'))"
+```
+
+### PaddleOCR issues (hanging, memory errors, installation problems)
+```bash
+# Use Tesseract OCR instead
+./bin/holdem-dry-run \
+  --profile assets/table_profiles/my_table.json \
+  --policy runs/blueprint/avg_policy.json \
+  --force-tesseract
 ```
 
 ## Project Structure
