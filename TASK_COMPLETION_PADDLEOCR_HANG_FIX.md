@@ -250,7 +250,7 @@ The fix is:
 ---
 
 **Date**: 2025-11-12  
-**Branch**: `copilot/debug-paddelocr-dry-run`  
+**Branch**: `copilot/debug-paddleocr-dry-run`  
 **Commits**: 4 (including initial plan)  
 **Files Changed**: 4  
 **Lines Changed**: +377, -9  
