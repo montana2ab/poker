@@ -39,8 +39,19 @@ class OCREngine:
         if self.backend == "paddleocr":
             try:
                 from paddleocr import PaddleOCR
-                self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
-                logger.info("PaddleOCR initialized with enhanced preprocessing")
+                # Resource-friendly configuration for PaddleOCR
+                # use_gpu=False: Force CPU usage to avoid GPU memory/driver issues
+                # enable_mkldnn=False: Disable Intel MKL-DNN to reduce memory usage
+                # use_angle_cls=True: Keep angle classification for rotated text
+                # show_log=False: Reduce console output
+                self.paddle_ocr = PaddleOCR(
+                    use_angle_cls=True,
+                    lang='en',
+                    show_log=False,
+                    use_gpu=False,
+                    enable_mkldnn=False
+                )
+                logger.info("PaddleOCR initialized with resource-friendly settings (CPU-only, MKL-DNN disabled)")
             except ImportError:
                 logger.warning("PaddleOCR not available, falling back to pytesseract")
                 self.backend = "pytesseract"
