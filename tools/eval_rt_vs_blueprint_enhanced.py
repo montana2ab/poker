@@ -202,7 +202,8 @@ def parse_street_samples(street_samples_str: str) -> Dict[Street, int]:
     result = {}
     for part in street_samples_str.split(','):
         street_name, samples = part.strip().split('=')
-        street_name = street_name.upper()
+        street_name = street_name.strip().upper()
+        samples = samples.strip()
         if street_name == 'FLOP':
             result[Street.FLOP] = int(samples)
         elif street_name == 'TURN':
