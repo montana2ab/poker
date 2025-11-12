@@ -311,7 +311,7 @@ class ChatParser:
             token = token.strip()
             if len(token) >= 2:
                 try:
-                    # Extract rank and suit (normalize to uppercase rank, lowercase suit)
+                    # Extract rank and suit (normalize rank to uppercase and suit to lowercase to match Card.from_string() format)
                     rank = token[0].upper()
                     suit = token[1].lower()
                     
