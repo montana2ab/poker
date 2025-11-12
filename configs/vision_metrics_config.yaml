@@ -1,0 +1,29 @@
+# VisionMetrics Configuration
+# Thresholds for alerting when vision metrics fall below acceptable levels
+
+vision_metrics:
+  # OCR accuracy thresholds (percentage)
+  ocr_accuracy_warning: 0.90    # 90% - Warning level
+  ocr_accuracy_critical: 0.80   # 80% - Critical level
+  
+  # Amount MAE thresholds (in big blinds)
+  amount_mae_warning: 1.0       # 1 BB - Warning level  
+  amount_mae_critical: 2.0      # 2 BB - Critical level
+  
+  # Card recognition accuracy thresholds (percentage)
+  card_accuracy_warning: 0.95   # 95% - Warning level
+  card_accuracy_critical: 0.90  # 90% - Critical level
+  
+  # Minimum samples before triggering alerts
+  # Prevents false alarms from small sample sizes
+  min_samples_for_alert: 10
+
+# Example usage:
+# from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig
+# import yaml
+#
+# with open('configs/vision_metrics_config.yaml') as f:
+#     config_dict = yaml.safe_load(f)
+# 
+# config = VisionMetricsConfig(**config_dict['vision_metrics'])
+# metrics = VisionMetrics(config=config)
