@@ -325,8 +325,8 @@ class OCREngine:
         text = text.replace('$', '').replace(',', '').replace('€', '')
         text = text.replace('£', '').replace('¥', '')
 
-        # Extract first number found (including optional minus sign)
-        match = re.search(r'-?[\d.]+', text)
+        # Extract first number found (including optional minus sign, at most one decimal point)
+        match = re.search(r'-?\d+(?:\.\d+)?', text)
         if match:
             try:
                 value = float(match.group())
