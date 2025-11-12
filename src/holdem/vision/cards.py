@@ -166,14 +166,52 @@ class CardRecognizer:
         logger.warning("CNN recognition not implemented, falling back to template matching")
         return self._recognize_template(img, threshold)
     
+    def _region_has_cards(self, img: np.ndarray, min_variance: float = 100.0) -> bool:
+        """Check if a region likely contains cards based on image variance.
+        
+        Args:
+            img: Image region to check
+            min_variance: Minimum variance threshold to consider region as containing cards
+            
+        Returns:
+            True if the region likely contains cards, False otherwise
+        """
+        if img is None or img.size == 0:
+            return False
+            
+        # Convert to grayscale if needed
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+            
+        # Calculate variance - empty/uniform regions have low variance
+        variance = np.var(gray)
+        
+        # Check if there are edges (cards have distinct edges)
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = np.count_nonzero(edges) / edges.size
+        
+        has_cards = variance >= min_variance or edge_ratio > 0.01
+        
+        if not has_cards:
+            logger.debug(f"Region appears empty (variance={variance:.1f}, edge_ratio={edge_ratio:.4f})")
+        
+        return has_cards
+    
     def recognize_cards(self, img: np.ndarray, num_cards: int = 5, 
-                       use_hero_templates: bool = False) -> List[Optional[Card]]:
+                       use_hero_templates: bool = False, 
+                       skip_empty_check: bool = False) -> List[Optional[Card]]:
         """Recognize multiple cards from image.
         
         Args:
             img: Image containing multiple cards
             num_cards: Number of cards to recognize
             use_hero_templates: If True, use hero templates instead of board templates
+            skip_empty_check: If True, skip checking if region contains cards (for hero cards)
+            
+        Returns:
+            List of recognized cards (None for unrecognized positions)
         """
         cards = []
         
@@ -181,6 +219,12 @@ class CardRecognizer:
         if img is None or img.size == 0:
             logger.warning("Empty or None image provided to recognize_cards")
             return cards
+        
+        # Check if region likely contains cards (skip if requested or for hero templates by default)
+        if not skip_empty_check:
+            if not self._region_has_cards(img):
+                logger.info("Board region appears empty (likely preflop), skipping card recognition")
+                return [None] * num_cards
         
         height, width = img.shape[:2]
         
