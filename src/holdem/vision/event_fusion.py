@@ -64,6 +64,11 @@ class EventFuser:
         """Create GameEvents from vision by comparing table states."""
         events = []
         
+        # Validate inputs
+        if current_state is None:
+            logger.warning("Current state is None, cannot create vision events")
+            return events
+        
         if not prev_state:
             # First observation, just record current state
             return events

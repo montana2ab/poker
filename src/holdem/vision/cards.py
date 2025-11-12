@@ -176,11 +176,22 @@ class CardRecognizer:
             use_hero_templates: If True, use hero templates instead of board templates
         """
         cards = []
+        
+        # Validate input
+        if img is None or img.size == 0:
+            logger.warning("Empty or None image provided to recognize_cards")
+            return cards
+        
         height, width = img.shape[:2]
         
         # If not specified, assume 2 hole cards for hero
         if use_hero_templates and num_cards == 5:
             num_cards = 2
+        
+        # Validate num_cards to prevent division by zero
+        if num_cards <= 0:
+            logger.warning(f"Invalid num_cards={num_cards}, must be > 0")
+            return cards
         
         # Assume cards are horizontally aligned
         card_width = width // num_cards

@@ -289,7 +289,12 @@ class ChatParser:
         amount_str = amount_str.replace(',', '')
         
         try:
-            return float(amount_str)
+            amount = float(amount_str)
+            # Validate that amount is non-negative
+            if amount < 0:
+                logger.warning(f"Negative amount rejected: {amount_str}")
+                return None
+            return amount
         except (ValueError, AttributeError):
             logger.warning(f"Failed to parse amount: {amount_str}")
             return None
@@ -306,7 +311,7 @@ class ChatParser:
             token = token.strip()
             if len(token) >= 2:
                 try:
-                    # Extract rank and suit
+                    # Extract rank and suit (normalize to uppercase rank, lowercase suit)
                     rank = token[0].upper()
                     suit = token[1].lower()
                     
