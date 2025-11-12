@@ -10,7 +10,7 @@ from holdem.vision.ocr import OCREngine
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.chat_parser import ChatParser, ChatLine
 from holdem.vision.event_fusion import EventFuser
-from holdem.types import TableState, PlayerState, Street
+from holdem.types import TableState, Street
 
 
 class TestCardRecognizerBugFixes:
