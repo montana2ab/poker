@@ -60,6 +60,7 @@ class OCREngine:
                 # use_space_char=False: Disable space character recognition (minor savings)
                 # rec_batch_num=1: Process one text region at a time (lower memory)
                 # det_limit_side_len=640: Use smaller detection size (vs default 960)
+                # use_mp=False: Disable multiprocessing to prevent hanging/deadlock on macOS
                 # show_log=False: Reduce console output
                 
                 if is_apple_silicon:
@@ -73,9 +74,10 @@ class OCREngine:
                         use_space_char=False,  # Poker amounts don't need spaces
                         rec_batch_num=1,       # Process one region at a time
                         det_limit_side_len=640,  # Smaller detection window
+                        use_mp=False,          # Disable multiprocessing (prevents hanging on macOS)
                     )
                     logger.info("PaddleOCR initialized with ultra-low memory settings for Apple Silicon (M1/M2/M3)")
-                    logger.info("Memory optimizations: angle_cls=off, space_char=off, batch=1, det_limit=640")
+                    logger.info("Memory optimizations: angle_cls=off, space_char=off, batch=1, det_limit=640, mp=off")
                 else:
                     # Standard resource-friendly configuration for other platforms
                     self.paddle_ocr = PaddleOCR(
@@ -84,8 +86,9 @@ class OCREngine:
                         show_log=False,
                         use_gpu=False,
                         enable_mkldnn=False,
+                        use_mp=False,  # Disable multiprocessing (prevents hanging on macOS)
                     )
-                    logger.info("PaddleOCR initialized with resource-friendly settings (CPU-only, angle_cls disabled)")
+                    logger.info("PaddleOCR initialized with resource-friendly settings (CPU-only, angle_cls disabled, mp disabled)")
                     
             except ImportError:
                 logger.warning("PaddleOCR not available, falling back to pytesseract")
