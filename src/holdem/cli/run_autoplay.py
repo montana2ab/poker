@@ -46,6 +46,8 @@ def main():
                        help="Disable CFV net and use only blueprint/rollouts for leaf evaluation")
     parser.add_argument("--disable-chat-parsing", action="store_true",
                        help="Disable chat parsing (only use vision for state detection)")
+    parser.add_argument("--force-tesseract", action="store_true",
+                       help="Force use of Tesseract OCR instead of PaddleOCR (useful if PaddleOCR has issues)")
     
     args = parser.parse_args()
     
@@ -97,7 +99,12 @@ def main():
         hero_templates_dir=hero_templates_dir,
         method="template"
     )
-    ocr_engine = OCREngine()
+    
+    # Use Tesseract if forced, otherwise default to PaddleOCR
+    ocr_backend = "pytesseract" if args.force_tesseract else "paddleocr"
+    ocr_engine = OCREngine(backend=ocr_backend)
+    if args.force_tesseract:
+        logger.info("Forcing Tesseract OCR backend (--force-tesseract flag)")
     
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing

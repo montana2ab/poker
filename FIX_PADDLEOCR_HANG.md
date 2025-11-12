@@ -43,7 +43,7 @@ This is a well-known issue with PaddleOCR on macOS, especially on Apple Silicon 
 
 ## Solution
 
-Disable multiprocessing in PaddleOCR by setting `use_mp=False`:
+**Primary Fix**: Disable multiprocessing in PaddleOCR by setting `use_mp=False`:
 
 ```python
 self.paddle_ocr = PaddleOCR(
@@ -58,6 +58,22 @@ self.paddle_ocr = PaddleOCR(
     use_mp=False,  # ← FIX: Disable multiprocessing to prevent hanging
 )
 ```
+
+**Alternative Workaround**: If PaddleOCR continues to have issues, use the `--force-tesseract` flag to switch to Tesseract OCR:
+
+```bash
+python -m holdem.cli.run_dry_run \
+  --profile assets/table_profiles/pokerstars_messalina_9max.json \
+  --policy assets/blueprints/6max_mid_125k.pkl \
+  --buckets assets/abstraction/buckets_mid.pkl \
+  --force-tesseract
+```
+
+This flag forces the use of pytesseract instead of PaddleOCR, which can be useful if:
+- PaddleOCR installation is problematic
+- Memory issues persist
+- You prefer the lighter-weight Tesseract engine
+- Testing/comparing different OCR backends
 
 ### Why This Works
 
