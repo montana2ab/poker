@@ -48,6 +48,8 @@ class EventFuser:
         self.time_window = timedelta(seconds=time_window_seconds)
         self.confidence_threshold = confidence_threshold
         self._event_buffer: List[GameEvent] = []
+        self._previous_stacks: Dict[int, float] = {}  # Track previous stack for each player
+        self._previous_pot: float = 0.0  # Track previous pot
     
     def add_events(self, events: List[GameEvent]):
         """Add events to the buffer for fusion."""
@@ -61,7 +63,14 @@ class EventFuser:
         prev_state: Optional[TableState], 
         current_state: TableState
     ) -> List[GameEvent]:
-        """Create GameEvents from vision by comparing table states."""
+        """Create GameEvents from vision by comparing table states.
+        
+        This includes:
+        - Street changes
+        - Pot updates
+        - Player actions (from bet_this_round changes)
+        - Stack delta tracking (new: reconstruct actions from stack evolution)
+        """
         events = []
         
         # Validate inputs
@@ -70,7 +79,10 @@ class EventFuser:
             return events
         
         if not prev_state:
-            # First observation, just record current state
+            # First observation, initialize stack tracking
+            for i, player in enumerate(current_state.players):
+                self._previous_stacks[i] = player.stack
+            self._previous_pot = current_state.pot
             return events
         
         # Detect street changes
@@ -94,20 +106,100 @@ class EventFuser:
                                     'curr_street': current_state.street.name}}
             )
             events.append(event)
+            
+            # Reset bet tracking on street change
+            for i, player in enumerate(current_state.players):
+                self._previous_stacks[i] = player.stack
         
         # Detect pot changes
-        if abs(current_state.pot - prev_state.pot) > 0.01:
+        delta_pot = current_state.pot - self._previous_pot
+        if abs(delta_pot) > 0.01:
             event = GameEvent(
                 event_type="pot_update",
                 pot_amount=current_state.pot,
-                sources=[EventSource.VISION],
+                sources=[EventSource.VISION_POT],
                 timestamp=datetime.now(),
-                raw_data={'vision': {'prev_pot': prev_state.pot, 
-                                    'curr_pot': current_state.pot}}
+                raw_data={'vision_pot': {
+                    'prev_pot': self._previous_pot, 
+                    'curr_pot': current_state.pot,
+                    'delta_pot': delta_pot
+                }}
             )
             events.append(event)
+            self._previous_pot = current_state.pot
         
-        # Detect player actions by comparing bet amounts and folded status
+        # Track stack deltas for each player
+        stack_changes = []
+        for i, curr_player in enumerate(current_state.players):
+            if i >= len(prev_state.players):
+                continue
+            
+            prev_player = prev_state.players[i]
+            prev_stack = self._previous_stacks.get(i, prev_player.stack)
+            delta_stack = curr_player.stack - prev_stack
+            
+            if abs(delta_stack) > 0.01:
+                stack_changes.append({
+                    'player_pos': i,
+                    'player_name': curr_player.name,
+                    'prev_stack': prev_stack,
+                    'curr_stack': curr_player.stack,
+                    'delta_stack': delta_stack,
+                    'prev_bet': prev_player.bet_this_round,
+                    'curr_bet': curr_player.bet_this_round
+                })
+            
+            # Update tracked stack
+            self._previous_stacks[i] = curr_player.stack
+        
+        # Reconstruct actions from stack changes
+        if stack_changes:
+            logger.debug(f"Detected {len(stack_changes)} stack changes")
+            
+            for change in stack_changes:
+                delta_stack = change['delta_stack']
+                
+                # Negative delta means player put money in
+                if delta_stack < -0.01:
+                    amount_put_in = abs(delta_stack)
+                    player_pos = change['player_pos']
+                    curr_player = current_state.players[player_pos]
+                    
+                    # Determine action type based on context
+                    action_type = self._infer_action_from_stack_delta(
+                        amount_put_in=amount_put_in,
+                        curr_bet=curr_player.bet_this_round,
+                        prev_bet=change['prev_bet'],
+                        current_state_bet=current_state.current_bet,
+                        prev_state_bet=prev_state.current_bet,
+                        player_stack=curr_player.stack
+                    )
+                    
+                    event = GameEvent(
+                        event_type="action",
+                        player=curr_player.name,
+                        action=action_type,
+                        amount=curr_player.bet_this_round,
+                        sources=[EventSource.VISION_STACK],
+                        confidence=0.75,  # Medium confidence for stack-inferred actions
+                        timestamp=datetime.now(),
+                        raw_data={'vision_stack': change}
+                    )
+                    events.append(event)
+                    logger.info(
+                        f"Inferred action from stack delta: Player {player_pos} "
+                        f"({curr_player.name}) - {action_type.value} "
+                        f"(delta: {delta_stack:.2f}, amount: {amount_put_in:.2f})"
+                    )
+                
+                # Positive delta could be winning a pot or error
+                elif delta_stack > 0.01:
+                    logger.debug(
+                        f"Player {change['player_pos']} ({change['player_name']}) "
+                        f"stack increased by {delta_stack:.2f} - possible pot win or OCR error"
+                    )
+        
+        # Detect player actions by comparing bet amounts (existing logic)
         for i, curr_player in enumerate(current_state.players):
             if i >= len(prev_state.players):
                 continue
@@ -144,7 +236,7 @@ class EventFuser:
                         player=curr_player.name,
                         action=action,
                         amount=curr_player.bet_this_round,
-                        sources=[EventSource.VISION],
+                        sources=[EventSource.VISION_BET_REGION],
                         timestamp=datetime.now(),
                         raw_data={'vision': {
                             'player_pos': i,
@@ -155,6 +247,47 @@ class EventFuser:
                     events.append(event)
         
         return events
+    
+    def _infer_action_from_stack_delta(
+        self,
+        amount_put_in: float,
+        curr_bet: float,
+        prev_bet: float,
+        current_state_bet: float,
+        prev_state_bet: float,
+        player_stack: float
+    ) -> ActionType:
+        """Infer action type from stack delta and context.
+        
+        Args:
+            amount_put_in: Amount the player put into the pot (positive value)
+            curr_bet: Player's current bet this round
+            prev_bet: Player's previous bet this round
+            current_state_bet: Current highest bet in the state
+            prev_state_bet: Previous highest bet in the state
+            player_stack: Player's remaining stack
+            
+        Returns:
+            Inferred action type
+        """
+        # Check if all-in (stack is now 0 or very small)
+        if player_stack < 0.01:
+            return ActionType.ALLIN
+        
+        # If no one had bet before, this is a BET
+        if prev_state_bet < 0.01:
+            return ActionType.BET
+        
+        # If player's bet equals the previous highest bet, this is a CALL
+        if abs(curr_bet - prev_state_bet) < 0.01:
+            return ActionType.CALL
+        
+        # If player's bet is higher than previous highest bet, this is a RAISE
+        if curr_bet > prev_state_bet + 0.01:
+            return ActionType.RAISE
+        
+        # Default to BET if unclear
+        return ActionType.BET
     
     def fuse_events(
         self, 
@@ -274,24 +407,56 @@ class EventFuser:
         if not events:
             return 0.0
         
-        # Base confidence on number of sources
-        unique_sources = len(set(e.sources[0] if e.sources else EventSource.VISION 
-                                for e in events))
+        # Collect unique source types
+        unique_sources = set()
+        for e in events:
+            if e.sources:
+                unique_sources.update(e.sources)
         
-        if unique_sources >= 2:
-            # Multi-source confirmation gives high confidence
-            confidence = 0.95
+        # Base confidence on number and type of sources
+        if len(unique_sources) >= 3:
+            # Three or more different sources is very high confidence
+            confidence = 0.98
+        elif len(unique_sources) == 2:
+            # Two sources is high confidence
+            # Check if we have chat + vision, that's best
+            if EventSource.CHAT in unique_sources:
+                confidence = 0.95
+            # Stack + bet region is also good
+            elif (EventSource.VISION_STACK in unique_sources and 
+                  EventSource.VISION_BET_REGION in unique_sources):
+                confidence = 0.90
+            # Stack + pot is decent
+            elif (EventSource.VISION_STACK in unique_sources and 
+                  EventSource.VISION_POT in unique_sources):
+                confidence = 0.85
+            else:
+                confidence = 0.85
         else:
-            # Single source
-            confidence = 0.7
+            # Single source - confidence depends on which one
+            single_source = list(unique_sources)[0] if unique_sources else EventSource.VISION
+            if single_source == EventSource.CHAT:
+                confidence = 0.85  # Chat is pretty reliable
+            elif single_source == EventSource.VISION_BET_REGION:
+                confidence = 0.70  # Bet OCR can be noisy
+            elif single_source == EventSource.VISION_STACK:
+                confidence = 0.75  # Stack tracking is reasonably good
+            elif single_source == EventSource.VISION_POT:
+                confidence = 0.70  # Pot OCR can be noisy
+            else:
+                confidence = 0.65  # Generic vision
         
         # Adjust based on data consistency
         amounts = [e.amount for e in events if e.amount is not None]
         if len(amounts) > 1:
             avg_amount = sum(amounts) / len(amounts)
             max_diff = max(abs(a - avg_amount) for a in amounts)
-            if max_diff / max(avg_amount, 1.0) > 0.1:  # More than 10% difference
-                confidence *= 0.9
+            if avg_amount > 0.01:
+                rel_diff = max_diff / avg_amount
+                if rel_diff > 0.15:  # More than 15% difference
+                    confidence *= 0.85
+                elif rel_diff > 0.05:  # More than 5% difference
+                    confidence *= 0.95
         
         return min(confidence, 1.0)
     

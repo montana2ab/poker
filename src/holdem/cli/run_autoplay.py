@@ -302,8 +302,10 @@ def main():
                     hero_cards = hero.hole_cards
                     cards_str = ", ".join([str(c) for c in hero_cards])
                     logger.info(f"Hero cards: {cards_str}")
+                else:
+                    logger.debug("Hero cards not yet detected (this is OK)")
             
-            # Use real-time search to decide and execute action
+            # Use real-time search to decide and execute action only when we have cards
             if hero_cards and len(hero_cards) == 2:
                 try:
                     # Safety check
@@ -337,6 +339,9 @@ def main():
                 except Exception as e:
                     logger.error(f"[REAL-TIME SEARCH] Error: {e}", exc_info=True)
                     logger.info("[AUTO-PLAY] Skipping action due to error")
+            else:
+                # No hero cards yet - observe only, don't act
+                logger.debug("[AUTO-PLAY] No hero cards detected yet - observing only")
             
             # Periodic metrics reporting
             if enable_metrics and args.metrics_report_interval > 0:
