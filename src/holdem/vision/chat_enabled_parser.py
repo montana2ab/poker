@@ -25,7 +25,8 @@ class ChatEnabledStateParser:
         card_recognizer: CardRecognizer,
         ocr_engine: OCREngine,
         enable_chat_parsing: bool = True,
-        debug_dir: Optional[Path] = None
+        debug_dir: Optional[Path] = None,
+        vision_metrics: Optional['VisionMetrics'] = None
     ):
         """Initialize chat-enabled state parser.
         
@@ -35,13 +36,15 @@ class ChatEnabledStateParser:
             ocr_engine: OCR engine for text extraction
             enable_chat_parsing: Whether to parse chat for events
             debug_dir: Optional directory for debug images
+            vision_metrics: Optional VisionMetrics instance for tracking
         """
         self.profile = profile
         self.state_parser = StateParser(
             profile=profile,
             card_recognizer=card_recognizer,
             ocr_engine=ocr_engine,
-            debug_dir=debug_dir
+            debug_dir=debug_dir,
+            vision_metrics=vision_metrics
         )
         
         self.enable_chat_parsing = enable_chat_parsing

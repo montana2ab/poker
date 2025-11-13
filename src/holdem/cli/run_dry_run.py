@@ -10,6 +10,7 @@ from holdem.vision.detect_table import TableDetector
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
+from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
@@ -17,6 +18,34 @@ from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 from holdem.utils.logging import setup_logger
 
 logger = setup_logger("run_dry_run")
+
+
+def _report_vision_metrics(vision_metrics, args, logger, header, do_export):
+    """Helper function to generate and report vision metrics.
+    
+    Args:
+        vision_metrics: VisionMetrics instance
+        args: Command line arguments
+        logger: Logger instance
+        header: Report header text
+        do_export: Whether to export to files
+    """
+    logger.info("\n" + "="*80)
+    logger.info(header)
+    logger.info("="*80)
+    report = vision_metrics.generate_report(format=args.metrics_format)
+    logger.info(report)
+    
+    if do_export and args.metrics_output:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(args.metrics_output, 'w') as f:
+            f.write(report)
+        logger.info(f"Metrics report saved to {args.metrics_output}")
+        
+        # Export JSON lines for further analysis
+        jsonl_path = args.metrics_output.with_suffix('.jsonl')
+        vision_metrics.export_jsonlines(str(jsonl_path))
+        logger.info(f"Metrics data exported to {jsonl_path}")
 
 
 def main():
@@ -49,8 +78,31 @@ def main():
                        help="OCR backend to use (paddleocr, easyocr, or pytesseract). Overrides --force-tesseract flag.")
     parser.add_argument("--force-tesseract", action="store_true",
                        help="Force use of Tesseract OCR instead of PaddleOCR (deprecated, use --ocr-backend pytesseract instead)")
+    parser.add_argument("--enable-vision-metrics", action="store_true", default=True,
+                       help="Enable vision metrics tracking (default: enabled)")
+    parser.add_argument("--disable-vision-metrics", action="store_true",
+                       help="Disable vision metrics tracking")
+    parser.add_argument("--metrics-report-interval", type=int, default=60,
+                       help="Seconds between metrics reports (0 = only at end, default: 60)")
+    parser.add_argument("--metrics-output", type=Path,
+                       help="File to save metrics report (optional, default: console only)")
+    parser.add_argument("--metrics-format", type=str, choices=["text", "json"], default="text",
+                       help="Metrics report format (text or json, default: text)")
     
     args = parser.parse_args()
+    
+    # Determine if vision metrics should be enabled
+    enable_metrics = args.enable_vision_metrics and not args.disable_vision_metrics
+    
+    # Create vision metrics instance if enabled
+    vision_metrics = None
+    if enable_metrics:
+        metrics_config = VisionMetricsConfig()
+        vision_metrics = VisionMetrics(metrics_config)
+        logger.info("Vision metrics tracking enabled")
+        logger.info(f"Metrics report interval: {args.metrics_report_interval}s")
+    else:
+        logger.info("Vision metrics tracking disabled")
     
     # Create debug directory if specified
     if args.debug_images:
@@ -124,7 +176,8 @@ def main():
         card_recognizer=card_recognizer,
         ocr_engine=ocr_engine,
         enable_chat_parsing=enable_chat,
-        debug_dir=args.debug_images
+        debug_dir=args.debug_images,
+        vision_metrics=vision_metrics
     )
     
     # Create leaf evaluator based on arguments
@@ -179,6 +232,9 @@ def main():
     logger.info("Starting dry-run mode (press Ctrl+C to stop)")
     logger.info(f"Observing every {args.interval} seconds")
     logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}, workers={args.num_workers}")
+    
+    # Track metrics reporting
+    last_metrics_report = time.time()
     
     try:
         # Track action history for belief updates
@@ -270,10 +326,33 @@ def main():
             else:
                 logger.warning("Failed to parse state")
             
+            # Periodic metrics reporting
+            if enable_metrics and args.metrics_report_interval > 0:
+                current_time = time.time()
+                if current_time - last_metrics_report >= args.metrics_report_interval:
+                    _report_vision_metrics(
+                        vision_metrics=vision_metrics,
+                        args=args,
+                        logger=logger,
+                        header="VISION METRICS REPORT",
+                        do_export=False
+                    )
+                    last_metrics_report = current_time
+            
             time.sleep(args.interval)
             
     except KeyboardInterrupt:
         logger.info("Stopping dry-run mode")
+    
+    # Generate final metrics report
+    if enable_metrics:
+        _report_vision_metrics(
+            vision_metrics=vision_metrics,
+            args=args,
+            logger=logger,
+            header="FINAL VISION METRICS REPORT",
+            do_export=True
+        )
 
 
 if __name__ == "__main__":
