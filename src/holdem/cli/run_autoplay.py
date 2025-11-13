@@ -10,7 +10,7 @@ from holdem.vision.detect_table import TableDetector
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
-from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig, get_vision_metrics
+from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
