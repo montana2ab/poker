@@ -379,11 +379,18 @@ class TexasHoldemStateMachine:
             # Determine if this reopens action
             if amount > state.current_bet:
                 raise_by = amount - state.current_bet
-                if raise_by >= self.last_raise_amount or self.last_raise_amount == 0:
-                    # This all-in is a valid raise that reopens action
-                    self.action_reopened = True
-                    self.last_raise_amount = raise_by
-                    self._reopen_action(player_pos)
+                # If this is the first bet/raise on the street, require minimum bet (big blind)
+                if self.last_raise_amount == 0:
+                    min_raise = getattr(state, "big_blind", 0)
+                    if raise_by >= min_raise:
+                        self.action_reopened = True
+                        self.last_raise_amount = raise_by
+                        self._reopen_action(player_pos)
+                else:
+                    if raise_by >= self.last_raise_amount:
+                        self.action_reopened = True
+                        self.last_raise_amount = raise_by
+                        self._reopen_action(player_pos)
             self.current_bet = max(self.current_bet, amount)
             messages.append(
                 f"Player {player_pos} ({player.name}) goes all-in for {amount:.2f}"
