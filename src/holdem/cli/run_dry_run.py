@@ -339,5 +339,53 @@ def main():
             logger.info(f"Metrics data exported to {jsonl_path}")
 
 
+            
+            # Periodic metrics reporting
+            if enable_metrics and args.metrics_report_interval > 0:
+                current_time = time.time()
+                if current_time - last_metrics_report >= args.metrics_report_interval:
+                    _report_vision_metrics(
+                        vision_metrics=vision_metrics,
+                        args=args,
+                        logger=logger,
+                        header="VISION METRICS REPORT",
+                        do_export=False
+                    )
+                    last_metrics_report = current_time
+            
+            time.sleep(args.interval)
+            
+        
+    except KeyboardInterrupt:
+        logger.info("Stopping dry-run mode")
+    
+    # Generate final metrics report
+    if enable_metrics:
+        _report_vision_metrics(
+            vision_metrics=vision_metrics,
+            args=args,
+            logger=logger,
+            header="FINAL VISION METRICS REPORT",
+            do_export=True
+        )
+
+
+def _report_vision_metrics(vision_metrics, args, logger, header, do_export):
+    logger.info("\n" + "="*80)
+    logger.info(header)
+    logger.info("="*80)
+    report = vision_metrics.generate_report(format=args.metrics_format)
+    logger.info(report)
+
+    if do_export and args.metrics_output:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(args.metrics_output, 'w') as f:
+            f.write(report)
+        logger.info(f"Metrics report saved to {args.metrics_output}")
+
+        # Export JSON lines for further analysis
+        jsonl_path = args.metrics_output.with_suffix('.jsonl')
+        vision_metrics.export_jsonlines(str(jsonl_path))
+        logger.info(f"Metrics data exported to {jsonl_path}")
 if __name__ == "__main__":
     main()
