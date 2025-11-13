@@ -10,7 +10,7 @@ from holdem.vision.detect_table import TableDetector
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
-from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig, get_vision_metrics
+from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig
 from holdem.abstraction.bucketing import HandBucketing
 from holdem.mccfr.policy_store import PolicyStore
 from holdem.realtime.search_controller import SearchController
@@ -18,6 +18,34 @@ from holdem.rt_resolver.leaf_evaluator import LeafEvaluator
 from holdem.utils.logging import setup_logger
 
 logger = setup_logger("run_dry_run")
+
+
+def _report_vision_metrics(vision_metrics, args, logger, header, do_export):
+    """Helper function to generate and report vision metrics.
+    
+    Args:
+        vision_metrics: VisionMetrics instance
+        args: Command line arguments
+        logger: Logger instance
+        header: Report header text
+        do_export: Whether to export to files
+    """
+    logger.info("\n" + "="*80)
+    logger.info(header)
+    logger.info("="*80)
+    report = vision_metrics.generate_report(format=args.metrics_format)
+    logger.info(report)
+    
+    if do_export and args.metrics_output:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(args.metrics_output, 'w') as f:
+            f.write(report)
+        logger.info(f"Metrics report saved to {args.metrics_output}")
+        
+        # Export JSON lines for further analysis
+        jsonl_path = args.metrics_output.with_suffix('.jsonl')
+        vision_metrics.export_jsonlines(str(jsonl_path))
+        logger.info(f"Metrics data exported to {jsonl_path}")
 
 
 def main():
@@ -302,48 +330,6 @@ def main():
             if enable_metrics and args.metrics_report_interval > 0:
                 current_time = time.time()
                 if current_time - last_metrics_report >= args.metrics_report_interval:
-                    logger.info("\n" + "="*80)
-                    logger.info("VISION METRICS REPORT")
-                    logger.info("="*80)
-                    report = vision_metrics.generate_report(format=args.metrics_format)
-                    if args.metrics_format == "text":
-                        logger.info(report)
-                    else:
-                        logger.info(report)
-                    last_metrics_report = current_time
-            
-            time.sleep(args.interval)
-            
-    except KeyboardInterrupt:
-        logger.info("Stopping dry-run mode")
-    
-    # Generate final metrics report
-    if enable_metrics:
-        logger.info("\n" + "="*80)
-        logger.info("FINAL VISION METRICS REPORT")
-        logger.info("="*80)
-        report = vision_metrics.generate_report(format=args.metrics_format)
-        logger.info(report)
-        
-        # Save to file if requested
-        if args.metrics_output:
-            args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
-            with open(args.metrics_output, 'w') as f:
-                f.write(report)
-            logger.info(f"Metrics report saved to {args.metrics_output}")
-        
-        # Export JSON lines for further analysis
-        if args.metrics_output:
-            jsonl_path = args.metrics_output.with_suffix('.jsonl')
-            vision_metrics.export_jsonlines(str(jsonl_path))
-            logger.info(f"Metrics data exported to {jsonl_path}")
-
-
-            
-            # Periodic metrics reporting
-            if enable_metrics and args.metrics_report_interval > 0:
-                current_time = time.time()
-                if current_time - last_metrics_report >= args.metrics_report_interval:
                     _report_vision_metrics(
                         vision_metrics=vision_metrics,
                         args=args,
@@ -355,7 +341,6 @@ def main():
             
             time.sleep(args.interval)
             
-        
     except KeyboardInterrupt:
         logger.info("Stopping dry-run mode")
     
@@ -370,22 +355,5 @@ def main():
         )
 
 
-def _report_vision_metrics(vision_metrics, args, logger, header, do_export):
-    logger.info("\n" + "="*80)
-    logger.info(header)
-    logger.info("="*80)
-    report = vision_metrics.generate_report(format=args.metrics_format)
-    logger.info(report)
-
-    if do_export and args.metrics_output:
-        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
-        with open(args.metrics_output, 'w') as f:
-            f.write(report)
-        logger.info(f"Metrics report saved to {args.metrics_output}")
-
-        # Export JSON lines for further analysis
-        jsonl_path = args.metrics_output.with_suffix('.jsonl')
-        vision_metrics.export_jsonlines(str(jsonl_path))
-        logger.info(f"Metrics data exported to {jsonl_path}")
 if __name__ == "__main__":
     main()
