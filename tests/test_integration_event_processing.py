@@ -8,7 +8,6 @@ import pytest
 from unittest.mock import Mock, MagicMock
 import numpy as np
 
-from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
 from holdem.types import (
     TableState,
     PlayerState,
