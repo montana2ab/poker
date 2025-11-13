@@ -11,7 +11,6 @@ import numpy as np
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.cards import CardRecognizer
-from holdem.vision.ocr import OCREngine
 from holdem.types import (
     TableState,
     PlayerState,
