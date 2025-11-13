@@ -8,8 +8,7 @@ from holdem.types import (
     ActionType,
     Street,
     TableState,
-    PlayerState,
-    Card
+    PlayerState
 )
 
 
