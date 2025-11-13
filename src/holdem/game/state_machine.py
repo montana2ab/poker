@@ -541,7 +541,6 @@ class TexasHoldemStateMachine:
         
         # Validate pot consistency (within tolerance)
         total_bets = sum(p.bet_this_round for p in state.players)
-        expected_pot = state.pot  # Pot should include previous streets
         
         # This check is tricky because pot accumulates across streets
         # We can only check that current round bets don't exceed pot increase
