@@ -2,10 +2,7 @@
 
 import pytest
 from holdem.game.state_machine import (
-    TexasHoldemStateMachine,
-    BettingRoundState,
-    GameStateValidation,
-    ActionValidation
+    TexasHoldemStateMachine
 )
 from holdem.types import (
     ActionType,
