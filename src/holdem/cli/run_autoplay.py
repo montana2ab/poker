@@ -64,8 +64,8 @@ def main():
                        help="Minimum iterations for search")
     parser.add_argument("--num-workers", type=int, default=1,
                        help="Number of parallel workers for real-time solving (1 = single process, 0 = use all CPU cores)")
-    parser.add_argument("--confirm-every-action", type=bool, default=True,
-                       help="Confirm each action")
+    parser.add_argument("--confirm-every-action", action="store_true",
+                       help="Confirm each action (disables auto-play mouse control)")
     parser.add_argument("--i-understand-the-tos", action="store_true",
                        help="Required flag to enable auto-play")
     parser.add_argument("--cfv-net", type=Path,
