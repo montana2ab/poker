@@ -28,6 +28,9 @@ class CardRecognizer:
         self.board_match_threshold = 0.70
         self.hero_match_threshold = 0.65
         
+        # Track last confidence scores for metrics
+        self.last_confidence_scores: List[float] = []
+        
         if method == "template":
             if templates_dir:
                 self._load_templates()
@@ -199,6 +202,8 @@ class CardRecognizer:
   
         if best_score >= threshold and best_match:
             logger.debug(f"Recognized {template_type} card {best_match} with confidence {best_score:.3f}")
+            # Store confidence for metrics tracking
+            self.last_confidence_scores.append(best_score)
             return Card.from_string(best_match)
   
         # Log the best match even if below threshold
@@ -279,6 +284,9 @@ class CardRecognizer:
             List of recognized cards (None for unrecognized positions)
         """
         cards = []
+        
+        # Clear confidence scores before recognition
+        self.last_confidence_scores = []
         
         # Validate input
         if img is None or img.size == 0:

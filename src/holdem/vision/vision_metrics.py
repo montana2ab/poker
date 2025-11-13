@@ -302,6 +302,59 @@ class VisionMetrics:
             latency_ms: Time taken for full state parse (milliseconds)
         """
         self.parse_latencies.append(latency_ms)
+        
+        # Check for latency alerts
+        self._check_latency_alerts()
+    
+    def _check_latency_alerts(self):
+        """Check parse latency and generate alerts if thresholds are exceeded."""
+        if len(self.parse_latencies) < self.config.min_samples_for_alert:
+            return
+        
+        # Calculate recent metrics (last N samples)
+        recent_latencies = self.parse_latencies[-self.config.min_samples_for_alert:]
+        mean_latency = float(np.mean(recent_latencies))
+        p95_latency = float(np.percentile(recent_latencies, 95))
+        p99_latency = float(np.percentile(recent_latencies, 99))
+        
+        # Check P99 threshold (most critical)
+        if p99_latency > self.config.latency_p99_threshold:
+            alert = Alert(
+                level=AlertLevel.CRITICAL,
+                metric_name="parse_latency_p99",
+                message=f"Parse latency P99 critically high: {p99_latency:.1f}ms (threshold: {self.config.latency_p99_threshold}ms)",
+                timestamp=time.time(),
+                current_value=p99_latency,
+                threshold=self.config.latency_p99_threshold
+            )
+            self.alerts.append(alert)
+            logger.error(alert.message)
+        
+        # Check P95 threshold
+        if p95_latency > self.config.latency_p95_threshold:
+            alert = Alert(
+                level=AlertLevel.WARNING,
+                metric_name="parse_latency_p95",
+                message=f"Parse latency P95 above threshold: {p95_latency:.1f}ms (threshold: {self.config.latency_p95_threshold}ms)",
+                timestamp=time.time(),
+                current_value=p95_latency,
+                threshold=self.config.latency_p95_threshold
+            )
+            self.alerts.append(alert)
+            logger.warning(alert.message)
+        
+        # Check mean latency (if it's very high, alert even if percentiles pass)
+        if mean_latency > self.config.latency_p99_threshold * 2:
+            alert = Alert(
+                level=AlertLevel.CRITICAL,
+                metric_name="parse_latency_mean",
+                message=f"Mean parse latency critically high: {mean_latency:.1f}ms",
+                timestamp=time.time(),
+                current_value=mean_latency,
+                threshold=self.config.latency_p99_threshold * 2
+            )
+            self.alerts.append(alert)
+            logger.error(alert.message)
     
     def set_context(
         self,

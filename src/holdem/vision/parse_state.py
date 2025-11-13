@@ -48,6 +48,44 @@ def _parse_amount_from_text(txt: str) -> Optional[float]:
         return None
 
 
+def is_showdown_won_label(name: str) -> bool:
+    """
+    Retourne True si le nom OCR correspond à un label de type 'Won 5,249'
+    et non à un pseudo de joueur.
+    
+    Ces labels apparaissent lors du showdown quand un joueur gagne le pot,
+    et ne doivent jamais être interprétés comme des actions de mise (BET).
+    
+    Args:
+        name: Le nom OCR à vérifier
+        
+    Returns:
+        True si c'est un label de showdown, False sinon
+    
+    Examples:
+        >>> is_showdown_won_label("Won 5,249")
+        True
+        >>> is_showdown_won_label("Won 2,467")
+        True
+        >>> is_showdown_won_label("Player123")
+        False
+        >>> is_showdown_won_label("Won")
+        False
+    """
+    if not name:
+        return False
+    
+    # Regex pattern: "Won" followed by whitespace and numbers with optional separators
+    # ^Won\s+[0-9,.\s]+$
+    pattern = r'^Won\s+[0-9,.\s]+$'
+    
+    if re.match(pattern, name.strip(), re.IGNORECASE):
+        logger.debug(f"[SHOWDOWN] Detected showdown label: '{name}'")
+        return True
+    
+    return False
+
+
 class StateParser:
     """Parse complete table state from screenshot."""
     
@@ -207,10 +245,12 @@ class StateParser:
             
             # Track card recognition metrics if enabled
             if self.vision_metrics:
-                for card in cards:
+                # Get confidence scores from card recognizer
+                confidences = self.card_recognizer.last_confidence_scores
+                for i, card in enumerate(cards):
                     if card is not None:
-                        # Record card recognition (no ground truth in production)
-                        confidence = getattr(card, 'confidence', 0.0)
+                        # Get confidence for this card (if available)
+                        confidence = confidences[i] if i < len(confidences) else 0.0
                         self.vision_metrics.record_card_recognition(
                             detected_card=str(card),
                             expected_card=None,
@@ -297,8 +337,15 @@ class StateParser:
                 name_img = img[y:y+h, x:x+w]
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
-                    name = parsed_name.strip()
-                    logger.info(f"Player {table_position} name OCR: {name}")
+                    parsed_name_stripped = parsed_name.strip()
+                    # Check if this is a showdown "Won X,XXX" label
+                    if is_showdown_won_label(parsed_name_stripped):
+                        logger.info(f"[SHOWDOWN] Ignoring 'Won X,XXX' label as player name at position {table_position}: {parsed_name_stripped}")
+                        # Keep default player name instead of showdown label
+                        # This prevents the showdown label from being treated as a real player
+                    else:
+                        name = parsed_name_stripped
+                        logger.info(f"Player {table_position} name OCR: {name}")
 
             # Extract bet amount for this round
             bet_this_round = 0.0
@@ -313,8 +360,13 @@ class StateParser:
                     raw_txt = self.ocr_engine.read_text(bet_img) or ""
                     parsed_bet = _parse_amount_from_text(raw_txt)
                 if parsed_bet is not None:
-                    bet_this_round = parsed_bet
-                    logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
+                    # Only record bet if this is not a showdown label in the name region
+                    # (prevents "Won 5,249" from being treated as a bet)
+                    if not is_showdown_won_label(name):
+                        bet_this_round = parsed_bet
+                        logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
+                    else:
+                        logger.debug(f"[SHOWDOWN] Ignoring bet amount for showdown label at position {table_position}")
 
             # Extract player action (CALL, CHECK, BET, RAISE, FOLD, ALL-IN)
             last_action = None
@@ -390,6 +442,22 @@ class StateParser:
             # Hole cards are 2 cards - use hero templates
             # Skip empty check for hero cards as they should always be present when visible
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True, skip_empty_check=True)
+            
+            # Track card recognition metrics if enabled
+            if self.vision_metrics:
+                # Get confidence scores from card recognizer
+                confidences = self.card_recognizer.last_confidence_scores
+                for i, card in enumerate(cards):
+                    if card is not None:
+                        # Get confidence for this card (if available)
+                        confidence = confidences[i] if i < len(confidences) else 0.0
+                        self.vision_metrics.record_card_recognition(
+                            detected_card=str(card),
+                            expected_card=None,
+                            confidence=confidence,
+                            street="preflop",  # Hero cards are shown preflop
+                            seat_position=player_pos
+                        )
             
             # Filter out None values
             valid_cards = [c for c in cards if c is not None]
