@@ -1,6 +1,7 @@
 """Action executor with safety features and action backmapping."""
 
 import time
+import platform
 import pyautogui
 from typing import Optional
 from holdem.types import ControlConfig, Action, ActionType, Street, TableState
@@ -11,6 +12,16 @@ from holdem.control.actions import ClickAction, WaitAction
 from holdem.utils.logging import get_logger
 
 logger = get_logger("control.executor")
+
+
+def _is_apple_silicon() -> bool:
+    """Detect M1/M2/M3 processors."""
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def _is_macos() -> bool:
+    """Detect macOS (Intel or Apple Silicon)."""
+    return platform.system() == "Darwin"
 
 
 class ActionExecutor:
@@ -28,6 +39,27 @@ class ActionExecutor:
             min_chip_increment=config.min_chip if hasattr(config, 'min_chip') else 1.0,
             allow_fractional=config.allow_fractional if hasattr(config, 'allow_fractional') else False
         )
+        
+        # Detect platform for timing adjustments
+        self.is_mac = _is_macos()
+        self.is_apple_silicon = _is_apple_silicon()
+        
+        # Platform-specific timing adjustments
+        # Mac M2 needs longer delays due to different scheduler behavior
+        if self.is_apple_silicon:
+            self.click_delay = 0.15  # 150ms for Apple Silicon
+            self.input_delay = 0.15  # 150ms between actions
+            self.type_interval = 0.08  # 80ms between keystrokes
+            logger.info("Detected Apple Silicon (M1/M2/M3) - using optimized timing")
+        elif self.is_mac:
+            self.click_delay = 0.12  # 120ms for Intel Mac
+            self.input_delay = 0.12
+            self.type_interval = 0.06
+            logger.info("Detected macOS (Intel) - using optimized timing")
+        else:
+            self.click_delay = 0.1  # 100ms for Linux/Windows
+            self.input_delay = 0.1
+            self.type_interval = 0.05
         
         # Configure pyautogui
         pyautogui.PAUSE = config.min_action_delay_ms / 1000.0
@@ -242,7 +274,7 @@ class ActionExecutor:
         logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
         
         pyautogui.click(x, y)
-        time.sleep(self.config.min_action_delay_ms / 1000.0)
+        time.sleep(self.click_delay)
         return True
     
     def _execute_bet_or_raise(
@@ -279,17 +311,22 @@ class ActionExecutor:
                 
                 logger.info(f"[AUTO-PLAY] Clicking bet input box at ({input_x}, {input_y})")
                 pyautogui.click(input_x, input_y)
-                time.sleep(0.1)
+                time.sleep(self.input_delay)
                 
-                # Clear existing value (Ctrl+A or triple-click then delete)
-                pyautogui.hotkey('ctrl', 'a')
-                time.sleep(0.05)
+                # Clear existing value - use Cmd on Mac, Ctrl on others
+                if self.is_mac:
+                    pyautogui.hotkey('command', 'a')
+                    logger.debug("[AUTO-PLAY] Using Cmd+A to select all (macOS)")
+                else:
+                    pyautogui.hotkey('ctrl', 'a')
+                    logger.debug("[AUTO-PLAY] Using Ctrl+A to select all")
+                time.sleep(self.input_delay * 0.5)
                 
                 # Type the amount
                 amount_str = str(int(action.amount)) if action.amount == int(action.amount) else f"{action.amount:.2f}"
                 logger.info(f"[AUTO-PLAY] Typing bet amount: {amount_str}")
-                pyautogui.typewrite(amount_str, interval=0.05)
-                time.sleep(0.1)
+                pyautogui.typewrite(amount_str, interval=self.type_interval)
+                time.sleep(self.input_delay)
                 
                 # Click the bet/raise button to confirm
                 x = button_region['x'] + button_region['width'] // 2
@@ -364,7 +401,7 @@ class ActionExecutor:
         
         try:
             pyautogui.click(x, y)
-            time.sleep(self.config.min_action_delay_ms / 1000.0)
+            time.sleep(self.click_delay)
             return True
         except Exception as e:
             logger.error(f"Failed to execute action: {e}")
