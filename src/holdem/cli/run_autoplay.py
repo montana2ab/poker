@@ -305,38 +305,53 @@ def main():
             
             # Use real-time search to decide and execute action only when we have cards
             if hero_cards and len(hero_cards) == 2:
-                try:
-                    # Safety check
-                    if not safety.check_safe_to_act(state):
-                        logger.warning("Safety check failed, skipping action")
-                        time.sleep(2.0)
-                        continue
-                    
-                    logger.info("[REAL-TIME SEARCH] Computing optimal action...")
-                    start_time = time.time()
-                    
-                    # Get action from search controller
-                    suggested_action = search_controller.get_action(
-                        state=state,
-                        our_cards=hero_cards,
-                        history=action_history
-                    )
-                    
-                    elapsed_ms = (time.time() - start_time) * 1000
-                    logger.info(f"[REAL-TIME SEARCH] Action decided: {suggested_action.name} (in {elapsed_ms:.1f}ms)")
-                    
-                    # Execute the action
-                    success = executor.execute(suggested_action, state)
-                    if success:
-                        logger.info(f"[AUTO-PLAY] Executed action: {suggested_action.name}")
-                        # Track this action in history
-                        action_history.append(suggested_action.name)
-                    else:
-                        logger.warning(f"[AUTO-PLAY] Failed to execute action: {suggested_action.name}")
-                    
-                except Exception as e:
-                    logger.error(f"[REAL-TIME SEARCH] Error: {e}", exc_info=True)
-                    logger.info("[AUTO-PLAY] Skipping action due to error")
+                # Check if we should skip real-time search
+                skip_reason = None
+                
+                if not state.hand_in_progress:
+                    skip_reason = "no hand in progress"
+                elif not state.hero_active:
+                    skip_reason = "hero not active (folded)"
+                elif state.frame_has_showdown_label:
+                    skip_reason = "showdown frame (Won X,XXX labels detected)"
+                elif state.state_inconsistent:
+                    skip_reason = "inconsistent state (pot regression or other anomaly)"
+                
+                if skip_reason:
+                    logger.debug(f"[REAL-TIME SEARCH] Skipped: {skip_reason}")
+                else:
+                    try:
+                        # Safety check
+                        if not safety.check_safe_to_act(state):
+                            logger.warning("Safety check failed, skipping action")
+                            time.sleep(2.0)
+                            continue
+                        
+                        logger.info("[REAL-TIME SEARCH] Computing optimal action...")
+                        start_time = time.time()
+                        
+                        # Get action from search controller
+                        suggested_action = search_controller.get_action(
+                            state=state,
+                            our_cards=hero_cards,
+                            history=action_history
+                        )
+                        
+                        elapsed_ms = (time.time() - start_time) * 1000
+                        logger.info(f"[REAL-TIME SEARCH] Action decided: {suggested_action.name} (in {elapsed_ms:.1f}ms)")
+                        
+                        # Execute the action
+                        success = executor.execute(suggested_action, state)
+                        if success:
+                            logger.info(f"[AUTO-PLAY] Executed action: {suggested_action.name}")
+                            # Track this action in history
+                            action_history.append(suggested_action.name)
+                        else:
+                            logger.warning(f"[AUTO-PLAY] Failed to execute action: {suggested_action.name}")
+                        
+                    except Exception as e:
+                        logger.error(f"[REAL-TIME SEARCH] Error: {e}", exc_info=True)
+                        logger.info("[AUTO-PLAY] Skipping action due to error")
             else:
                 # No hero cards yet - observe only, don't act
                 logger.debug("[AUTO-PLAY] No hero cards detected yet - observing only")

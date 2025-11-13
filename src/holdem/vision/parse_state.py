@@ -4,9 +4,10 @@ import cv2
 import numpy as np
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import re
 from decimal import Decimal
+from dataclasses import dataclass, field
 from holdem.types import TableState, PlayerState, Street, Card
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.cards import CardRecognizer
@@ -86,6 +87,78 @@ def is_showdown_won_label(name: str) -> bool:
     return False
 
 
+@dataclass
+class HeroCardsTracker:
+    """Tracker for hero cards to ensure stability across frames.
+    
+    This prevents card recognition from degrading when one card's confidence
+    temporarily drops (e.g., Kd 9s → Kd alone) by requiring multiple consistent
+    frames before accepting new cards.
+    """
+    confirmed_cards: Optional[List[Card]] = None  # Validated cards for current hand
+    current_candidate: Optional[List[Card]] = None  # Latest candidate from OCR
+    current_scores: Optional[List[float]] = None  # Confidence scores for candidate
+    frames_stable: int = 0  # Number of consecutive frames with same candidate
+    stability_threshold: int = 2  # Number of frames needed to confirm new cards
+    
+    def update(self, cards: Optional[List[Card]], scores: Optional[List[float]]) -> Optional[List[Card]]:
+        """Update tracker with new OCR reading and return best cards to use.
+        
+        Args:
+            cards: Newly detected cards (may be None or partial)
+            scores: Confidence scores for detected cards
+            
+        Returns:
+            Best cards to use (confirmed or candidate)
+        """
+        # If no cards detected, keep existing confirmed cards
+        if not cards or len(cards) == 0:
+            logger.debug("[HERO CARDS] No cards detected, keeping confirmed cards")
+            return self.confirmed_cards
+        
+        # Check if this matches our current candidate
+        if self._cards_match(cards, self.current_candidate):
+            self.frames_stable += 1
+            logger.debug(f"[HERO CARDS] Candidate stable for {self.frames_stable} frames: {self._cards_str(cards)}")
+        else:
+            # New candidate detected
+            self.current_candidate = cards
+            self.current_scores = scores
+            self.frames_stable = 1
+            logger.debug(f"[HERO CARDS] New candidate detected: {self._cards_str(cards)}")
+        
+        # If candidate is stable enough, confirm it
+        if self.frames_stable >= self.stability_threshold:
+            if not self._cards_match(self.confirmed_cards, self.current_candidate):
+                logger.info(f"[HERO CARDS] Confirming stable cards: {self._cards_str(self.current_candidate)}")
+                self.confirmed_cards = self.current_candidate
+        
+        # Return best available cards
+        return self.confirmed_cards if self.confirmed_cards else self.current_candidate
+    
+    def reset(self):
+        """Reset tracker for new hand."""
+        logger.debug("[HERO CARDS] Resetting tracker for new hand")
+        self.confirmed_cards = None
+        self.current_candidate = None
+        self.current_scores = None
+        self.frames_stable = 0
+    
+    def _cards_match(self, cards1: Optional[List[Card]], cards2: Optional[List[Card]]) -> bool:
+        """Check if two card lists match."""
+        if cards1 is None or cards2 is None:
+            return cards1 is cards2
+        if len(cards1) != len(cards2):
+            return False
+        return all(str(c1) == str(c2) for c1, c2 in zip(cards1, cards2))
+    
+    def _cards_str(self, cards: Optional[List[Card]]) -> str:
+        """Convert cards to string for logging."""
+        if not cards:
+            return "None"
+        return ", ".join(str(c) for c in cards)
+
+
 class StateParser:
     """Parse complete table state from screenshot."""
     
@@ -103,6 +176,8 @@ class StateParser:
         self.debug_dir = debug_dir
         self.vision_metrics = vision_metrics
         self._debug_counter = 0
+        self.hero_cards_tracker = HeroCardsTracker()  # Track stable hero cards
+        self._last_pot = 0.0  # Track pot for regression detection
     
     def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
         """Parse table state from screenshot."""
@@ -136,8 +211,19 @@ class StateParser:
             # Parse button position (dealer button)
             button_position = self._parse_button_position(screenshot)
             
-            # Extract player states
-            players = self._parse_players(screenshot)
+            # Extract player states and check for showdown labels
+            players, has_showdown_label = self._parse_players(screenshot)
+            
+            # Detect pot regression (inconsistent state)
+            state_inconsistent = False
+            if self._last_pot > 0 and pot < self._last_pot and abs(pot - self._last_pot) > 0.01:
+                # Pot decreased without apparent reason (no new hand detected yet)
+                # This could be a timing issue, OCR error, or actual end of hand
+                logger.warning(f"[STATE] Pot decreased from {self._last_pot:.2f} to {pot:.2f} - marking state as inconsistent")
+                state_inconsistent = True
+            
+            # Update last pot
+            self._last_pot = pot
             
             # Calculate current_bet (highest bet this round)
             current_bet = max([p.bet_this_round for p in players], default=0.0)
@@ -198,7 +284,10 @@ class StateParser:
                 is_in_position=is_in_position,
                 to_call=to_call,
                 effective_stack=effective_stack,
-                spr=spr
+                spr=spr,
+                frame_has_showdown_label=has_showdown_label,
+                state_inconsistent=state_inconsistent,
+                last_pot=self._last_pot
             )
             
             # Record parse latency if metrics are enabled
@@ -295,9 +384,14 @@ class StateParser:
         
         return 0.0
     
-    def _parse_players(self, img: np.ndarray) -> list:
-        """Parse player states from image."""
+    def _parse_players(self, img: np.ndarray) -> Tuple[list, bool]:
+        """Parse player states from image.
+        
+        Returns:
+            Tuple of (players list, has_showdown_label boolean)
+        """
         players = []
+        has_showdown_label = False  # Track if any showdown label detected
         parse_opp = getattr(self.profile, "parse_opponent_cards", False)
         hero_pos = getattr(self.profile, "hero_position", None)
         for i, player_region in enumerate(self.profile.player_regions):
@@ -341,6 +435,7 @@ class StateParser:
                     # Check if this is a showdown "Won X,XXX" label
                     if is_showdown_won_label(parsed_name_stripped):
                         logger.info(f"[SHOWDOWN] Ignoring 'Won X,XXX' label as player name at position {table_position}: {parsed_name_stripped}")
+                        has_showdown_label = True  # Mark that we found a showdown label
                         # Keep default player name instead of showdown label
                         # This prevents the showdown label from being treated as a real player
                     else:
@@ -395,11 +490,11 @@ class StateParser:
             hole_cards = None
             if hero_pos is not None and table_position == hero_pos:
                 logger.info(f"Parsing hero cards at position {table_position}")
-                hole_cards = self._parse_player_cards(img, player_region)
+                hole_cards = self._parse_player_cards(img, player_region, is_hero=True)
             elif parse_opp:
                 logger.info(f"Parsing opponent cards at position {table_position}")
                 # Templates héros et joueurs identiques -> on réutilise la même reco
-                hole_cards = self._parse_player_cards(img, player_region)
+                hole_cards = self._parse_player_cards(img, player_region, is_hero=False)
 
             player = PlayerState(
                 name=name,
@@ -413,10 +508,16 @@ class StateParser:
             )
             players.append(player)
 
-        return players
+        return players, has_showdown_label
     
-    def _parse_player_cards(self, img: np.ndarray, player_region: dict) -> Optional[List[Card]]:
-        """Parse hole cards for a specific player."""
+    def _parse_player_cards(self, img: np.ndarray, player_region: dict, is_hero: bool = False) -> Optional[List[Card]]:
+        """Parse hole cards for a specific player.
+        
+        Args:
+            img: Full table image
+            player_region: Region definition for this player
+            is_hero: True if parsing hero cards (enables sticky tracking)
+        """
         card_reg = player_region.get('card_region', {})
         x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
                     card_reg.get('width', 0), card_reg.get('height', 0)
@@ -443,10 +544,11 @@ class StateParser:
             # Skip empty check for hero cards as they should always be present when visible
             cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True, skip_empty_check=True)
             
+            # Get confidence scores
+            confidences = self.card_recognizer.last_confidence_scores if hasattr(self.card_recognizer, 'last_confidence_scores') else []
+            
             # Track card recognition metrics if enabled
             if self.vision_metrics:
-                # Get confidence scores from card recognizer
-                confidences = self.card_recognizer.last_confidence_scores
                 for i, card in enumerate(cards):
                     if card is not None:
                         # Get confidence for this card (if available)
@@ -462,12 +564,27 @@ class StateParser:
             # Filter out None values
             valid_cards = [c for c in cards if c is not None]
             
+            # For hero cards, use sticky tracker to prevent degradation
+            if is_hero and len(valid_cards) > 0:
+                tracked_cards = self.hero_cards_tracker.update(valid_cards, confidences)
+                if tracked_cards:
+                    cards_str = ", ".join(str(c) for c in tracked_cards)
+                    logger.info(f"Hero cards (tracked): {cards_str}")
+                    return tracked_cards
+            
             # Log the result
             if len(valid_cards) > 0:
                 cards_str = ", ".join(str(c) for c in valid_cards)
                 logger.info(f"Recognized {len(valid_cards)} card(s) for player {player_pos}: {cards_str}")
                 return valid_cards
             else:
+                # For hero cards with tracker, return confirmed cards if available
+                if is_hero:
+                    tracked_cards = self.hero_cards_tracker.update(None, None)
+                    if tracked_cards:
+                        cards_str = ", ".join(str(c) for c in tracked_cards)
+                        logger.info(f"Hero cards (from tracker, no new detection): {cards_str}")
+                        return tracked_cards
                 logger.warning(f"No cards recognized for player {player_pos} - check card templates and region coordinates")
         else:
             logger.error(f"Player {player_pos} card region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")

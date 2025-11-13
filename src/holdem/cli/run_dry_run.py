@@ -306,23 +306,38 @@ def main():
                 
                 # Use real-time search to decide action when we have our cards
                 if hero_cards and len(hero_cards) == 2:
-                    try:
-                        logger.info("[REAL-TIME SEARCH] Computing optimal action...")
-                        start_time = time.time()
-                        
-                        # Get action from search controller
-                        suggested_action = search_controller.get_action(
-                            state=state,
-                            our_cards=hero_cards,
-                            history=action_history
-                        )
-                        
-                        elapsed_ms = (time.time() - start_time) * 1000
-                        logger.info(f"[REAL-TIME SEARCH] Recommended action: {suggested_action.name} (computed in {elapsed_ms:.1f}ms)")
-                        
-                    except Exception as e:
-                        logger.warning(f"[REAL-TIME SEARCH] Failed: {e}")
-                        logger.info("[DRY RUN] Would fall back to blueprint or manual decision")
+                    # Check if we should skip real-time search
+                    skip_reason = None
+                    
+                    if not state.hand_in_progress:
+                        skip_reason = "no hand in progress"
+                    elif not state.hero_active:
+                        skip_reason = "hero not active (folded)"
+                    elif state.frame_has_showdown_label:
+                        skip_reason = "showdown frame (Won X,XXX labels detected)"
+                    elif state.state_inconsistent:
+                        skip_reason = "inconsistent state (pot regression or other anomaly)"
+                    
+                    if skip_reason:
+                        logger.debug(f"[REAL-TIME SEARCH] Skipped: {skip_reason}")
+                    else:
+                        try:
+                            logger.info("[REAL-TIME SEARCH] Computing optimal action...")
+                            start_time = time.time()
+                            
+                            # Get action from search controller
+                            suggested_action = search_controller.get_action(
+                                state=state,
+                                our_cards=hero_cards,
+                                history=action_history
+                            )
+                            
+                            elapsed_ms = (time.time() - start_time) * 1000
+                            logger.info(f"[REAL-TIME SEARCH] Recommended action: {suggested_action.name} (computed in {elapsed_ms:.1f}ms)")
+                            
+                        except Exception as e:
+                            logger.warning(f"[REAL-TIME SEARCH] Failed: {e}")
+                            logger.info("[DRY RUN] Would fall back to blueprint or manual decision")
                 else:
                     # No cards detected yet - that's fine, we can still observe
                     if profile.hero_position is not None:

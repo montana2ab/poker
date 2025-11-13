@@ -335,6 +335,13 @@ class TableState:
     last_valid_hero_cards: Optional[List[Card]] = None  # Cache of hero cards for current hand
     hand_id: Optional[str] = None  # Unique ID for current hand (reset triggers hero cards cache clear)
     
+    # State machine flags for robust vision/decision making
+    frame_has_showdown_label: bool = False  # True if current frame has "Won X,XXX" labels
+    hero_active: bool = True  # True if hero is still active in the hand (not folded)
+    hand_in_progress: bool = True  # True if a hand is currently being played
+    state_inconsistent: bool = False  # True if state appears inconsistent (pot regression, etc.)
+    last_pot: float = 0.0  # Track previous pot to detect regressions
+    
     @property
     def num_players(self) -> int:
         return len([p for p in self.players if not p.folded])
@@ -362,9 +369,13 @@ class TableState:
         return self.last_valid_hero_cards
     
     def reset_hand(self):
-        """Reset state for a new hand - clears hero cards cache."""
+        """Reset state for a new hand - clears hero cards cache and resets flags."""
         self.last_valid_hero_cards = None
         self.hand_id = None
+        self.hero_active = True
+        self.hand_in_progress = True
+        self.frame_has_showdown_label = False
+        self.state_inconsistent = False
 
 
 @dataclass

@@ -10,7 +10,7 @@ from holdem.vision.ocr import OCREngine
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.parse_state import StateParser
 from holdem.vision.cards import CardRecognizer
-from holdem.types import TableState
+from holdem.types import TableState, ActionType
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.chat_enabled_parser")
@@ -127,11 +127,37 @@ class ChatEnabledStateParser:
                     f"Confidence: {event.confidence:.2f} - "
                     f"Sources: {sources_str}{multi_source}"
                 )
+            
+            # Update hero_active flag based on events
+            self._update_hero_state_from_events(current_state, reliable_events)
         
         # Update previous state
         self.prev_state = current_state
         
         return current_state, reliable_events
+    
+    def _update_hero_state_from_events(self, state: TableState, events: List[FusedEvent]):
+        """Update hero_active flag based on detected events.
+        
+        Args:
+            state: Current table state
+            events: List of fused events
+        """
+        if state.hero_position is None:
+            return
+        
+        # Get hero player name
+        if state.hero_position < len(state.players):
+            hero_player = state.players[state.hero_position]
+            hero_name = hero_player.name
+            
+            # Check for hero fold action
+            for event in events:
+                if event.event_type == "action" and event.player == hero_name:
+                    if event.action == ActionType.FOLD:
+                        state.hero_active = False
+                        logger.info(f"[HERO STATE] Hero folded - marking hero_active=False")
+                        break
     
     def _extract_chat_events(self, screenshot: np.ndarray) -> List[GameEvent]:
         """Extract events from chat region."""
