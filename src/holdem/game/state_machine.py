@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from enum import Enum
 import logging
 
-from holdem.types import ActionType, Street, TableState, PlayerState
+from holdem.types import ActionType, Street, TableState
 
 logger = logging.getLogger(__name__)
 
