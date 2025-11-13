@@ -82,6 +82,10 @@ class EventFuser:
         - Pot updates
         - Player actions (from bet_this_round changes)
         - Stack delta tracking (new: reconstruct actions from stack evolution)
+        
+        Note: If current_state.frame_has_showdown_label is True, action events
+        (BET/CALL/RAISE) will be filtered out to prevent phantom actions from
+        showdown payout labels like "Won 5,249".
         """
         events = []
         
@@ -89,6 +93,11 @@ class EventFuser:
         if current_state is None:
             logger.warning("Current state is None, cannot create vision events")
             return events
+        
+        # Check if this is a showdown frame - if so, skip action event creation
+        is_showdown_frame = getattr(current_state, 'frame_has_showdown_label', False)
+        if is_showdown_frame:
+            logger.info("[SHOWDOWN] Frame has showdown label - will skip action event creation")
         
         if not prev_state:
             # First observation, initialize stack tracking
@@ -211,6 +220,14 @@ class EventFuser:
                         )
                         continue
                     
+                    # Skip action event creation during showdown frames
+                    if is_showdown_frame:
+                        logger.debug(
+                            f"[SHOWDOWN] Skipping action event creation for player {curr_player.name} "
+                            f"during showdown frame"
+                        )
+                        continue
+                    
                     # Only create event if we have a valid amount (never create BET 0.0)
                     event_amount = curr_player.bet_this_round
                     if event_amount < 0.01 and action_type not in [ActionType.CHECK, ActionType.FOLD]:
@@ -281,6 +298,14 @@ class EventFuser:
                         logger.info(
                             f"[SHOWDOWN] Ignoring bet/raise/call event for showdown label: "
                             f"{curr_player.name}, amount={curr_player.bet_this_round:.2f}"
+                        )
+                        continue
+                    
+                    # Skip action event creation during showdown frames
+                    if is_showdown_frame:
+                        logger.debug(
+                            f"[SHOWDOWN] Skipping bet/raise/call event for player {curr_player.name} "
+                            f"during showdown frame"
                         )
                         continue
                     
