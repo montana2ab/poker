@@ -1,6 +1,5 @@
 """Tests for enhanced event fusion with stack tracking."""
 
-import pytest
 from datetime import datetime
 from holdem.vision.event_fusion import EventFuser, FusedEvent
 from holdem.vision.chat_parser import GameEvent, EventSource
