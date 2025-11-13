@@ -206,6 +206,33 @@ class ChatParser:
                 'dealing turn' in segment_lower or 
                 'dealing river' in segment_lower)
     
+    def _is_informational_message(self, segment: str) -> bool:
+        """Check if a segment is an informational message (not a player action).
+        
+        Informational messages should not be converted into CHECK actions.
+        
+        Args:
+            segment: Text segment to check
+            
+        Returns:
+            True if segment is informational, False otherwise
+        """
+        segment_lower = segment.lower()
+        # Common informational patterns that should NOT become actions
+        informational_patterns = [
+            "it's your turn",
+            "your turn",
+            "waiting for",
+            "please make a decision",
+            "time bank",
+            "has timed out",
+            "disconnected",
+            "reconnected",
+            "sitting out",
+            "back",
+        ]
+        return any(pattern in segment_lower for pattern in informational_patterns)
+    
     def _parse_segment(self, segment: str, chat_line: ChatLine) -> Optional[GameEvent]:
         """Parse a single segment and extract game event if present.
         
@@ -219,6 +246,11 @@ class ChatParser:
         segment = segment.strip()
         
         if not segment:
+            return None
+        
+        # Filter out informational messages - they should NOT become actions
+        if self._is_informational_message(segment):
+            logger.debug(f"Skipping informational message: '{segment}'")
             return None
         
         # Try to match action patterns (prioritize action patterns)

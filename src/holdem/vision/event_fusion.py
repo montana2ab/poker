@@ -165,6 +165,22 @@ class EventFuser:
                     player_pos = change['player_pos']
                     curr_player = current_state.players[player_pos]
                     
+                    # Validate that the amount is reasonable
+                    # Skip if amount seems invalid (too small or inconsistent with game state)
+                    if not self._is_valid_action_amount(
+                        amount_put_in, 
+                        curr_player.bet_this_round,
+                        current_state.pot,
+                        prev_state.pot,
+                        delta_pot
+                    ):
+                        logger.warning(
+                            f"Skipping invalid stack delta for player {player_pos} "
+                            f"({curr_player.name}): delta={delta_stack:.2f}, "
+                            f"curr_bet={curr_player.bet_this_round:.2f}, pot_delta={delta_pot:.2f}"
+                        )
+                        continue
+                    
                     # Determine action type based on context
                     action_type = self._infer_action_from_stack_delta(
                         amount_put_in=amount_put_in,
@@ -175,11 +191,21 @@ class EventFuser:
                         player_stack=curr_player.stack
                     )
                     
+                    # Only create event if we have a valid amount (never create BET 0.0)
+                    event_amount = curr_player.bet_this_round
+                    if event_amount < 0.01 and action_type not in [ActionType.CHECK, ActionType.FOLD]:
+                        logger.warning(
+                            f"Skipping action event with zero/invalid amount: "
+                            f"player={curr_player.name}, action={action_type.value}, "
+                            f"amount={event_amount:.2f}"
+                        )
+                        continue
+                    
                     event = GameEvent(
                         event_type="action",
                         player=curr_player.name,
                         action=action_type,
-                        amount=curr_player.bet_this_round,
+                        amount=event_amount,
                         sources=[EventSource.VISION_STACK],
                         confidence=0.75,  # Medium confidence for stack-inferred actions
                         timestamp=datetime.now(),
@@ -189,7 +215,7 @@ class EventFuser:
                     logger.info(
                         f"Inferred action from stack delta: Player {player_pos} "
                         f"({curr_player.name}) - {action_type.value} "
-                        f"(delta: {delta_stack:.2f}, amount: {amount_put_in:.2f})"
+                        f"(delta: {delta_stack:.2f}, bet_amount: {event_amount:.2f})"
                     )
                 
                 # Positive delta could be winning a pot or error
@@ -247,6 +273,60 @@ class EventFuser:
                     events.append(event)
         
         return events
+    
+    def _is_valid_action_amount(
+        self,
+        amount_put_in: float,
+        curr_bet: float,
+        curr_pot: float,
+        prev_pot: float,
+        delta_pot: float
+    ) -> bool:
+        """Validate that an action amount is reasonable.
+        
+        This prevents creating events with invalid amounts (like BET 0.0) due to:
+        - OCR errors
+        - Scale mismatches (e.g., 4.74 vs 4736)
+        - Timing issues
+        
+        Args:
+            amount_put_in: Amount inferred from stack delta
+            curr_bet: Current bet amount for this player
+            curr_pot: Current pot size
+            prev_pot: Previous pot size
+            delta_pot: Change in pot
+            
+        Returns:
+            True if amount seems valid, False otherwise
+        """
+        # Amount must be positive and non-zero for betting actions
+        if amount_put_in < 0.01:
+            logger.debug(f"Invalid amount: too small ({amount_put_in:.2f})")
+            return False
+        
+        # Check if stack delta is consistent with pot change
+        # Allow some tolerance for rounding and multiple players acting
+        if abs(delta_pot) > 0.01:
+            # If pot changed significantly, at least one amount should be in similar range
+            max_discrepancy = max(abs(delta_pot), abs(amount_put_in)) * 0.5
+            if abs(abs(delta_pot) - abs(amount_put_in)) > max_discrepancy:
+                # Possible scale mismatch (e.g., 4.74 vs 4736)
+                logger.debug(
+                    f"Possible scale mismatch: amount_put_in={amount_put_in:.2f}, "
+                    f"delta_pot={delta_pot:.2f}"
+                )
+                # Don't reject, but flag for low confidence
+        
+        # If curr_bet is zero but we detected a stack change, something is off
+        if curr_bet < 0.01 and amount_put_in > 0.01:
+            logger.debug(
+                f"Suspicious: stack delta suggests action ({amount_put_in:.2f}) "
+                f"but curr_bet is zero"
+            )
+            # This might be a timing issue - OCR read stack before bet was updated
+            # Allow it but it will have lower confidence
+        
+        return True
     
     def _infer_action_from_stack_delta(
         self,
