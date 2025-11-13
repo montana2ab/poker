@@ -177,6 +177,11 @@ class TableDetector:
                 logger.warning("Failed to compute homography")
                 return screenshot
             
+            # Validate homography quality before applying transformation
+            if not self._is_homography_valid(H, dst_pts, src_pts, mask):
+                logger.warning("Homography quality check failed - using original screenshot")
+                return screenshot
+            
             # Warp screenshot to match reference
             h, w = self.profile.reference_image.shape[:2]
             warped = cv2.warpPerspective(screenshot, H, (w, h))
@@ -187,6 +192,93 @@ class TableDetector:
         except Exception as e:
             logger.error(f"Error during table detection: {e}")
             return screenshot
+    
+    def _is_homography_valid(self, H: np.ndarray, src_pts: np.ndarray, 
+                             dst_pts: np.ndarray, mask: Optional[np.ndarray] = None) -> bool:
+        """
+        Validate homography quality to avoid distorted transformations.
+        
+        Args:
+            H: Homography matrix (3x3)
+            src_pts: Source points used to compute H
+            dst_pts: Destination points used to compute H
+            mask: RANSAC inlier mask (optional)
+        
+        Returns:
+            True if homography is reliable, False otherwise
+        """
+        if H is None:
+            return False
+        
+        # Check 1: Determinant should not be too close to zero (non-singular matrix)
+        det = np.linalg.det(H)
+        if abs(det) < 1e-6:
+            logger.debug(f"Homography rejected: singular matrix (det={det:.2e})")
+            return False
+        
+        # Check 2: Condition number (ratio of largest to smallest singular value)
+        # High condition number indicates ill-conditioned transformation
+        try:
+            _, s, _ = np.linalg.svd(H)
+            if s[-1] == 0:
+                logger.debug("Homography rejected: zero singular value")
+                return False
+            condition_number = s[0] / s[-1]
+            if condition_number > 100:
+                logger.debug(f"Homography rejected: poor condition number ({condition_number:.1f})")
+                return False
+        except Exception as e:
+            logger.debug(f"Homography rejected: SVD failed ({e})")
+            return False
+        
+        # Check 3: Reprojection error - transform source points and check distance to destination
+        if src_pts is not None and dst_pts is not None and len(src_pts) > 0:
+            try:
+                # Use only inlier points if mask is available
+                if mask is not None:
+                    inlier_mask = mask.ravel() == 1
+                    if not any(inlier_mask):
+                        logger.debug("Homography rejected: no inliers")
+                        return False
+                    src_pts_to_check = src_pts[inlier_mask]
+                    dst_pts_to_check = dst_pts[inlier_mask]
+                else:
+                    src_pts_to_check = src_pts
+                    dst_pts_to_check = dst_pts
+                
+                # Transform source points using homography
+                src_pts_2d = src_pts_to_check.reshape(-1, 2)
+                src_pts_h = np.concatenate([src_pts_2d, np.ones((len(src_pts_2d), 1))], axis=1)
+                transformed = (H @ src_pts_h.T).T
+                
+                # Convert from homogeneous coordinates
+                transformed[:, 0] /= transformed[:, 2]
+                transformed[:, 1] /= transformed[:, 2]
+                
+                # Calculate reprojection error
+                dst_pts_2d = dst_pts_to_check.reshape(-1, 2)
+                errors = np.linalg.norm(transformed[:, :2] - dst_pts_2d, axis=1)
+                mean_error = np.mean(errors)
+                max_error = np.max(errors)
+                
+                # Reject if average error is too high (indicates poor fit)
+                if mean_error > 10.0:
+                    logger.debug(f"Homography rejected: high mean reprojection error ({mean_error:.2f} px)")
+                    return False
+                
+                # Also check max error to catch outliers
+                if max_error > 50.0:
+                    logger.debug(f"Homography rejected: high max reprojection error ({max_error:.2f} px)")
+                    return False
+                
+                logger.debug(f"Homography validated: mean_error={mean_error:.2f}px, "
+                           f"max_error={max_error:.2f}px, condition={condition_number:.1f}")
+                
+            except Exception as e:
+                logger.debug(f"Homography rejected: reprojection check failed ({e})")
+                return False
+        
+        return True
     
     def get_transform(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
         """Get homography transformation matrix."""
@@ -222,6 +314,12 @@ class TableDetector:
             dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
             
             H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+            
+            # Validate homography before returning
+            if H is not None and not self._is_homography_valid(H, dst_pts, src_pts, mask):
+                logger.debug("get_transform: homography validation failed")
+                return None
+            
             return H
             
         except Exception as e:
