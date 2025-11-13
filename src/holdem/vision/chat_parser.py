@@ -155,16 +155,18 @@ class ChatParser:
         
         events = []
         
-        # Check if line contains "Dealer:" delimiter (multi-action format)
-        if "Dealer:" in text or "dealer:" in text.lower():
+        # Check if line contains "Dealer:" delimiter (multi-action format) - case insensitive
+        text_lower = text.lower()
+        if "dealer:" in text_lower:
             # Split by "Dealer:" to get individual segments
             segments = re.split(r'Dealer:\s*', text, flags=re.IGNORECASE)
             
-            # Filter out empty segments
-            segments = [s.strip() for s in segments if s.strip()]
-            
-            # Parse each segment independently
+            # Parse each non-empty segment
             for segment in segments:
+                segment = segment.strip()
+                if not segment:
+                    continue
+                
                 # Skip board dealing segments
                 if self._is_board_dealing(segment):
                     logger.debug(f"Skipping board dealing segment: '{segment}'")
@@ -199,10 +201,10 @@ class ChatParser:
             True if segment is a board dealing announcement, False otherwise
         """
         segment_lower = segment.lower()
-        return any(keyword in segment_lower for keyword in [
-            'dealing flop:', 'dealing turn:', 'dealing river:',
-            'dealing flop [', 'dealing turn [', 'dealing river ['
-        ])
+        # Check for common board dealing patterns
+        return ('dealing flop' in segment_lower or 
+                'dealing turn' in segment_lower or 
+                'dealing river' in segment_lower)
     
     def _parse_segment(self, segment: str, chat_line: ChatLine) -> Optional[GameEvent]:
         """Parse a single segment and extract game event if present.
