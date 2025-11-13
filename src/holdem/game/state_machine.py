@@ -11,6 +11,7 @@ from enum import Enum
 import logging
 
 from holdem.types import ActionType, Street, TableState
+from holdem.game import holdem_rules
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +308,11 @@ class TexasHoldemStateMachine:
     ) -> Tuple[bool, List[str]]:
         """Process a player action and update internal state.
         
+        Uses centralized rules validation with graceful handling:
+        - Illegal actions generate WARNINGs
+        - Invalid amounts are clamped/corrected when possible
+        - Folded players cannot act (enforced)
+        
         Args:
             player_pos: Player position
             action: Action type
@@ -323,24 +329,71 @@ class TexasHoldemStateMachine:
         
         player = state.players[player_pos]
         
-        # Validate action
-        validation = self.validate_action(
+        # Create context for rules validation
+        context = holdem_rules.ActionContext(
             player_pos=player_pos,
-            action=action,
-            amount=amount,
             player_stack=player.stack,
             player_bet_this_round=player.bet_this_round,
-            current_bet=state.current_bet
+            player_folded=player.folded,
+            player_all_in=player.all_in,
+            current_bet=state.current_bet,
+            big_blind=self.big_blind,
+            last_raise_amount=self.last_raise_amount
         )
         
-        if not validation.is_legal:
-            messages.extend(validation.errors)
+        # Check action legality using centralized rules
+        is_legal, errors = holdem_rules.is_action_legal(action, context)
+        
+        if not is_legal:
+            # Log warning and try to suggest correction
+            logger.warning(f"Illegal action attempted: {action} by player {player_pos} ({player.name})")
+            for error in errors:
+                logger.warning(f"  - {error}")
+            
+            # Try to suggest a corrected action
+            suggested = holdem_rules.suggest_corrected_action(action, context)
+            if suggested:
+                logger.warning(f"  Suggested correction: {suggested}")
+                messages.append(
+                    f"WARNING: {action} is illegal - suggested action: {suggested}. Errors: {'; '.join(errors)}"
+                )
+            else:
+                messages.append(f"WARNING: {action} is illegal. Errors: {'; '.join(errors)}")
+            
             return False, messages
+        
+        # Validate and potentially correct bet amount
+        bet_validation = holdem_rules.validate_bet_amount(action, amount, context)
+        
+        if not bet_validation.is_valid:
+            logger.warning(
+                f"Invalid bet amount {amount:.2f} for action {action} by player {player_pos} ({player.name})"
+            )
+            for error in bet_validation.errors:
+                logger.warning(f"  - {error}")
+            messages.append(f"WARNING: Invalid bet amount. Errors: {'; '.join(bet_validation.errors)}")
+            return False, messages
+        
+        # Apply corrections if any
+        corrected_amount = amount
+        if bet_validation.corrected_amount is not None:
+            corrected_amount = bet_validation.corrected_amount
+            logger.warning(
+                f"Bet amount corrected from {amount:.2f} to {corrected_amount:.2f} for player {player_pos} ({player.name})"
+            )
+            for warning in bet_validation.warnings:
+                logger.warning(f"  - {warning}")
+            messages.append(f"Amount corrected: {amount:.2f} -> {corrected_amount:.2f}")
+        
+        # Log any warnings from bet validation
+        for warning in bet_validation.warnings:
+            if bet_validation.corrected_amount is None:
+                logger.warning(f"Bet validation warning: {warning}")
         
         # Mark player as having acted
         self.players_acted[player_pos] = True
         
-        # Process the action
+        # Process the action with corrected amount
         if action == ActionType.FOLD:
             messages.append(f"Player {player_pos} ({player.name}) folds")
             
@@ -348,40 +401,38 @@ class TexasHoldemStateMachine:
             messages.append(f"Player {player_pos} ({player.name}) checks")
             
         elif action == ActionType.CALL:
-            to_call = state.current_bet - player.bet_this_round
-            actual_call = min(to_call, player.stack)
             messages.append(
-                f"Player {player_pos} ({player.name}) calls {actual_call:.2f}"
+                f"Player {player_pos} ({player.name}) calls {corrected_amount:.2f}"
             )
             
         elif action == ActionType.BET:
             # Update current bet and last raise
-            self.current_bet = amount
-            self.last_raise_amount = amount
+            self.current_bet = corrected_amount
+            self.last_raise_amount = corrected_amount
             self.action_reopened = True
             # Reset players_acted for players after this one
             self._reopen_action(player_pos)
-            messages.append(f"Player {player_pos} ({player.name}) bets {amount:.2f}")
+            messages.append(f"Player {player_pos} ({player.name}) bets {corrected_amount:.2f}")
             
         elif action == ActionType.RAISE:
             # Update last raise amount
-            raise_by = amount - state.current_bet
+            raise_by = corrected_amount - state.current_bet
             self.last_raise_amount = raise_by
-            self.current_bet = amount
+            self.current_bet = corrected_amount
             self.action_reopened = True
             # Reset players_acted for players after this one
             self._reopen_action(player_pos)
             messages.append(
-                f"Player {player_pos} ({player.name}) raises to {amount:.2f}"
+                f"Player {player_pos} ({player.name}) raises to {corrected_amount:.2f}"
             )
             
         elif action == ActionType.ALLIN:
             # Determine if this reopens action
-            if amount > state.current_bet:
-                raise_by = amount - state.current_bet
+            if corrected_amount > state.current_bet:
+                raise_by = corrected_amount - state.current_bet
                 # If this is the first bet/raise on the street, require minimum bet (big blind)
                 if self.last_raise_amount == 0:
-                    min_raise = getattr(state, "big_blind", 0)
+                    min_raise = self.big_blind
                     if raise_by >= min_raise:
                         self.action_reopened = True
                         self.last_raise_amount = raise_by
@@ -391,9 +442,9 @@ class TexasHoldemStateMachine:
                         self.action_reopened = True
                         self.last_raise_amount = raise_by
                         self._reopen_action(player_pos)
-            self.current_bet = max(self.current_bet, amount)
+            self.current_bet = max(self.current_bet, corrected_amount)
             messages.append(
-                f"Player {player_pos} ({player.name}) goes all-in for {amount:.2f}"
+                f"Player {player_pos} ({player.name}) goes all-in for {corrected_amount:.2f}"
             )
         
         return True, messages
@@ -413,7 +464,7 @@ class TexasHoldemStateMachine:
         self,
         state: TableState
     ) -> bool:
-        """Check if the current betting round is complete.
+        """Check if the current betting round is complete using centralized rules.
         
         A betting round is complete when:
         - All active players have acted
@@ -426,34 +477,16 @@ class TexasHoldemStateMachine:
         Returns:
             True if betting round is complete
         """
-        active_players = [
-            i for i, p in enumerate(state.players)
-            if not p.folded
-        ]
+        can_advance, reason = holdem_rules.can_advance_to_next_street(
+            state.players, self.players_acted, state.current_bet
+        )
         
-        # If only one player remains, round is complete
-        if len(active_players) <= 1:
-            return True
+        if not can_advance:
+            logger.debug(f"Betting round incomplete: {reason}")
+        else:
+            logger.debug(f"Betting round complete: {reason}")
         
-        # Check if all active players have acted
-        for pos in active_players:
-            if not self.players_acted[pos]:
-                return False
-        
-        # Check if all bets are equalized (considering all-ins)
-        non_allin_players = [
-            p for p in state.players
-            if not p.folded and not p.all_in
-        ]
-        
-        if non_allin_players:
-            # All non-all-in players must have matching bets
-            target_bet = state.current_bet
-            for p in non_allin_players:
-                if abs(p.bet_this_round - target_bet) > 0.01:
-                    return False
-        
-        return True
+        return can_advance
     
     def can_advance_street(self, state: TableState) -> bool:
         """Check if we can advance to the next street.
@@ -467,7 +500,7 @@ class TexasHoldemStateMachine:
         return self.is_betting_round_complete(state)
     
     def advance_street(self, state: TableState) -> Optional[Street]:
-        """Advance to the next street.
+        """Advance to the next street using centralized rules.
         
         Args:
             state: Current table state
@@ -485,30 +518,25 @@ class TexasHoldemStateMachine:
         self.players_acted = [False] * self.num_players
         self.action_reopened = False
         
-        # Determine next street
-        if state.street == Street.PREFLOP:
-            self.current_street = Street.FLOP
-            return Street.FLOP
-        elif state.street == Street.FLOP:
-            self.current_street = Street.TURN
-            return Street.TURN
-        elif state.street == Street.TURN:
-            self.current_street = Street.RIVER
-            return Street.RIVER
-        elif state.street == Street.RIVER:
-            # Hand is over
-            return None
+        # Use centralized rule for next street
+        next_street = holdem_rules.get_next_street(state.street)
+        if next_street:
+            self.current_street = next_street
+            logger.info(f"Advanced from {state.street} to {next_street}")
+        else:
+            logger.info(f"Hand complete after {state.street}")
         
-        return None
+        return next_street
     
     def validate_state(self, state: TableState) -> GameStateValidation:
-        """Validate table state for consistency.
+        """Validate table state for consistency using centralized rules.
         
         Checks:
         - Pot is non-negative
         - All stacks are non-negative
         - No illegal bet amounts
         - Pot roughly equals sum of contributions
+        - Folded players are properly inactive
         
         Args:
             state: Table state to validate
@@ -519,36 +547,27 @@ class TexasHoldemStateMachine:
         errors = []
         warnings = []
         
-        # Check pot
-        if state.pot < 0:
-            errors.append(f"Pot is negative: {state.pot:.2f}")
+        # Use centralized pot consistency check
+        pot_ok, pot_warnings = holdem_rules.check_pot_consistency(state.pot, state.players)
+        if not pot_ok:
+            # Negative pot is an error, not just a warning
+            if state.pot < 0:
+                errors.extend([w for w in pot_warnings if "negative" in w.lower()])
+                warnings.extend([w for w in pot_warnings if "negative" not in w.lower()])
+            else:
+                warnings.extend(pot_warnings)
         
-        # Check player states
-        for i, player in enumerate(state.players):
-            if player.stack < 0:
-                errors.append(f"Player {i} ({player.name}) has negative stack: {player.stack:.2f}")
-            
-            if player.bet_this_round < 0:
-                errors.append(
-                    f"Player {i} ({player.name}) has negative bet: {player.bet_this_round:.2f}"
-                )
-            
-            if player.bet_this_round > player.stack + 0.01:
-                warnings.append(
-                    f"Player {i} ({player.name}) bet {player.bet_this_round:.2f} "
-                    f"exceeds stack {player.stack:.2f}"
-                )
+        # Use centralized stack consistency check
+        stacks_ok, stack_errors = holdem_rules.check_stack_consistency(state.players)
+        if not stacks_ok:
+            errors.extend(stack_errors)
         
-        # Validate pot consistency (within tolerance)
-        total_bets = sum(p.bet_this_round for p in state.players)
-        
-        # This check is tricky because pot accumulates across streets
-        # We can only check that current round bets don't exceed pot increase
-        if total_bets > state.pot + 0.01:
-            warnings.append(
-                f"Current round bets ({total_bets:.2f}) exceed pot ({state.pot:.2f}). "
-                f"This may indicate pot is from previous streets."
-            )
+        # Check folded players are properly marked
+        folded_ok, folded_warnings = holdem_rules.check_folded_players_inactive(
+            state.players, self.players_acted
+        )
+        if not folded_ok:
+            warnings.extend(folded_warnings)
         
         is_valid = len(errors) == 0
         
