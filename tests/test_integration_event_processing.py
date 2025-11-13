@@ -9,7 +9,6 @@ from unittest.mock import Mock, MagicMock
 import numpy as np
 
 from holdem.vision.chat_enabled_parser import ChatEnabledStateParser
-from holdem.vision.cards import CardRecognizer
 from holdem.types import (
     TableState,
     PlayerState,
