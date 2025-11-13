@@ -125,18 +125,6 @@ class TestIntegrationEventProcessing:
             button_position=0
         )
         
-        state = TableState(
-            street=Street.PREFLOP,
-            pot=3.0,
-            players=[
-                PlayerState("P1", stack=99.0, bet_this_round=1.0, position=0),
-                PlayerState("P2", stack=98.0, bet_this_round=2.0, position=1)
-            ],
-            current_bet=2.0,
-            small_blind=1.0,
-            big_blind=2.0,
-            button_position=0
-        )
         
         # P1 should be able to call
         validation = sm.validate_action(
