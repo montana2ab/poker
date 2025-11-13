@@ -271,7 +271,8 @@ class CardRecognizer:
     
     def recognize_cards(self, img: np.ndarray, num_cards: int = 5, 
                        use_hero_templates: bool = False, 
-                       skip_empty_check: bool = False) -> List[Optional[Card]]:
+                       skip_empty_check: bool = False,
+                       card_spacing: int = 0) -> List[Optional[Card]]:
         """Recognize multiple cards from image.
         
         Args:
@@ -279,6 +280,7 @@ class CardRecognizer:
             num_cards: Number of cards to recognize
             use_hero_templates: If True, use hero templates instead of board templates
             skip_empty_check: If True, skip checking if region contains cards (for hero cards)
+            card_spacing: Pixels of spacing/overlap between cards (negative for overlap, positive for spacing)
             
         Returns:
             List of recognized cards (None for unrecognized positions)
@@ -310,24 +312,59 @@ class CardRecognizer:
             logger.warning(f"Invalid num_cards={num_cards}, must be > 0")
             return cards
         
-        # Assume cards are horizontally aligned
-        card_width = width // num_cards
-        
         template_type = "hero" if use_hero_templates else "board"
-        logger.debug(f"Recognizing {num_cards} {template_type} cards from image {width}x{height}")
+        logger.debug(f"Recognizing {num_cards} {template_type} cards from image {width}x{height}, spacing={card_spacing}")
         
+        # Calculate card width accounting for spacing between cards
+        # Total width = (num_cards * card_width) + ((num_cards - 1) * spacing)
+        # Solving for card_width: card_width = (width - (num_cards - 1) * spacing) / num_cards
+        total_spacing = (num_cards - 1) * card_spacing
+        available_width = width - total_spacing
+        
+        # Use integer division for base card width, but distribute remainder pixels
+        base_card_width = available_width // num_cards
+        remainder = available_width % num_cards
+        
+        logger.debug(f"Card extraction: base_width={base_card_width}, remainder={remainder}, total_spacing={total_spacing}")
+        
+        current_x = 0
         for i in range(num_cards):
-            x1 = i * card_width
-            x2 = (i + 1) * card_width
+            # Give extra pixels to later cards to use full width
+            # This ensures the last card gets any remainder pixels
+            extra_pixels = 1 if i >= (num_cards - remainder) else 0
+            card_width = base_card_width + extra_pixels
+            
+            x1 = current_x
+            x2 = current_x + card_width
+            
+            # Ensure we don't go out of bounds
+            x2 = min(x2, width)
+            
+            # Log extraction details for debugging
+            logger.debug(f"Extracting card {i}: x=[{x1}:{x2}], width={x2-x1}")
+            
             card_img = img[:, x1:x2]
             
-            card = self.recognize_card(card_img, use_hero_templates=use_hero_templates)
-            cards.append(card)
-            
-            if card:
-                logger.debug(f"Card {i}: {card}")
+            # Validate extracted region
+            if card_img.size == 0 or card_img.shape[1] < 5:
+                logger.warning(f"Card {i} region too small or empty: shape={card_img.shape}")
+                cards.append(None)
             else:
-                logger.debug(f"Card {i}: not recognized")
+                card = self.recognize_card(card_img, use_hero_templates=use_hero_templates)
+                cards.append(card)
+                
+                if card:
+                    conf_str = f"{self.last_confidence_scores[-1]:.3f}" if self.last_confidence_scores else "N/A"
+                    logger.info(f"{template_type.capitalize()} card {i}: {card} (confidence: {conf_str})")
+                else:
+                    logger.warning(f"{template_type.capitalize()} card {i}: NOT RECOGNIZED (region: {x1}-{x2}, width: {x2-x1})")
+            
+            # Move to next card position (card width + spacing)
+            current_x = x2 + card_spacing
+        
+        # Log summary
+        recognized_count = len([c for c in cards if c is not None])
+        logger.info(f"Card recognition summary: {recognized_count}/{num_cards} {template_type} cards recognized")
         
         return cards
 

@@ -30,6 +30,7 @@ class TableProfile:
         self.descriptors: Optional[np.ndarray] = None
         self.hero_position: Optional[int] = None  # Index of hero player in player_regions
         self.hero_templates_dir: Optional[str] = None  # Directory for hero card templates
+        self.card_spacing: int = 0  # Spacing between cards in pixels (negative for overlap)
     
     def save(self, path: Path):
         """Save profile to JSON."""
@@ -48,6 +49,7 @@ class TableProfile:
             "chat_region": self.chat_region,
             "hero_position": self.hero_position,
             "hero_templates_dir": self.hero_templates_dir,
+            "card_spacing": self.card_spacing,
         }
         with open(path, 'w') as f:
             json.dump(data, f, indent=2)
@@ -82,6 +84,7 @@ class TableProfile:
         profile.chat_region = data.get("chat_region")
         profile.hero_position = data.get("hero_position")
         profile.hero_templates_dir = data.get("hero_templates_dir")
+        profile.card_spacing = data.get("card_spacing", 0)
         
         # Handle reference_image - can be path or loaded from .npy file
         ref_image_data = data.get("reference_image")
