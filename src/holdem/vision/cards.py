@@ -111,34 +111,79 @@ class CardRecognizer:
                 logger.warning("No templates loaded")
                 return None
         
+        # Validate image shape
+        if img.size == 0 or len(img.shape) < 2:
+            logger.warning("Invalid image shape for card recognition")
+            return None
+        
         # Convert to grayscale
         if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # Handle single-channel images with 3D shape (h, w, 1)
+            if img.shape[2] == 1:
+                gray = img[:, :, 0]
+            # Handle 4-channel images (BGRA) - convert from BGRA
+            elif img.shape[2] == 4:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+            # Standard 3-channel BGR
+            else:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
 
-        # Dimensions
+        # Dimensions - validate we have at least 2D
+        if len(gray.shape) < 2:
+            logger.warning("Grayscale conversion resulted in invalid shape")
+            return None
+        
         h, w = gray.shape[:2]
+        
+        # Minimum size check - need reasonable dimensions for matching
+        if h < 5 or w < 5:
+            logger.debug(f"Image too small for reliable matching: {h}x{w}")
+            return None
+        
+        # Ensure image is uint8 for histogram equalization
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
+        
         search = cv2.equalizeHist(gray)
   
         best_match = None
         best_score = 0.0
   
         for card_name, template in templates_to_use.items():
+            # Validate template
+            if template is None or template.size == 0:
+                logger.debug(f"Skipping invalid template: {card_name}")
+                continue
+            
+            # Ensure template is uint8 for histogram equalization
+            if template.dtype != np.uint8:
+                template = np.clip(template, 0, 255).astype(np.uint8)
+            
             # Normalize template
             t = cv2.equalizeHist(template)
             th, tw = t.shape[:2]
   
-            # If template is bigger than ROI, scale it down proportionally
-            if th > h or tw > w:
-                scale = min(h / float(th), w / float(tw))
+            # Template must be at least 3 pixels smaller in both dimensions for reliable matching
+            # This ensures we get a meaningful match result grid (at least 3x3)
+            min_margin = 3
+            target_h = h - min_margin
+            target_w = w - min_margin
+            
+            # If template is bigger than target size, scale it down proportionally
+            if th > target_h or tw > target_w:
+                scale = min(target_h / float(th), target_w / float(tw))
                 if scale <= 0:
+                    logger.debug(f"Cannot scale template {card_name} to fit image")
                     continue
                 t = cv2.resize(t, (max(1, int(tw * scale)), max(1, int(th * scale))), interpolation=cv2.INTER_AREA)
                 th, tw = t.shape[:2]
   
-            # Skip degenerate or still-too-large templates
-            if th <= 0 or tw <= 0 or th > h or tw > w:
+            # Skip degenerate templates or templates that are still too large
+            # Ensure template is smaller than image by at least 1 pixel in each dimension
+            if th <= 0 or tw <= 0 or th >= h or tw >= w:
+                logger.debug(f"Skipping template {card_name}: size {th}x{tw} vs image {h}x{w}")
                 continue
   
             # Sliding search across the full ROI
@@ -178,17 +223,37 @@ class CardRecognizer:
         """
         if img is None or img.size == 0:
             return False
+        
+        # Validate shape
+        if len(img.shape) < 2:
+            return False
+        
+        # Minimum size check
+        h, w = img.shape[:2]
+        if h < 5 or w < 5:
+            logger.debug(f"Region too small for card detection: {h}x{w}")
+            return False
             
         # Convert to grayscale if needed
         if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            if img.shape[2] == 1:
+                gray = img[:, :, 0]
+            elif img.shape[2] == 4:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+            else:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
+        
+        # Ensure uint8 type
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
             
         # Calculate variance - empty/uniform regions have low variance
         variance = np.var(gray)
         
         # Check if there are edges (cards have distinct edges)
+        # Canny requires at least some minimal size
         edges = cv2.Canny(gray, 50, 150)
         edge_ratio = np.count_nonzero(edges) / edges.size
         
