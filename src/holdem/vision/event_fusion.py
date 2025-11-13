@@ -10,6 +10,18 @@ from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.event_fusion")
 
+# Import utility function to detect showdown labels
+try:
+    from holdem.vision.parse_state import is_showdown_won_label
+except ImportError:
+    # Fallback if import fails (shouldn't happen in normal operation)
+    def is_showdown_won_label(name: str) -> bool:
+        import re
+        if not name:
+            return False
+        pattern = r'^Won\s+[0-9,.\s]+$'
+        return re.match(pattern, name.strip(), re.IGNORECASE) is not None
+
 
 @dataclass
 class FusedEvent:
@@ -191,6 +203,14 @@ class EventFuser:
                         player_stack=curr_player.stack
                     )
                     
+                    # Skip if this is a showdown "Won X,XXX" label
+                    if is_showdown_won_label(curr_player.name):
+                        logger.info(
+                            f"[SHOWDOWN] Ignoring action event for showdown label: "
+                            f"player={curr_player.name}, this is a pot win notification, not a real action"
+                        )
+                        continue
+                    
                     # Only create event if we have a valid amount (never create BET 0.0)
                     event_amount = curr_player.bet_this_round
                     if event_amount < 0.01 and action_type not in [ActionType.CHECK, ActionType.FOLD]:
@@ -234,6 +254,13 @@ class EventFuser:
             
             # Detect fold
             if not prev_player.folded and curr_player.folded:
+                # Skip if this is a showdown "Won X,XXX" label
+                if is_showdown_won_label(curr_player.name):
+                    logger.debug(
+                        f"[SHOWDOWN] Ignoring fold event for showdown label: {curr_player.name}"
+                    )
+                    continue
+                
                 event = GameEvent(
                     event_type="action",
                     player=curr_player.name,
@@ -249,6 +276,14 @@ class EventFuser:
                 bet_diff = curr_player.bet_this_round - prev_player.bet_this_round
                 
                 if bet_diff > 0.01:  # Significant bet increase
+                    # Skip if this is a showdown "Won X,XXX" label
+                    if is_showdown_won_label(curr_player.name):
+                        logger.info(
+                            f"[SHOWDOWN] Ignoring bet/raise/call event for showdown label: "
+                            f"{curr_player.name}, amount={curr_player.bet_this_round:.2f}"
+                        )
+                        continue
+                    
                     # Determine action type based on context
                     if prev_state.current_bet < 0.01:
                         action = ActionType.BET
