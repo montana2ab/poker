@@ -299,7 +299,11 @@ def main():
                         cards_str = ", ".join([str(c) for c in hero_cards])
                         logger.info(f"Hero cards: {cards_str}")
                     else:
-                        logger.debug("Hero cards not detected")
+                        logger.debug("Hero cards not yet detected (this is OK)")
+                
+                # Game can progress without hero cards - log observed actions
+                # This allows blinds, bets, raises, calls, folds to be tracked
+                logger.debug("[DRY RUN] Observing game state and actions...")
                 
                 # Use real-time search to decide action when we have our cards
                 if hero_cards and len(hero_cards) == 2:
@@ -321,8 +325,9 @@ def main():
                         logger.warning(f"[REAL-TIME SEARCH] Failed: {e}")
                         logger.info("[DRY RUN] Would fall back to blueprint or manual decision")
                 else:
-                    # No cards detected, can't make decision
-                    logger.info("[DRY RUN] Waiting for hole cards to be detected...")
+                    # No cards detected yet - that's fine, we can still observe
+                    if profile.hero_position is not None:
+                        logger.debug("[DRY RUN] No hero cards yet - observing other players' actions")
             else:
                 logger.warning("Failed to parse state")
             

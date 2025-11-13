@@ -18,6 +18,9 @@ logger = get_logger("vision.chat_parser")
 class EventSource(Enum):
     """Source of an event."""
     VISION = "vision"
+    VISION_STACK = "vision_stack"  # Stack delta tracking
+    VISION_BET_REGION = "vision_bet_region"  # OCR from bet region
+    VISION_POT = "vision_pot"  # Pot changes
     CHAT = "chat"
     FUSED = "fused"
 
