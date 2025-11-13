@@ -330,7 +330,11 @@ class StateParser:
                 except Exception as e:
                     logger.warning(f"Error saving debug image: {e}")
             
-            cards = self.card_recognizer.recognize_cards(card_region, num_cards=5)
+            cards = self.card_recognizer.recognize_cards(
+                card_region, 
+                num_cards=5,
+                card_spacing=getattr(self.profile, 'card_spacing', 0)
+            )
             
             # Track card recognition metrics if enabled
             if self.vision_metrics:
@@ -542,7 +546,13 @@ class StateParser:
             
             # Hole cards are 2 cards - use hero templates
             # Skip empty check for hero cards as they should always be present when visible
-            cards = self.card_recognizer.recognize_cards(card_region, num_cards=2, use_hero_templates=True, skip_empty_check=True)
+            cards = self.card_recognizer.recognize_cards(
+                card_region, 
+                num_cards=2, 
+                use_hero_templates=True, 
+                skip_empty_check=True,
+                card_spacing=getattr(self.profile, 'card_spacing', 0)
+            )
             
             # Get confidence scores
             confidences = self.card_recognizer.last_confidence_scores if hasattr(self.card_recognizer, 'last_confidence_scores') else []
