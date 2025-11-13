@@ -122,10 +122,14 @@ class TestAutoPlayMode:
         assert result is True
         # Should click input box, then the bet button
         assert mock_pyautogui.click.call_count == 2
-        # Should call hotkey to select all
-        mock_pyautogui.hotkey.assert_called_with('ctrl', 'a')
-        # Should type the amount
-        mock_pyautogui.typewrite.assert_called_once_with('50', interval=0.05)
+        # Should call hotkey to select all (platform-specific)
+        if executor.is_mac:
+            mock_pyautogui.hotkey.assert_called_with('command', 'a')
+        else:
+            mock_pyautogui.hotkey.assert_called_with('ctrl', 'a')
+        # Should type the amount with platform-specific interval
+        expected_interval = executor.type_interval
+        mock_pyautogui.typewrite.assert_called_once_with('50', interval=expected_interval)
     
     @patch('holdem.control.executor.pyautogui')
     def test_autoplay_bet_without_input_box(self, mock_pyautogui, autoplay_config, mock_state):
@@ -253,6 +257,82 @@ class TestExecutorSafety:
         
         assert result is False
         mock_pyautogui.click.assert_not_called()
+
+
+class TestPlatformSpecificBehavior:
+    """Test platform-specific timing and keyboard shortcuts."""
+    
+    def test_platform_timing_configuration(self, mock_profile, autoplay_config):
+        """Test that executor configures timing based on platform."""
+        executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Verify timing values are set
+        assert hasattr(executor, 'click_delay')
+        assert hasattr(executor, 'input_delay')
+        assert hasattr(executor, 'type_interval')
+        
+        # Verify they are positive numbers
+        assert executor.click_delay > 0
+        assert executor.input_delay > 0
+        assert executor.type_interval > 0
+        
+        # Verify platform detection attributes exist
+        assert hasattr(executor, 'is_mac')
+        assert hasattr(executor, 'is_apple_silicon')
+    
+    @patch('holdem.control.executor._is_macos')
+    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor.time.sleep')
+    def test_mac_uses_command_key(self, mock_sleep, mock_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
+        """Test that macOS uses command key instead of ctrl."""
+        mock_is_macos.return_value = True
+        
+        executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Manually set is_mac to True for this test
+        executor.is_mac = True
+        
+        action = Action(action_type=ActionType.BET, amount=50.0)
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        # Verify command key was used
+        mock_pyautogui.hotkey.assert_called_with('command', 'a')
+    
+    @patch('holdem.control.executor._is_macos')
+    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor.time.sleep')
+    def test_linux_uses_ctrl_key(self, mock_sleep, mock_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
+        """Test that Linux/Windows uses ctrl key."""
+        mock_is_macos.return_value = False
+        
+        executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Manually set is_mac to False for this test
+        executor.is_mac = False
+        
+        action = Action(action_type=ActionType.BET, amount=50.0)
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        # Verify ctrl key was used
+        mock_pyautogui.hotkey.assert_called_with('ctrl', 'a')
+    
+    @patch('holdem.control.executor._is_apple_silicon')
+    def test_apple_silicon_longer_delays(self, mock_is_apple_silicon, mock_profile, autoplay_config):
+        """Test that Apple Silicon uses longer delays."""
+        mock_is_apple_silicon.return_value = True
+        
+        executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Manually set platform detection for this test
+        executor.is_apple_silicon = True
+        executor.is_mac = True
+        executor.click_delay = 0.15
+        executor.input_delay = 0.15
+        executor.type_interval = 0.08
+        
+        assert executor.click_delay == 0.15
+        assert executor.input_delay == 0.15
+        assert executor.type_interval == 0.08
 
 
 if __name__ == '__main__':
