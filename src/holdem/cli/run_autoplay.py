@@ -294,16 +294,14 @@ def main():
             
             logger.info(f"State: {state.street.name}, Pot={state.pot:.2f}, Players={state.num_players}")
             
-            # Get hero cards
-            hero_cards = None
-            if profile.hero_position is not None and profile.hero_position < len(state.players):
-                hero = state.players[profile.hero_position]
-                if hero.hole_cards:
-                    hero_cards = hero.hole_cards
-                    cards_str = ", ".join([str(c) for c in hero_cards])
-                    logger.info(f"Hero cards: {cards_str}")
-                else:
-                    logger.debug("Hero cards not yet detected (this is OK)")
+            # Get hero cards using cache if available
+            hero_cards = state.get_hero_cards()
+            
+            if hero_cards and len(hero_cards) > 0:
+                cards_str = ", ".join([str(c) for c in hero_cards])
+                logger.info(f"Hero cards: {cards_str}")
+            else:
+                logger.debug("[AUTO-PLAY] Hero cards missing - observing only")
             
             # Use real-time search to decide and execute action only when we have cards
             if hero_cards and len(hero_cards) == 2:

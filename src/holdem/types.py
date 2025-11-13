@@ -129,6 +129,181 @@ class Action:
 
 
 @dataclass
+class PlayerSeatState:
+    """State of a player seat with stable identity tracking.
+    
+    This structure helps distinguish between:
+    - Canonical player name (stable throughout the hand)
+    - Overlay text (action bubble that may show "Call", "Bet", etc. instead of name)
+    """
+    seat_index: int
+    canonical_name: Optional[str] = None  # Real player name, stable throughout hand
+    overlay_text: Optional[str] = None  # Current text in name/action region
+    last_action: Optional[ActionType] = None
+    last_action_amount: Optional[float] = None
+    
+    def update_from_ocr(self, raw_text: str, action_keywords: set) -> Optional['GameEvent']:
+        """Update seat state from OCR text and potentially create an action event.
+        
+        Args:
+            raw_text: Raw text from name/action region
+            action_keywords: Set of action keywords to check against
+            
+        Returns:
+            GameEvent if an action was detected, None otherwise
+        """
+        from holdem.vision.chat_parser import GameEvent, EventSource
+        from datetime import datetime
+        
+        self.overlay_text = raw_text
+        raw_lower = raw_text.lower().strip()
+        
+        # Check if this is an action keyword (not a player name)
+        if raw_lower in action_keywords or any(kw in raw_lower for kw in action_keywords):
+            # This is an action overlay, not a name
+            # Don't update canonical_name
+            # Parse the action and create event if we have a canonical name
+            if self.canonical_name:
+                return self._parse_action_overlay(raw_text)
+            return None
+        else:
+            # This looks like a player name
+            if not self.canonical_name:
+                # First time seeing this player
+                self.canonical_name = raw_text
+            elif self.canonical_name.lower() != raw_lower:
+                # Name changed - could be truncation or OCR error
+                # Use edit distance to decide if it's the same player
+                if self._is_similar_name(self.canonical_name, raw_text):
+                    # Probably same player, keep original name
+                    pass
+                else:
+                    # Different player took this seat
+                    self.canonical_name = raw_text
+            return None
+    
+    def _parse_action_overlay(self, overlay_text: str) -> Optional['GameEvent']:
+        """Parse action from overlay text like 'Call 850', 'Bet 2055', 'Check', etc."""
+        from holdem.vision.chat_parser import GameEvent, EventSource
+        from datetime import datetime
+        import re
+        
+        overlay_lower = overlay_text.lower().strip()
+        
+        # Pattern matching for actions
+        if 'fold' in overlay_lower:
+            self.last_action = ActionType.FOLD
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.FOLD,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        if 'check' in overlay_lower:
+            self.last_action = ActionType.CHECK
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.CHECK,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        # Match "Call 850" or "Call" with amount
+        call_match = re.search(r'call\s*([\d,\.]+)?', overlay_lower)
+        if call_match:
+            amount = None
+            if call_match.group(1):
+                amount = float(call_match.group(1).replace(',', ''))
+            self.last_action = ActionType.CALL
+            self.last_action_amount = amount
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.CALL,
+                amount=amount,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        # Match "Bet 2055" or "Bet" with amount
+        bet_match = re.search(r'bet\s*([\d,\.]+)?', overlay_lower)
+        if bet_match:
+            amount = None
+            if bet_match.group(1):
+                amount = float(bet_match.group(1).replace(',', ''))
+            self.last_action = ActionType.BET
+            self.last_action_amount = amount
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.BET,
+                amount=amount,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        # Match "Raise to 4736" or "Raise 4736"
+        raise_match = re.search(r'raise\s*(?:to\s*)?([\d,\.]+)?', overlay_lower)
+        if raise_match:
+            amount = None
+            if raise_match.group(1):
+                amount = float(raise_match.group(1).replace(',', ''))
+            self.last_action = ActionType.RAISE
+            self.last_action_amount = amount
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.RAISE,
+                amount=amount,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        # Match "All-in" or "All in"
+        if 'all' in overlay_lower and 'in' in overlay_lower:
+            self.last_action = ActionType.ALLIN
+            return GameEvent(
+                event_type="action",
+                player=self.canonical_name,
+                action=ActionType.ALLIN,
+                sources=[EventSource.VISION],
+                timestamp=datetime.now()
+            )
+        
+        return None
+    
+    def _is_similar_name(self, name1: str, name2: str) -> bool:
+        """Check if two names are similar (for handling OCR errors/truncation).
+        
+        This method tries to distinguish between:
+        - Truncation: "hilanderjojo" vs "hilanderj" -> similar
+        - Different players: "player1" vs "player2" -> not similar
+        """
+        # Simple similarity check - could use Levenshtein distance
+        name1_lower = name1.lower().strip()
+        name2_lower = name2.lower().strip()
+        
+        # If names are identical, they're similar
+        if name1_lower == name2_lower:
+            return True
+        
+        # Check if one is prefix of other (for truncation)
+        # The shorter must be at least 70% of the longer
+        if name1_lower.startswith(name2_lower) or name2_lower.startswith(name1_lower):
+            shorter_len = min(len(name1_lower), len(name2_lower))
+            longer_len = max(len(name1_lower), len(name2_lower))
+            if shorter_len >= longer_len * 0.7:
+                return True
+        
+        # For other cases (not prefix match), be very conservative
+        # This avoids false positives like "player1" vs "player2"
+        return False
+
+
+@dataclass
 class PlayerState:
     """State of a single player."""
     name: str
@@ -157,6 +332,8 @@ class TableState:
     to_call: float = 0.0  # Amount hero needs to call
     effective_stack: float = 0.0  # Min(hero_stack, max_opponent_stack)
     spr: float = 0.0  # Stack-to-pot ratio (effective_stack / pot)
+    last_valid_hero_cards: Optional[List[Card]] = None  # Cache of hero cards for current hand
+    hand_id: Optional[str] = None  # Unique ID for current hand (reset triggers hero cards cache clear)
     
     @property
     def num_players(self) -> int:
@@ -165,6 +342,29 @@ class TableState:
     @property
     def active_players(self) -> List[PlayerState]:
         return [p for p in self.players if not p.folded]
+    
+    def get_hero_cards(self) -> Optional[List[Card]]:
+        """Get hero cards, using cache if current cards are not available.
+        
+        Returns hero cards from:
+        1. Current hero player's hole_cards if available
+        2. Cached last_valid_hero_cards if current not available
+        3. None if neither available
+        """
+        if self.hero_position is not None and self.hero_position < len(self.players):
+            hero = self.players[self.hero_position]
+            if hero.hole_cards and len(hero.hole_cards) > 0:
+                # Update cache with current cards
+                self.last_valid_hero_cards = hero.hole_cards
+                return hero.hole_cards
+        
+        # Fallback to cached cards
+        return self.last_valid_hero_cards
+    
+    def reset_hand(self):
+        """Reset state for a new hand - clears hero cards cache."""
+        self.last_valid_hero_cards = None
+        self.hand_id = None
 
 
 @dataclass

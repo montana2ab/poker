@@ -290,16 +290,15 @@ def main():
                     board_str = ", ".join([str(c) for c in state.board])
                     logger.info(f"Board: {board_str}")
                 
-                # Log hero's hole cards if detected
-                hero_cards = None
-                if profile.hero_position is not None and profile.hero_position < len(state.players):
-                    hero = state.players[profile.hero_position]
-                    if hero.hole_cards:
-                        hero_cards = hero.hole_cards
-                        cards_str = ", ".join([str(c) for c in hero_cards])
-                        logger.info(f"Hero cards: {cards_str}")
-                    else:
-                        logger.debug("Hero cards not yet detected (this is OK)")
+                # Get hero's hole cards using cache if available
+                hero_cards = state.get_hero_cards()
+                
+                if hero_cards and len(hero_cards) > 0:
+                    cards_str = ", ".join([str(c) for c in hero_cards])
+                    logger.info(f"Hero cards: {cards_str}")
+                else:
+                    # No cards detected yet - that's fine, we can still observe game state
+                    logger.debug("[DRY RUN] Hero cards missing, tracking game state only...")
                 
                 # Game can progress without hero cards - log observed actions
                 # This allows blinds, bets, raises, calls, folds to be tracked
