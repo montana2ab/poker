@@ -1,7 +1,13 @@
 """Tests for the vision system fix when board is empty (preflop)."""
 
 import pytest
+import sys
+from pathlib import Path
 import numpy as np
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.parse_state import StateParser
 from holdem.vision.calibrate import TableProfile
