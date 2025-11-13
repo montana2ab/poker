@@ -1,0 +1,52 @@
+{
+  "_comment": "Example table profile with bet_input_box region for auto-play",
+  "window_title": "Hold'em",
+  "owner_name": "PokerStars",
+  "screen_region": [369, 333, 597, 385],
+  
+  "button_regions": {
+    "fold": {
+      "x": 149,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "check": {
+      "x": 238,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "call": {
+      "x": 238,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "bet": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "raise": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "allin": {
+      "x": 417,
+      "y": 327,
+      "width": 100,
+      "height": 40
+    },
+    "_comment_bet_input_box": "Optional: Region for bet amount input field. If provided, the bot will click here, clear the field, type the exact amount, then click the bet/raise button. If not provided, it will just click bet/raise with the default amount.",
+    "bet_input_box": {
+      "x": 350,
+      "y": 280,
+      "width": 100,
+      "height": 30
+    }
+  }
+}

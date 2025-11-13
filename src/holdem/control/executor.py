@@ -180,6 +180,9 @@ class ActionExecutor:
             if response.lower() != 'y':
                 logger.info("Action cancelled by user")
                 return False
+        else:
+            # Auto-play mode: no confirmation needed
+            logger.info(f"[AUTO-PLAY] Auto-confirming action: {action}")
         
         # Execute based on action type
         try:
@@ -236,7 +239,7 @@ class ActionExecutor:
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
         
-        logger.info(f"Executing {action.action_type.value} at ({x}, {y})")
+        logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
         
         pyautogui.click(x, y)
         time.sleep(self.config.min_action_delay_ms / 1000.0)
@@ -250,9 +253,9 @@ class ActionExecutor:
     ) -> bool:
         """Execute a bet or raise with precise amount.
         
-        This is a placeholder implementation. Different poker clients handle
-        bet sizing differently (sliders, input fields, preset buttons).
-        Customize this method for your specific poker client.
+        Attempts to input the exact bet amount if a bet_input_box region
+        is configured in the profile. Otherwise, clicks the bet/raise button
+        with default amount.
         
         Args:
             button_region: Button region for bet/raise
@@ -262,26 +265,59 @@ class ActionExecutor:
         Returns:
             True if successful
         """
-        # TODO: Implement client-specific bet sizing
-        # Options:
-        # 1. Use bet slider (requires slider detection and positioning)
-        # 2. Use input field (requires field detection and typing)
-        # 3. Use preset bet buttons (25%, 50%, 75%, pot, etc.)
+        logger.info(f"[AUTO-PLAY] Executing {action.action_type.value} of {action.amount}")
         
-        logger.info(f"Executing {action.action_type.value} of {action.amount}")
+        # Check if profile has bet input box configured
+        bet_input_box = self.profile.button_regions.get('bet_input_box')
         
-        # For now, just click the button (assumes client has reasonable defaults)
-        # In production, this should be enhanced with amount-specific logic
+        if bet_input_box and action.amount:
+            # Use input box to enter precise amount
+            try:
+                # Click in the bet input box
+                input_x = bet_input_box['x'] + bet_input_box['width'] // 2
+                input_y = bet_input_box['y'] + bet_input_box['height'] // 2
+                
+                logger.info(f"[AUTO-PLAY] Clicking bet input box at ({input_x}, {input_y})")
+                pyautogui.click(input_x, input_y)
+                time.sleep(0.1)
+                
+                # Clear existing value (Ctrl+A or triple-click then delete)
+                pyautogui.hotkey('ctrl', 'a')
+                time.sleep(0.05)
+                
+                # Type the amount
+                amount_str = str(int(action.amount)) if action.amount == int(action.amount) else f"{action.amount:.2f}"
+                logger.info(f"[AUTO-PLAY] Typing bet amount: {amount_str}")
+                pyautogui.typewrite(amount_str, interval=0.05)
+                time.sleep(0.1)
+                
+                # Click the bet/raise button to confirm
+                x = button_region['x'] + button_region['width'] // 2
+                y = button_region['y'] + button_region['height'] // 2
+                
+                logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} button at ({x}, {y})")
+                pyautogui.click(x, y)
+                time.sleep(self.config.min_action_delay_ms / 1000.0)
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to input bet amount: {e}, falling back to default bet")
+                # Fall through to default behavior
+        
+        # Default: just click the button (uses client's default amount)
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
         
+        logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
         pyautogui.click(x, y)
         time.sleep(self.config.min_action_delay_ms / 1000.0)
         
-        logger.warning(
-            "Bet/raise executed without precise amount control. "
-            "Implement client-specific bet sizing for production use."
-        )
+        if not bet_input_box:
+            logger.warning(
+                "Bet/raise executed without precise amount control. "
+                "Add 'bet_input_box' region to profile for precise bet sizing."
+            )
         
         return True
     
@@ -316,12 +352,15 @@ class ActionExecutor:
             if response.lower() != 'y':
                 logger.info("Action cancelled by user")
                 return False
+        else:
+            # Auto-play mode: no confirmation needed
+            logger.info(f"[AUTO-PLAY] Auto-confirming action: {action.value}")
         
         # Click the button
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
         
-        logger.info(f"Executing action: {action.value} at ({x}, {y})")
+        logger.info(f"[AUTO-PLAY] Clicking {action.value} at screen position ({x}, {y})")
         
         try:
             pyautogui.click(x, y)
