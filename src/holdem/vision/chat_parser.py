@@ -72,13 +72,19 @@ class ChatParser:
         'bet': re.compile(r'^(.+?)\s+bets?\s+\$?([\d,\.]+)', re.IGNORECASE),
         'raise': re.compile(r'^(.+?)\s+raises?\s+(?:to\s+)?\$?([\d,\.]+)', re.IGNORECASE),
         'allin': re.compile(r'^(.+?)\s+(?:is\s+)?all[- ]in', re.IGNORECASE),
+        'leave': re.compile(r'^(.+?)\s+leaves?\s+(?:the\s+)?table', re.IGNORECASE),
         
         # Street changes
         'flop': re.compile(r'\*\*\*\s*flop\s*\*\*\*\s*\[([^\]]+)\]', re.IGNORECASE),
         'turn': re.compile(r'\*\*\*\s*turn\s*\*\*\*\s*\[([^\]]+)\]', re.IGNORECASE),
         'river': re.compile(r'\*\*\*\s*river\s*\*\*\*\s*\[([^\]]+)\]', re.IGNORECASE),
         
-        # Card deals
+        # Card deals - Board dealing (to be filtered from action events)
+        'dealing_flop': re.compile(r'dealing\s+flop:\s*\[([^\]]+)\]', re.IGNORECASE),
+        'dealing_turn': re.compile(r'dealing\s+turn:\s*\[([^\]]+)\]', re.IGNORECASE),
+        'dealing_river': re.compile(r'dealing\s+river:\s*\[([^\]]+)\]', re.IGNORECASE),
+        
+        # Card deals - Player cards
         'hole_cards': re.compile(r'dealt\s+to\s+(.+?)\s+\[([^\]]+)\]', re.IGNORECASE),
         
         # Showdown
@@ -121,17 +127,116 @@ class ChatParser:
             return []
     
     def parse_chat_line(self, chat_line: ChatLine) -> Optional[GameEvent]:
-        """Parse a single chat line and extract game event if present."""
+        """Parse a single chat line and extract game event if present.
+        
+        DEPRECATED: Use parse_chat_line_multi() for better multi-action support.
+        This method is kept for backward compatibility and returns only the first event.
+        """
+        events = self.parse_chat_line_multi(chat_line)
+        return events[0] if events else None
+    
+    def parse_chat_line_multi(self, chat_line: ChatLine) -> List[GameEvent]:
+        """Parse a single chat line and extract multiple game events if present.
+        
+        This method can extract multiple actions from a single line, e.g.:
+        "Dealer: Rapyxa bets 850 Dealer: daly43 calls 850 Dealer: palianica folds"
+        will return 3 events.
+        
+        Args:
+            chat_line: The chat line to parse
+            
+        Returns:
+            List of GameEvent objects extracted from the line
+        """
         text = chat_line.text.strip()
         
         if not text:
+            return []
+        
+        events = []
+        
+        # Check if line contains "Dealer:" delimiter (multi-action format) - case insensitive
+        text_lower = text.lower()
+        if "dealer:" in text_lower:
+            # Split by "Dealer:" to get individual segments
+            segments = re.split(r'Dealer:\s*', text, flags=re.IGNORECASE)
+            
+            # Parse each non-empty segment
+            for segment in segments:
+                segment = segment.strip()
+                if not segment:
+                    continue
+                
+                # Skip board dealing segments
+                if self._is_board_dealing(segment):
+                    logger.debug(f"Skipping board dealing segment: '{segment}'")
+                    continue
+                
+                # Try to parse action from segment
+                event = self._parse_segment(segment, chat_line)
+                if event:
+                    events.append(event)
+        else:
+            # Single action format - use existing pattern matching
+            for action_name, pattern in self.PATTERNS.items():
+                match = pattern.search(text)
+                if match:
+                    event = self._create_event_from_match(action_name, match, chat_line)
+                    if event:
+                        events.append(event)
+                    break  # Only return first match for non-Dealer format
+        
+        if events:
+            logger.debug(f"Extracted {len(events)} events from chat line: '{text}'")
+        
+        return events
+    
+    def _is_board_dealing(self, segment: str) -> bool:
+        """Check if a segment is a board dealing announcement.
+        
+        Args:
+            segment: Text segment to check
+            
+        Returns:
+            True if segment is a board dealing announcement, False otherwise
+        """
+        segment_lower = segment.lower()
+        # Check for common board dealing patterns
+        return ('dealing flop' in segment_lower or 
+                'dealing turn' in segment_lower or 
+                'dealing river' in segment_lower)
+    
+    def _parse_segment(self, segment: str, chat_line: ChatLine) -> Optional[GameEvent]:
+        """Parse a single segment and extract game event if present.
+        
+        Args:
+            segment: Text segment to parse
+            chat_line: Original chat line for metadata
+            
+        Returns:
+            GameEvent if pattern matches, None otherwise
+        """
+        segment = segment.strip()
+        
+        if not segment:
             return None
         
-        # Try to match action patterns
+        # Try to match action patterns (prioritize action patterns)
+        action_patterns = ['fold', 'check', 'call', 'bet', 'raise', 'allin', 'leave']
+        
+        for action_name in action_patterns:
+            pattern = self.PATTERNS.get(action_name)
+            if pattern:
+                match = pattern.search(segment)
+                if match:
+                    return self._create_event_from_match(action_name, match, chat_line)
+        
+        # Try other patterns
         for action_name, pattern in self.PATTERNS.items():
-            match = pattern.search(text)
-            if match:
-                return self._create_event_from_match(action_name, match, chat_line)
+            if action_name not in action_patterns:
+                match = pattern.search(segment)
+                if match:
+                    return self._create_event_from_match(action_name, match, chat_line)
         
         return None
     
@@ -208,6 +313,16 @@ class ChatParser:
                     sources=[EventSource.CHAT],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
+                )
+            
+            elif pattern_name == 'leave':
+                return GameEvent(
+                    event_type="action",
+                    player=match.group(1).strip(),
+                    action=ActionType.FOLD,  # Treat leave as fold for action tracking
+                    sources=[EventSource.CHAT],
+                    timestamp=chat_line.timestamp,
+                    raw_data={'chat': chat_line.text, 'original_action': 'leave'}
                 )
             
             # Street change events
@@ -332,10 +447,12 @@ class ChatParser:
         events = []
         
         for line in chat_lines:
-            event = self.parse_chat_line(line)
-            if event:
-                events.append(event)
-                logger.debug(f"Parsed event: {event.event_type} from '{line.text}'")
+            # Use multi-event parsing to extract multiple actions per line
+            line_events = self.parse_chat_line_multi(line)
+            if line_events:
+                events.extend(line_events)
+                for event in line_events:
+                    logger.debug(f"Parsed event: {event.event_type} from '{line.text}'")
         
         # Update chat history
         self._chat_history.extend(chat_lines)
@@ -348,8 +465,9 @@ class ChatParser:
         events = []
         
         for line in recent_lines:
-            event = self.parse_chat_line(line)
-            if event:
-                events.append(event)
+            # Use multi-event parsing to extract multiple actions per line
+            line_events = self.parse_chat_line_multi(line)
+            if line_events:
+                events.extend(line_events)
         
         return events

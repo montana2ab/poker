@@ -196,6 +196,131 @@ class TestChatParser:
         assert len(cards) == 2
         assert str(cards[0]) == "Ah"
         assert str(cards[1]) == "Kd"
+    
+    def test_parse_multi_action_line(self, chat_parser):
+        """Test parsing multiple actions from a single line (Case 1)."""
+        # Example: "Dealer: Rapyxa bets 850 Dealer: daly43 calls 850 Dealer: palianica folds"
+        chat_line = ChatLine(
+            text="Dealer: Rapyxa bets 850 Dealer: daly43 calls 850 Dealer: palianica folds",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 3
+        
+        # First event: Rapyxa bets 850
+        assert events[0].event_type == "action"
+        assert events[0].player == "Rapyxa"
+        assert events[0].action == ActionType.BET
+        assert events[0].amount == 850.0
+        
+        # Second event: daly43 calls 850
+        assert events[1].event_type == "action"
+        assert events[1].player == "daly43"
+        assert events[1].action == ActionType.CALL
+        assert events[1].amount == 850.0
+        
+        # Third event: palianica folds
+        assert events[2].event_type == "action"
+        assert events[2].player == "palianica"
+        assert events[2].action == ActionType.FOLD
+        assert events[2].amount is None
+    
+    def test_parse_multi_action_with_board_dealing(self, chat_parser):
+        """Test parsing actions mixed with board dealing (Case 2)."""
+        # Example: "Dealer: hilanderJOjo calls 639 Dealer: Dealing River: [Jc] Dealer: Rapyxa checks"
+        chat_line = ChatLine(
+            text="Dealer: hilanderJOjo calls 639 Dealer: Dealing River: [Jc] Dealer: Rapyxa checks",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        # Should only extract action events, not board dealing
+        assert len(events) == 2
+        
+        # First event: hilanderJOjo calls 639
+        assert events[0].event_type == "action"
+        assert events[0].player == "hilanderJOjo"
+        assert events[0].action == ActionType.CALL
+        assert events[0].amount == 639.0
+        
+        # Second event: Rapyxa checks
+        assert events[1].event_type == "action"
+        assert events[1].player == "Rapyxa"
+        assert events[1].action == ActionType.CHECK
+        assert events[1].amount is None
+    
+    def test_parse_board_dealing_only(self, chat_parser):
+        """Test parsing line with only board dealing (Case 3)."""
+        # Example: "Dealer: Dealing Flop: [Ac Jd 9d]"
+        chat_line = ChatLine(
+            text="Dealer: Dealing Flop: [Ac Jd 9d]",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        # Should return no action events
+        assert len(events) == 0
+    
+    def test_parse_single_action_backward_compatibility(self, chat_parser):
+        """Test backward compatibility with single action lines (Case 4)."""
+        # Example: "Dealer: palianica folds"
+        chat_line = ChatLine(
+            text="Dealer: palianica folds",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        assert events[0].event_type == "action"
+        assert events[0].player == "palianica"
+        assert events[0].action == ActionType.FOLD
+        
+        # Also test old API
+        event = chat_parser.parse_chat_line(chat_line)
+        assert event is not None
+        assert event.action == ActionType.FOLD
+    
+    def test_parse_leave_table_action(self, chat_parser):
+        """Test parsing 'leaves the table' action."""
+        chat_line = ChatLine(
+            text="Dealer: palianica leaves the table",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        assert events[0].event_type == "action"
+        assert events[0].player == "palianica"
+        assert events[0].action == ActionType.FOLD  # Leave is treated as fold
+        assert events[0].raw_data.get('original_action') == 'leave'
+    
+    def test_parse_multi_action_with_raises(self, chat_parser):
+        """Test parsing multiple actions including raises."""
+        chat_line = ChatLine(
+            text="Dealer: Player1 raises to 100 Dealer: Player2 calls 100 Dealer: Player3 folds",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 3
+        
+        assert events[0].action == ActionType.RAISE
+        assert events[0].amount == 100.0
+        
+        assert events[1].action == ActionType.CALL
+        assert events[1].amount == 100.0
+        
+        assert events[2].action == ActionType.FOLD
+    
+    def test_parse_non_dealer_format(self, chat_parser):
+        """Test parsing chat lines without 'Dealer:' prefix."""
+        chat_line = ChatLine(text="Player1 folds", timestamp=datetime.now())
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        assert events[0].player == "Player1"
+        assert events[0].action == ActionType.FOLD
 
 
 class TestEventFusion:
