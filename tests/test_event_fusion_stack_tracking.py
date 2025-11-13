@@ -40,7 +40,7 @@ class TestEventFusionStackTracking:
             button_position=0
         )
         
-        events = fuser.create_vision_events_from_state(None, state)
+        fuser.create_vision_events_from_state(None, state)
         
         # No events on first observation, but stacks should be tracked
         assert 0 in fuser._previous_stacks
