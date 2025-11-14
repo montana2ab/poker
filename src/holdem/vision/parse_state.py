@@ -49,6 +49,56 @@ def _parse_amount_from_text(txt: str) -> Optional[float]:
         return None
 
 
+def is_button_label(name: str) -> bool:
+    """
+    Return True if 'name' looks like a button label (Raise, Call, Bet, Fold, Check, All-in)
+    rather than a player name.
+    
+    These labels appear from OCR reading action buttons and should never be
+    interpreted as player names in action events.
+    
+    Args:
+        name: The OCR name to check
+        
+    Returns:
+        True if it's a button label, False otherwise
+    
+    Examples:
+        >>> is_button_label("Raise")
+        True
+        >>> is_button_label("Call")
+        True
+        >>> is_button_label("call")
+        True
+        >>> is_button_label("ALL-IN")
+        True
+        >>> is_button_label("Player123")
+        False
+        >>> is_button_label("guyeast")
+        False
+    """
+    if not name:
+        return False
+    
+    cleaned = name.strip().lower()
+    button_words = {
+        "raise",
+        "call",
+        "bet",
+        "fold",
+        "check",
+        "all-in",
+        "all in",
+        "allin",
+    }
+    
+    is_button = cleaned in button_words
+    if is_button:
+        logger.debug(f"[VISION] Detected button label: '{name}'")
+    
+    return is_button
+
+
 def is_showdown_won_label(name: str) -> bool:
     """
     Retourne True si le nom OCR correspond à un label de type 'Won 5,249'
@@ -116,6 +166,26 @@ class HeroCardsTracker:
             logger.debug("[HERO CARDS] No cards detected, keeping confirmed cards")
             return self.confirmed_cards
         
+        # CRITICAL: Once we have 2 confirmed cards, never downgrade to fewer cards
+        if self.confirmed_cards and len(self.confirmed_cards) == 2:
+            # If new detection has fewer than 2 cards, ignore it and keep confirmed cards
+            if len(cards) < 2:
+                logger.debug(
+                    f"[HERO CARDS] Ignoring downgrade from 2 confirmed cards to {len(cards)} card(s). "
+                    f"Keeping confirmed: {self._cards_str(self.confirmed_cards)}"
+                )
+                return self.confirmed_cards
+            
+            # If new detection has 2 cards but they're different, require stability before replacing
+            if not self._cards_match(cards, self.confirmed_cards):
+                logger.debug(
+                    f"[HERO CARDS] Detected different 2-card hand while already confirmed. "
+                    f"Confirmed: {self._cards_str(self.confirmed_cards)}, "
+                    f"New: {self._cards_str(cards)}"
+                )
+                # This might indicate a new hand - allow it but require stability
+                # Fall through to normal candidate tracking
+        
         # Check if this matches our current candidate
         if self._cards_match(cards, self.current_candidate):
             self.frames_stable += 1
@@ -130,7 +200,11 @@ class HeroCardsTracker:
         # If candidate is stable enough, confirm it
         if self.frames_stable >= self.stability_threshold:
             if not self._cards_match(self.confirmed_cards, self.current_candidate):
-                logger.info(f"[HERO CARDS] Confirming stable cards: {self._cards_str(self.current_candidate)}")
+                # Special log message when confirming 2 cards for the first time
+                if len(self.current_candidate) == 2 and (not self.confirmed_cards or len(self.confirmed_cards) < 2):
+                    logger.info(f"[HERO CARDS] Confirmed hero cards for current hand: {self._cards_str(self.current_candidate)}")
+                else:
+                    logger.info(f"[HERO CARDS] Confirming stable cards: {self._cards_str(self.current_candidate)}")
                 self.confirmed_cards = self.current_candidate
         
         # Return best available cards
@@ -436,8 +510,14 @@ class StateParser:
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
                     parsed_name_stripped = parsed_name.strip()
+                    
+                    # Check if this is a button label (Raise, Call, Bet, Fold, Check, All-in)
+                    if is_button_label(parsed_name_stripped):
+                        logger.info(f"[VISION] Ignoring button label as player name at position {table_position}: {parsed_name_stripped}")
+                        # Keep default player name instead of button label
+                        # This prevents the button label from being treated as a real player
                     # Check if this is a showdown "Won X,XXX" label
-                    if is_showdown_won_label(parsed_name_stripped):
+                    elif is_showdown_won_label(parsed_name_stripped):
                         logger.info(f"[SHOWDOWN] Ignoring 'Won X,XXX' label as player name at position {table_position}: {parsed_name_stripped}")
                         has_showdown_label = True  # Mark that we found a showdown label
                         # Keep default player name instead of showdown label

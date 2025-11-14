@@ -10,9 +10,9 @@ from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.event_fusion")
 
-# Import utility function to detect showdown labels
+# Import utility functions to detect showdown and button labels
 try:
-    from holdem.vision.parse_state import is_showdown_won_label
+    from holdem.vision.parse_state import is_showdown_won_label, is_button_label
 except ImportError:
     # Fallback if import fails (shouldn't happen in normal operation)
     def is_showdown_won_label(name: str) -> bool:
@@ -21,6 +21,13 @@ except ImportError:
             return False
         pattern = r'^Won\s+[0-9,.\s]+$'
         return re.match(pattern, name.strip(), re.IGNORECASE) is not None
+    
+    def is_button_label(name: str) -> bool:
+        if not name:
+            return False
+        cleaned = name.strip().lower()
+        button_words = {"raise", "call", "bet", "fold", "check", "all-in", "all in", "allin"}
+        return cleaned in button_words
 
 
 @dataclass
@@ -220,6 +227,14 @@ class EventFuser:
                         )
                         continue
                     
+                    # Skip if this is a button label (Raise, Call, Bet, Fold, Check, All-in)
+                    if is_button_label(curr_player.name):
+                        logger.info(
+                            f"[VISION] Ignoring action event for button label: "
+                            f"player={curr_player.name}, this is OCR of button text, not a real player"
+                        )
+                        continue
+                    
                     # Skip action event creation during showdown frames
                     if is_showdown_frame:
                         logger.debug(
@@ -278,6 +293,13 @@ class EventFuser:
                     )
                     continue
                 
+                # Skip if this is a button label
+                if is_button_label(curr_player.name):
+                    logger.debug(
+                        f"[VISION] Ignoring fold event for button label: {curr_player.name}"
+                    )
+                    continue
+                
                 event = GameEvent(
                     event_type="action",
                     player=curr_player.name,
@@ -297,6 +319,14 @@ class EventFuser:
                     if is_showdown_won_label(curr_player.name):
                         logger.info(
                             f"[SHOWDOWN] Ignoring bet/raise/call event for showdown label: "
+                            f"{curr_player.name}, amount={curr_player.bet_this_round:.2f}"
+                        )
+                        continue
+                    
+                    # Skip if this is a button label
+                    if is_button_label(curr_player.name):
+                        logger.info(
+                            f"[VISION] Ignoring bet/raise/call event for button label: "
                             f"{curr_player.name}, amount={curr_player.bet_this_round:.2f}"
                         )
                         continue
