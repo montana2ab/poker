@@ -47,6 +47,28 @@
       "y": 280,
       "width": 100,
       "height": 30
+    },
+    "_comment_quick_bet_buttons": "Optional: Regions for quick bet sizing buttons. These are used by BET_HALF_POT and BET_POT actions. The bot will click the sizing button (½ POT or POT), then click bet_confirm_button_region. IMPORTANT: You must calibrate these regions for your screen resolution and poker room.",
+    "half_pot_button_region": {
+      "x": 250,
+      "y": 260,
+      "width": 60,
+      "height": 30,
+      "_comment": "PLACEHOLDER: Calibrate this to match the '½ POT' button position on your screen"
+    },
+    "pot_button_region": {
+      "x": 320,
+      "y": 260,
+      "width": 60,
+      "height": 30,
+      "_comment": "PLACEHOLDER: Calibrate this to match the 'POT' button position on your screen"
+    },
+    "bet_confirm_button_region": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40,
+      "_comment": "PLACEHOLDER: Calibrate this to match the bet confirmation button ('Miser', 'Bet', etc.) on your screen. Usually same as the 'bet' or 'raise' button."
     }
   }
 }

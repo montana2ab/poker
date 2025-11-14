@@ -97,6 +97,9 @@ class ActionType(Enum):
     BET = "bet"
     RAISE = "raise"
     ALLIN = "allin"
+    # Quick bet actions that use predefined UI buttons (½ POT, POT) + confirmation
+    BET_HALF_POT = "bet_half_pot"  # Click "½ POT" button, then "Miser" (confirm)
+    BET_POT = "bet_pot"            # Click "POT" button, then "Miser" (confirm)
 
 
 @dataclass

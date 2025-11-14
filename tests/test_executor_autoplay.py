@@ -20,6 +20,9 @@ def mock_profile():
         'raise': {'x': 300, 'y': 300, 'width': 80, 'height': 40},
         'allin': {'x': 400, 'y': 300, 'width': 80, 'height': 40},
         'bet_input_box': {'x': 350, 'y': 250, 'width': 100, 'height': 30},
+        'half_pot_button_region': {'x': 250, 'y': 260, 'width': 60, 'height': 30},
+        'pot_button_region': {'x': 320, 'y': 260, 'width': 60, 'height': 30},
+        'bet_confirm_button_region': {'x': 328, 'y': 327, 'width': 100, 'height': 40}
     }
     return profile
 
@@ -150,6 +153,98 @@ class TestAutoPlayMode:
         mock_pyautogui.click.assert_called_once()
         # Should not try to type
         mock_pyautogui.typewrite.assert_not_called()
+    
+    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor.time.sleep')
+    def test_autoplay_bet_half_pot_action(self, mock_sleep, mock_pyautogui, autoplay_config, mock_state):
+        """Test BET_HALF_POT action uses quick bet buttons."""
+        # Profile with quick bet regions
+        profile = Mock(spec=TableProfile)
+        profile.button_regions = {
+            'half_pot_button_region': {'x': 250, 'y': 260, 'width': 60, 'height': 30},
+            'bet_confirm_button_region': {'x': 328, 'y': 327, 'width': 100, 'height': 40}
+        }
+        
+        executor = ActionExecutor(autoplay_config, profile)
+        action = Action(action_type=ActionType.BET_HALF_POT)
+        
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        assert result is True
+        # Should click twice: sizing button then confirm button
+        assert mock_pyautogui.click.call_count == 2
+        # First click on half pot button
+        first_call = mock_pyautogui.click.call_args_list[0][0]
+        assert first_call[0] == 280  # x = 250 + 60/2
+        assert first_call[1] == 275  # y = 260 + 30/2
+        # Second click on confirm button
+        second_call = mock_pyautogui.click.call_args_list[1][0]
+        assert second_call[0] == 378  # x = 328 + 100/2
+        assert second_call[1] == 347  # y = 327 + 40/2
+    
+    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor.time.sleep')
+    def test_autoplay_bet_pot_action(self, mock_sleep, mock_pyautogui, autoplay_config, mock_state):
+        """Test BET_POT action uses quick bet buttons."""
+        # Profile with quick bet regions
+        profile = Mock(spec=TableProfile)
+        profile.button_regions = {
+            'pot_button_region': {'x': 320, 'y': 260, 'width': 60, 'height': 30},
+            'bet_confirm_button_region': {'x': 328, 'y': 327, 'width': 100, 'height': 40}
+        }
+        
+        executor = ActionExecutor(autoplay_config, profile)
+        action = Action(action_type=ActionType.BET_POT)
+        
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        assert result is True
+        # Should click twice: sizing button then confirm button
+        assert mock_pyautogui.click.call_count == 2
+        # First click on pot button
+        first_call = mock_pyautogui.click.call_args_list[0][0]
+        assert first_call[0] == 350  # x = 320 + 60/2
+        assert first_call[1] == 275  # y = 260 + 30/2
+        # Second click on confirm button
+        second_call = mock_pyautogui.click.call_args_list[1][0]
+        assert second_call[0] == 378  # x = 328 + 100/2
+        assert second_call[1] == 347  # y = 327 + 40/2
+    
+    @patch('holdem.control.executor.pyautogui')
+    def test_bet_half_pot_missing_sizing_button(self, mock_pyautogui, autoplay_config, mock_state):
+        """Test BET_HALF_POT with missing sizing button region."""
+        # Profile without half_pot_button_region
+        profile = Mock(spec=TableProfile)
+        profile.button_regions = {
+            'bet_confirm_button_region': {'x': 328, 'y': 327, 'width': 100, 'height': 40}
+        }
+        
+        executor = ActionExecutor(autoplay_config, profile)
+        action = Action(action_type=ActionType.BET_HALF_POT)
+        
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        assert result is False
+        # Should not click anything if sizing button is missing
+        mock_pyautogui.click.assert_not_called()
+    
+    @patch('holdem.control.executor.pyautogui')
+    def test_bet_pot_missing_confirm_button(self, mock_pyautogui, autoplay_config, mock_state):
+        """Test BET_POT with missing confirm button region."""
+        # Profile without bet_confirm_button_region
+        profile = Mock(spec=TableProfile)
+        profile.button_regions = {
+            'pot_button_region': {'x': 320, 'y': 260, 'width': 60, 'height': 30}
+        }
+        
+        executor = ActionExecutor(autoplay_config, profile)
+        action = Action(action_type=ActionType.BET_POT)
+        
+        result = executor._execute_concrete_action(action, mock_state)
+        
+        assert result is False
+        # Should not click anything if confirm button is missing
+        mock_pyautogui.click.assert_not_called()
     
     @patch('holdem.control.executor.input')
     @patch('holdem.control.executor.pyautogui')

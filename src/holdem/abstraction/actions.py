@@ -11,6 +11,10 @@ class AbstractAction(Enum):
     
     Canonical order: [FOLD, CHECK_CALL, BET_25, BET_33, BET_50, BET_66, BET_75, BET_100, BET_150, BET_200, BET_250, BET_300, ALL_IN]
     This order should be maintained everywhere to ensure strategy/regret alignment.
+    
+    Note: BET_HALF_POT and BET_POT represent both abstract pot-sized actions AND
+    concrete UI button-click actions. When used in autoplay, they map to quick-bet
+    UI buttons ("½ POT" and "POT") followed by the confirmation button.
     """
     FOLD = "fold"
     CHECK_CALL = "check_call"
