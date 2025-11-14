@@ -200,9 +200,9 @@ class ActionExecutor:
             logger.error("Auto-play requires --i-understand-the-tos flag")
             return False
         
-        # Get button region for action
+        # Get button region for action (not needed for quick bet actions)
         button_region = self._get_button_region_for_concrete(action)
-        if not button_region:
+        if not button_region and action.action_type not in [ActionType.BET_HALF_POT, ActionType.BET_POT]:
             logger.error(f"No button region found for action: {action.action_type.value}")
             return False
         
@@ -226,6 +226,10 @@ class ActionExecutor:
                 # Bet/raise require amount input
                 return self._execute_bet_or_raise(button_region, action, state)
             
+            elif action.action_type in [ActionType.BET_HALF_POT, ActionType.BET_POT]:
+                # Quick bet actions using predefined UI buttons
+                return self._execute_quick_bet(action, state)
+            
             else:
                 logger.error(f"Unknown action type: {action.action_type}")
                 return False
@@ -243,6 +247,10 @@ class ActionExecutor:
         Returns:
             Button region dict or None
         """
+        # Quick bet actions don't use this method - they have special handling
+        if action.action_type in [ActionType.BET_HALF_POT, ActionType.BET_POT]:
+            return {}  # Return empty dict to indicate these are handled separately
+        
         action_to_button = {
             ActionType.FOLD: "fold",
             ActionType.CHECK: "check",
@@ -357,6 +365,80 @@ class ActionExecutor:
             )
         
         return True
+    
+    def _execute_quick_bet(self, action: Action, state: TableState) -> bool:
+        """Execute a quick bet action using predefined UI buttons.
+        
+        Quick bet actions use the poker client's preset sizing buttons (½ POT, POT)
+        followed by the bet confirmation button. This provides a faster and more
+        reliable way to bet specific sizes without using the slider or input box.
+        
+        Sequence:
+        1. Click the sizing button (half_pot_button_region or pot_button_region)
+        2. Click the bet confirmation button (bet_confirm_button_region)
+        
+        Args:
+            action: Quick bet action (BET_HALF_POT or BET_POT)
+            state: Current table state
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Determine which sizing button to click
+        if action.action_type == ActionType.BET_HALF_POT:
+            sizing_button_name = "half_pot_button_region"
+            action_desc = "BET_HALF_POT"
+        elif action.action_type == ActionType.BET_POT:
+            sizing_button_name = "pot_button_region"
+            action_desc = "BET_POT"
+        else:
+            logger.error(f"Invalid quick bet action type: {action.action_type}")
+            return False
+        
+        # Get button regions from profile
+        sizing_button = self.profile.button_regions.get(sizing_button_name)
+        confirm_button = self.profile.button_regions.get("bet_confirm_button_region")
+        
+        # Validate button regions are configured
+        if not sizing_button:
+            logger.warning(
+                f"[AUTOPLAY] {action_desc} requested but {sizing_button_name} is not configured. "
+                f"Please add this region to your table profile. Falling back to NOOP."
+            )
+            return False
+        
+        if not confirm_button:
+            logger.warning(
+                "[AUTOPLAY] bet_confirm_button_region is not configured, cannot click Miser button. "
+                "Please add this region to your table profile. Falling back to NOOP."
+            )
+            return False
+        
+        logger.info(f"[AUTOPLAY] Executing {action_desc} via {sizing_button_name} then bet_confirm_button_region")
+        
+        try:
+            # Step 1: Click the sizing button (½ POT or POT)
+            sizing_x = sizing_button['x'] + sizing_button['width'] // 2
+            sizing_y = sizing_button['y'] + sizing_button['height'] // 2
+            
+            logger.info(f"[AUTOPLAY] Clicking {sizing_button_name} at ({sizing_x}, {sizing_y})")
+            pyautogui.click(sizing_x, sizing_y)
+            time.sleep(self.input_delay)
+            
+            # Step 2: Click the bet confirmation button
+            confirm_x = confirm_button['x'] + confirm_button['width'] // 2
+            confirm_y = confirm_button['y'] + confirm_button['height'] // 2
+            
+            logger.info(f"[AUTOPLAY] Clicking bet_confirm_button_region at ({confirm_x}, {confirm_y})")
+            pyautogui.click(confirm_x, confirm_y)
+            time.sleep(self.config.min_action_delay_ms / 1000.0)
+            
+            logger.info(f"[AUTOPLAY] Successfully executed {action_desc}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to execute quick bet {action_desc}: {e}", exc_info=True)
+            return False
     
     def execute_action(self, action: AbstractAction) -> bool:
         """Execute an abstract action."""

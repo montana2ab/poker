@@ -40,6 +40,10 @@
     "call": {"x": 400, "y": 850, "width": 100, "height": 40},
     "bet": {"x": 550, "y": 850, "width": 100, "height": 40},
     "raise": {"x": 550, "y": 850, "width": 100, "height": 40},
-    "allin": {"x": 700, "y": 850, "width": 100, "height": 40}
+    "allin": {"x": 700, "y": 850, "width": 100, "height": 40},
+    "_comment_quick_bet": "Optional quick bet regions for BET_HALF_POT and BET_POT actions",
+    "half_pot_button_region": {"x": 300, "y": 800, "width": 60, "height": 30},
+    "pot_button_region": {"x": 370, "y": 800, "width": 60, "height": 30},
+    "bet_confirm_button_region": {"x": 550, "y": 850, "width": 100, "height": 40}
   }
 }
