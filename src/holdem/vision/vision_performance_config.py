@@ -21,6 +21,13 @@ class HeroCacheConfig:
 
 
 @dataclass
+class VisionButtonDetectionConfig:
+    """Configuration for visual button detection."""
+    mode: str = "hybrid"  # "logical_only", "visual_only", "hybrid", "off"
+    min_stable_frames: int = 2
+
+
+@dataclass
 class VisionPerformanceConfig:
     """Configuration for vision performance optimizations.
     
@@ -58,12 +65,17 @@ class VisionPerformanceConfig:
     # Chat parsing frequency (0 = disable, 1 = every frame, N = every Nth frame)
     chat_parse_interval: int = 3
     
+    # Visual button detection settings
+    vision_button_detection: VisionButtonDetectionConfig = None
+    
     def __post_init__(self):
         """Initialize nested configs if not provided."""
         if self.board_cache is None:
             self.board_cache = BoardCacheConfig()
         if self.hero_cache is None:
             self.hero_cache = HeroCacheConfig()
+        if self.vision_button_detection is None:
+            self.vision_button_detection = VisionButtonDetectionConfig()
     
     @classmethod
     def from_dict(cls, config_dict: dict) -> "VisionPerformanceConfig":
@@ -78,6 +90,7 @@ class VisionPerformanceConfig:
         # Extract nested configs
         board_config = config_dict.get("board_cache", {})
         hero_config = config_dict.get("hero_cache", {})
+        button_config = config_dict.get("vision_button_detection", {})
         
         return cls(
             enable_caching=config_dict.get("enable_caching", True),
@@ -89,7 +102,8 @@ class VisionPerformanceConfig:
             max_roi_dimension=config_dict.get("max_roi_dimension", 400),
             board_cache=BoardCacheConfig(**board_config) if board_config else BoardCacheConfig(),
             hero_cache=HeroCacheConfig(**hero_config) if hero_config else HeroCacheConfig(),
-            chat_parse_interval=config_dict.get("chat_parse_interval", 3)
+            chat_parse_interval=config_dict.get("chat_parse_interval", 3),
+            vision_button_detection=VisionButtonDetectionConfig(**button_config) if button_config else VisionButtonDetectionConfig()
         )
     
     @classmethod

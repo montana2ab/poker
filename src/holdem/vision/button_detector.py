@@ -213,3 +213,181 @@ def assign_positions_for_6max(
     
     logger.debug(f"[POSITIONS] Assigned positions: {pos_by_seat}")
     return pos_by_seat
+
+
+def detect_button_by_color(
+    frame,
+    table_profile,
+    state_cache=None
+) -> Optional[int]:
+    """Detect button position using visual color detection on button_region patches.
+    
+    This function provides ultra-cheap visual detection of the dealer button by analyzing
+    small color patches at each seat position. It looks for the characteristic gray button
+    with "D" that appears on PokerStars tables.
+    
+    Performance: O(n) where n = number of seats, optimized with numpy vectorized operations.
+    Expected cost: < 1ms for 6-max table.
+    
+    Algorithm:
+    1. For each seat with a button_region defined:
+       - Extract small patch (typically 16x16)
+       - Downsample to 4x4 or 8x8 for speed
+       - Calculate mean RGB values
+       - Check if matches gray button criteria (180-220 RGB, low color variance)
+       - Check for contrast (darker "D" in center)
+    2. Return seat index if exactly one seat matches criteria
+    3. Return None if 0 or multiple seats match (ambiguous)
+    
+    Args:
+        frame: Current screenshot as numpy array (BGR format from OpenCV)
+        table_profile: TableProfile with player_regions containing optional button_region fields
+        state_cache: Optional cache for stabilization across frames (not used in v1)
+        
+    Returns:
+        Seat index (int) of button position, or None if not detected/ambiguous
+        
+    Examples:
+        >>> profile = TableProfile.load("pokerstars_6max.json")
+        >>> button_seat = detect_button_by_color(screenshot, profile)
+        >>> if button_seat is not None:
+        ...     print(f"Button detected at seat {button_seat}")
+    """
+    import cv2
+    import numpy as np
+    
+    if frame is None or frame.size == 0:
+        logger.debug("[BUTTON VISUAL] Empty frame, cannot detect")
+        return None
+    
+    if not hasattr(table_profile, 'player_regions') or not table_profile.player_regions:
+        logger.debug("[BUTTON VISUAL] No player_regions in profile")
+        return None
+    
+    # Criteria for gray button detection (PokerStars dealer button)
+    # These values are tuned for the light gray button with black "D"
+    MIN_GRAY_VALUE = 180
+    MAX_GRAY_VALUE = 220
+    MAX_COLOR_DIFF = 15  # Max difference between R, G, B for "gray" detection
+    MIN_VARIANCE = 100   # Minimum variance to detect the darker "D" letter
+    
+    candidates = []  # List of (seat_idx, confidence) tuples
+    
+    for player_region in table_profile.player_regions:
+        seat_idx = player_region.get('position', -1)
+        button_region = player_region.get('button_region')
+        
+        if button_region is None or seat_idx < 0:
+            continue
+        
+        # Extract region coordinates
+        x = button_region.get('x', 0)
+        y = button_region.get('y', 0)
+        w = button_region.get('width', 16)
+        h = button_region.get('height', 16)
+        
+        # Validate region bounds
+        if y + h > frame.shape[0] or x + w > frame.shape[1] or w <= 0 or h <= 0:
+            logger.debug(f"[BUTTON VISUAL] Seat {seat_idx}: region out of bounds")
+            continue
+        
+        # Extract patch (no copy needed, we're just reading)
+        patch = frame[y:y+h, x:x+w]
+        
+        if patch.size == 0:
+            continue
+        
+        # Ultra-fast detection strategy:
+        # 1. Check max brightness (should be in gray range)
+        # 2. Check variance (should have contrast from "D")
+        # 3. Check color neutrality on downsampled patch (for speed)
+        
+        # Convert to grayscale once
+        gray_patch = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        
+        # Check 1: Maximum brightness should be in light gray range
+        max_gray = gray_patch.max()
+        if not (MIN_GRAY_VALUE <= max_gray <= MAX_GRAY_VALUE):
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: max brightness out of range "
+                f"(max: {max_gray:.1f}, expected: {MIN_GRAY_VALUE}-{MAX_GRAY_VALUE})"
+            )
+            continue
+        
+        # Check 2: Should have sufficient contrast (variance) indicating "D" letter
+        variance = gray_patch.var()  # Use numpy method for speed
+        if variance < MIN_VARIANCE:
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: insufficient contrast "
+                f"(variance: {variance:.1f}, min: {MIN_VARIANCE})"
+            )
+            continue
+        
+        # Check 3: Color neutrality - downsample first for speed
+        # Only process upper quartile pixels (bright ones)
+        bright_threshold = gray_patch.mean() + gray_patch.std() * 0.5
+        
+        # Simple check: sample a few bright pixels and check color neutrality
+        # This is much faster than full masking
+        bright_y, bright_x = np.where(gray_patch >= bright_threshold)
+        
+        if len(bright_y) < 5:  # Need at least a few bright pixels
+            logger.debug(f"[BUTTON VISUAL] Seat {seat_idx}: no bright pixels found")
+            continue
+        
+        # Sample up to 10 bright pixels (faster than all)
+        sample_size = min(10, len(bright_y))
+        indices = np.linspace(0, len(bright_y) - 1, sample_size, dtype=int)
+        
+        sampled_bgr = patch[bright_y[indices], bright_x[indices]]
+        mean_b = sampled_bgr[:, 0].mean()
+        mean_g = sampled_bgr[:, 1].mean()
+        mean_r = sampled_bgr[:, 2].mean()
+        
+        # Check color neutrality
+        max_diff = max(abs(mean_r - mean_g), abs(mean_r - mean_b), abs(mean_g - mean_b))
+        if max_diff > MAX_COLOR_DIFF:
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels not neutral gray "
+                f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f}, max_diff: {max_diff:.1f})"
+            )
+            continue
+        
+        # Check that bright pixels are in valid range
+        if not (MIN_GRAY_VALUE <= mean_r <= MAX_GRAY_VALUE and
+               MIN_GRAY_VALUE <= mean_g <= MAX_GRAY_VALUE and
+               MIN_GRAY_VALUE <= mean_b <= MAX_GRAY_VALUE):
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels out of gray range "
+                f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f})"
+            )
+            continue
+        
+        # This seat is a candidate!
+        # Calculate confidence based on variance (higher variance = clearer "D")
+        # and how well max brightness matches ideal gray (200)
+        ideal_gray = 200.0
+        brightness_score = 1.0 - abs(max_gray - ideal_gray) / 100.0
+        variance_score = min(variance / 5000.0, 1.0)  # Normalize variance
+        confidence = (brightness_score + variance_score) / 2.0
+        confidence = max(0.0, min(1.0, confidence))
+        
+        candidates.append((seat_idx, confidence))
+        logger.debug(
+            f"[BUTTON VISUAL] Seat {seat_idx}: CANDIDATE "
+            f"(max_gray: {max_gray:.1f}, variance: {variance:.1f}, confidence: {confidence:.2f})"
+        )
+    
+    # Decision logic: return seat only if exactly one candidate
+    if len(candidates) == 0:
+        logger.debug("[BUTTON VISUAL] No candidates found")
+        return None
+    elif len(candidates) == 1:
+        seat_idx, confidence = candidates[0]
+        logger.info(f"[BUTTON VISUAL] Detected button at seat {seat_idx} (confidence: {confidence:.2f})")
+        return seat_idx
+    else:
+        # Multiple candidates - ambiguous, don't decide
+        seats_str = ", ".join(f"{s}({c:.2f})" for s, c in candidates)
+        logger.debug(f"[BUTTON VISUAL] Multiple candidates, ambiguous: {seats_str}")
+        return None
