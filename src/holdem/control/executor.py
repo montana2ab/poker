@@ -34,11 +34,24 @@ class ActionExecutor:
         self.stopped = False
         
         # Initialize backmapper for action validation and adjustment
+        # Enable quick bet buttons if the button regions are configured in the profile
+        has_quick_bet_buttons = (
+            'half_pot_button_region' in profile.button_regions and
+            'pot_button_region' in profile.button_regions and
+            'bet_confirm_button_region' in profile.button_regions
+        )
+        
         self.backmapper = ActionBackmapper(
             big_blind=config.big_blind if hasattr(config, 'big_blind') else 2.0,
             min_chip_increment=config.min_chip if hasattr(config, 'min_chip') else 1.0,
-            allow_fractional=config.allow_fractional if hasattr(config, 'allow_fractional') else False
+            allow_fractional=config.allow_fractional if hasattr(config, 'allow_fractional') else False,
+            use_quick_bet_buttons=has_quick_bet_buttons
         )
+        
+        if has_quick_bet_buttons:
+            logger.info("Quick bet buttons enabled (BET_HALF_POT, BET_POT)")
+        else:
+            logger.debug("Quick bet buttons not configured, using standard bet sizing")
         
         # Detect platform for timing adjustments
         self.is_mac = _is_macos()

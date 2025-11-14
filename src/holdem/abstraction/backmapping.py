@@ -95,20 +95,25 @@ class ActionBackmapper:
         big_blind: float = 2.0,
         min_chip_increment: float = 1.0,
         all_in_threshold: float = 0.97,
-        allow_fractional: bool = False
+        allow_fractional: bool = False,
+        use_quick_bet_buttons: bool = False
     ):
         """Initialize the backmapper.
         
         Args:
             big_blind: Big blind size for minimum raise calculations
             min_chip_increment: Minimum chip denomination for rounding
-            all_in_threshold: Fraction of stack above which bet becomes all-in (0.97 = 97%)
+            all_in_threshold: Fraction of stack to treat as all-in (default 0.97)
             allow_fractional: Whether to allow fractional chip amounts
+            use_quick_bet_buttons: If True, map BET_HALF_POT and BET_POT to special
+                                   ActionType enums for quick bet UI buttons instead
+                                   of calculating exact amounts
         """
         self.big_blind = big_blind
         self.min_chip_increment = min_chip_increment
         self.all_in_threshold = all_in_threshold
         self.allow_fractional = allow_fractional
+        self.use_quick_bet_buttons = use_quick_bet_buttons
     
     def backmap_action(
         self,
@@ -144,6 +149,16 @@ class ActionBackmapper:
             Legal Action object that can be executed
         """
         to_call = current_bet - player_bet
+        
+        # Quick bet button mode: Map BET_HALF_POT and BET_POT to special ActionTypes
+        if self.use_quick_bet_buttons and can_check and to_call == 0:
+            # Only use quick bet buttons when facing no bet (can make a fresh bet)
+            if abstract_action == AbstractAction.BET_HALF_POT:
+                logger.debug("Using quick bet button for BET_HALF_POT")
+                return Action(ActionType.BET_HALF_POT)
+            elif abstract_action == AbstractAction.BET_POT:
+                logger.debug("Using quick bet button for BET_POT")
+                return Action(ActionType.BET_POT)
         
         # Edge case 1: Fold when can check for free (convert to check)
         if abstract_action == AbstractAction.FOLD:

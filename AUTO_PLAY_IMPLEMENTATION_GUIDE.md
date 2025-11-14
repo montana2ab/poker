@@ -178,3 +178,111 @@ Test checklist:
 - [ ] All actions log screen positions
 - [ ] Failsafe abort works (move mouse to corner)
 - [ ] Ctrl+C stops execution cleanly
+
+## Quick Bet Buttons (BET_HALF_POT and BET_POT)
+
+### Overview
+
+The auto-play system now supports quick bet actions using predefined UI buttons for common bet sizes. Instead of calculating exact amounts and using the slider or input box, the bot can click the poker client's preset buttons (like "½ POT" or "POT") followed by the confirmation button.
+
+### Supported Actions
+
+- **BET_HALF_POT**: Clicks the "½ POT" button, then the bet confirmation button
+- **BET_POT**: Clicks the "POT" button, then the bet confirmation button
+
+### Configuration
+
+Add the following regions to your table profile to enable quick bet buttons:
+
+```json
+{
+  "button_regions": {
+    "half_pot_button_region": {
+      "x": 250,
+      "y": 260,
+      "width": 60,
+      "height": 30,
+      "_comment": "Position of the '½ POT' quick bet button"
+    },
+    "pot_button_region": {
+      "x": 320,
+      "y": 260,
+      "width": 60,
+      "height": 30,
+      "_comment": "Position of the 'POT' quick bet button"
+    },
+    "bet_confirm_button_region": {
+      "x": 328,
+      "y": 327,
+      "width": 100,
+      "height": 40,
+      "_comment": "Position of the bet confirmation button (usually same as 'bet' button)"
+    }
+  }
+}
+```
+
+**IMPORTANT**: You must calibrate these regions to match your screen resolution and poker room. The values above are placeholders.
+
+### How It Works
+
+1. **Policy Decision**: When the policy selects `AbstractAction.BET_HALF_POT` or `AbstractAction.BET_POT`
+2. **Backmapping**: If quick bet buttons are configured, the action is mapped to `ActionType.BET_HALF_POT` or `ActionType.BET_POT`
+3. **Execution**: The executor performs a two-click sequence:
+   - First click: Sizing button (`half_pot_button_region` or `pot_button_region`)
+   - Second click: Confirmation button (`bet_confirm_button_region`)
+
+### Log Output Example
+
+```
+[REAL-TIME SEARCH] Action decided: BET_HALF_POT (in 95.3ms)
+[AUTO-PLAY] Auto-confirming action: bet_half_pot
+[AUTOPLAY] Executing BET_HALF_POT via half_pot_button_region then bet_confirm_button_region
+[AUTOPLAY] Clicking half_pot_button_region at (280, 275)
+[AUTOPLAY] Clicking bet_confirm_button_region at (378, 347)
+[AUTOPLAY] Successfully executed BET_HALF_POT
+[AUTO-PLAY] Executed action: BET_HALF_POT
+```
+
+### Fallback Behavior
+
+If quick bet button regions are not configured:
+- The system falls back to standard bet sizing (using slider or input box)
+- A warning is logged indicating the missing configuration
+- No exception is thrown, ensuring the bot continues to operate
+
+### Safety Features
+
+- **Region Validation**: Before clicking, the executor checks that all required regions are configured
+- **Clear Warnings**: Missing regions trigger descriptive warnings with suggestions to add them
+- **NOOP Fallback**: If regions are missing, the action returns `False` without attempting to click
+
+### Calibration Steps
+
+1. Take a screenshot of your poker client during betting
+2. Identify the pixel coordinates of:
+   - The "½ POT" button center
+   - The "POT" button center
+   - The bet confirmation button center
+3. Update your table profile with these coordinates
+4. Test with `--confirm-every-action` mode first to verify clicks land correctly
+
+### When to Use Quick Bet Buttons
+
+**Use quick bet buttons when:**
+- Your poker room has reliable preset sizing buttons
+- You want faster, more reliable bet execution
+- The preset sizes match your strategy (0.5× pot, 1× pot)
+
+**Use standard bet sizing when:**
+- You need more precise bet amounts
+- Your poker room doesn't have preset buttons
+- You want to use bet sizes not covered by presets (e.g., 0.66× pot, 0.75× pot)
+
+### Test Checklist
+
+- [ ] Quick bet buttons click the correct regions
+- [ ] Two-click sequence completes successfully
+- [ ] Missing regions trigger warnings (not errors)
+- [ ] System falls back gracefully when regions not configured
+- [ ] Actions are logged correctly for debugging
