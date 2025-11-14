@@ -157,6 +157,7 @@ class TestOcrRegionCache:
         cache = OcrRegionCache()
         assert cache.last_hash == 0
         assert cache.last_value is None
+        assert cache.last_conf is None
         assert cache.stable_frames == 0
     
     def test_first_roi_requires_ocr(self):
@@ -173,11 +174,12 @@ class TestOcrRegionCache:
         
         # First call - should run OCR
         assert cache.should_run_ocr(roi) is True
-        cache.update_value(123.45)
+        cache.update_value(123.45, confidence=0.95)
         
         # Second call with same ROI - should use cache
         assert cache.should_run_ocr(roi) is False
         assert cache.get_cached_value() == 123.45
+        assert cache.get_cached_confidence() == 0.95
     
     def test_different_roi_requires_ocr(self):
         """Test different ROI requires OCR."""
@@ -188,7 +190,7 @@ class TestOcrRegionCache:
         
         # First ROI
         assert cache.should_run_ocr(roi1) is True
-        cache.update_value(100.0)
+        cache.update_value(100.0, confidence=0.9)
         
         # Different ROI - should require OCR
         assert cache.should_run_ocr(roi2) is True
@@ -200,7 +202,7 @@ class TestOcrRegionCache:
         
         # First call
         cache.should_run_ocr(roi)
-        cache.update_value(100.0)
+        cache.update_value(100.0, confidence=0.85)
         assert cache.stable_frames == 0
         
         # Second call with same ROI
@@ -210,6 +212,22 @@ class TestOcrRegionCache:
         # Third call
         cache.should_run_ocr(roi)
         assert cache.stable_frames == 2
+    
+    def test_confidence_tracking(self):
+        """Test confidence score is tracked correctly."""
+        cache = OcrRegionCache()
+        roi = np.random.randint(0, 255, (50, 100, 3), dtype=np.uint8)
+        
+        # Set value with confidence
+        cache.should_run_ocr(roi)
+        cache.update_value(250.0, confidence=0.92)
+        
+        # Check confidence is stored
+        assert cache.get_cached_confidence() == 0.92
+        
+        # Update with new confidence
+        cache.update_value(250.0, confidence=0.88)
+        assert cache.get_cached_confidence() == 0.88
 
 
 class TestOcrCacheManager:
@@ -221,6 +239,8 @@ class TestOcrCacheManager:
         assert len(manager.stack_cache) == 0
         assert len(manager.bet_cache) == 0
         assert manager.pot_cache is not None
+        assert manager._total_ocr_calls == 0
+        assert manager._cache_hits == 0
     
     def test_get_stack_cache_creates_if_needed(self):
         """Test stack cache is created on demand."""
@@ -266,6 +286,66 @@ class TestOcrCacheManager:
         assert len(manager.stack_cache) == 0
         assert len(manager.bet_cache) == 0
         assert manager.pot_cache.last_value is None
+    
+    def test_metrics_tracking(self):
+        """Test metrics are tracked correctly."""
+        manager = OcrCacheManager()
+        
+        # Record some OCR calls
+        manager.record_ocr_call("stack")
+        manager.record_ocr_call("bet")
+        manager.record_ocr_call("pot")
+        
+        # Record some cache hits
+        manager.record_cache_hit("stack")
+        manager.record_cache_hit("stack")
+        
+        # Get metrics
+        metrics = manager.get_metrics()
+        assert metrics["total_ocr_calls"] == 3
+        assert metrics["total_cache_hits"] == 2
+        assert metrics["total_checks"] == 5
+        assert metrics["cache_hit_rate_percent"] == 40.0
+        
+        # Check by-type metrics
+        assert metrics["by_type"]["stack"]["ocr_calls"] == 1
+        assert metrics["by_type"]["stack"]["cache_hits"] == 2
+        assert metrics["by_type"]["bet"]["ocr_calls"] == 1
+        assert metrics["by_type"]["pot"]["ocr_calls"] == 1
+    
+    def test_reset_metrics(self):
+        """Test metrics can be reset."""
+        manager = OcrCacheManager()
+        
+        # Record some data
+        manager.record_ocr_call("stack")
+        manager.record_cache_hit("stack")
+        
+        # Reset metrics
+        manager.reset_metrics()
+        
+        # Check metrics are cleared
+        metrics = manager.get_metrics()
+        assert metrics["total_ocr_calls"] == 0
+        assert metrics["total_cache_hits"] == 0
+    
+    def test_hit_rate_calculation(self):
+        """Test hit rate is calculated correctly."""
+        manager = OcrCacheManager()
+        
+        # 7 OCR calls, 3 cache hits = 30% hit rate
+        for _ in range(7):
+            manager.record_ocr_call("stack")
+        for _ in range(3):
+            manager.record_cache_hit("stack")
+        
+        metrics = manager.get_metrics()
+        assert metrics["total_checks"] == 10
+        assert metrics["cache_hit_rate_percent"] == 30.0
+        
+        # Check stack-specific hit rate
+        stack_metrics = metrics["by_type"]["stack"]
+        assert stack_metrics["hit_rate_percent"] == 30.0
 
 
 if __name__ == "__main__":

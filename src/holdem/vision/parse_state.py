@@ -268,7 +268,12 @@ class StateParser:
             stability_threshold=self.perf_config.hero_cache.stability_threshold
         ) if self.perf_config.enable_caching and self.perf_config.hero_cache.enabled else None
         
-        self.ocr_cache_manager = OcrCacheManager() if self.perf_config.enable_caching and self.perf_config.cache_roi_hash else None
+        # OCR amount cache with enable_amount_cache flag
+        self.ocr_cache_manager = OcrCacheManager() if (
+            self.perf_config.enable_caching and 
+            self.perf_config.cache_roi_hash and 
+            self.perf_config.enable_amount_cache
+        ) else None
         
         # Track previous stacks for unlock detection
         self._previous_stacks: Dict[int, float] = {}
@@ -538,7 +543,8 @@ class StateParser:
             if not pot_cache.should_run_ocr(pot_region):
                 cached_pot = pot_cache.get_cached_value()
                 if cached_pot is not None:
-                    logger.debug(f"[OCR CACHE] Reusing pot value: {cached_pot:.2f}")
+                    logger.info(f"[VISION] Reusing cached pot (hash unchanged): {cached_pot:.2f}")
+                    self.ocr_cache_manager.record_cache_hit("pot")
                     return cached_pot
         
         # Downscale ROI if needed
@@ -546,13 +552,15 @@ class StateParser:
             pot_region = self._downscale_roi(pot_region)
         
         # Run OCR
+        logger.info("[VISION] OCR pot (image changed)")
         pot = self.ocr_engine.extract_number(pot_region)
         pot_value = pot if pot is not None else 0.0
         
         # Update cache if enabled
         if self.ocr_cache_manager:
             pot_cache = self.ocr_cache_manager.get_pot_cache()
-            pot_cache.update_value(pot_value)
+            pot_cache.update_value(pot_value, confidence=None)  # OCR engine doesn't provide confidence yet
+            self.ocr_cache_manager.record_ocr_call("pot")
         
         # Track OCR and amount metrics if enabled
         if self.vision_metrics and pot is not None:
@@ -615,13 +623,15 @@ class StateParser:
                         cached_stack = stack_cache.get_cached_value()
                         if cached_stack is not None:
                             stack = cached_stack
-                            logger.debug(f"[OCR CACHE] Reusing stack for seat {table_position}: {stack:.2f}")
+                            logger.info(f"[VISION] Reusing cached stack for seat {table_position} (hash unchanged): {stack:.2f}")
+                            self.ocr_cache_manager.record_cache_hit("stack")
                             should_run_ocr = False
                 
                 if should_run_ocr:
                     # Downscale ROI if needed
                     stack_img_processed = self._downscale_roi(stack_img) if self.perf_config.downscale_ocr_rois else stack_img
                     
+                    logger.info(f"[VISION] OCR stack for seat {table_position} (image changed)")
                     parsed_stack = self.ocr_engine.extract_number(stack_img_processed)
                     if parsed_stack is None:
                         # Fallback: OCR raw text then parse locale-aware
@@ -629,12 +639,13 @@ class StateParser:
                         parsed_stack = _parse_amount_from_text(raw_txt)
                     if parsed_stack is not None:
                         stack = parsed_stack
-                        logger.info(f"Player {table_position} stack OCR: {stack:.2f}")
+                        logger.info(f"Player {table_position} stack OCR result: {stack:.2f}")
                         
                         # Update cache if enabled
                         if self.ocr_cache_manager:
                             stack_cache = self.ocr_cache_manager.get_stack_cache(table_position)
-                            stack_cache.update_value(stack)
+                            stack_cache.update_value(stack, confidence=None)
+                            self.ocr_cache_manager.record_ocr_call("stack")
                         
                         # Track amount metrics if enabled
                         if self.vision_metrics:
@@ -735,13 +746,15 @@ class StateParser:
                         cached_bet = bet_cache.get_cached_value()
                         if cached_bet is not None:
                             bet_this_round = cached_bet
-                            logger.debug(f"[OCR CACHE] Reusing bet for seat {table_position}: {bet_this_round:.2f}")
+                            logger.info(f"[VISION] Reusing cached bet for seat {table_position} (hash unchanged): {bet_this_round:.2f}")
+                            self.ocr_cache_manager.record_cache_hit("bet")
                             should_run_ocr = False
                 
                 if should_run_ocr:
                     # Downscale ROI if needed
                     bet_img_processed = self._downscale_roi(bet_img) if self.perf_config.downscale_ocr_rois else bet_img
                     
+                    logger.info(f"[VISION] OCR bet for seat {table_position} (image changed)")
                     parsed_bet = self.ocr_engine.extract_number(bet_img_processed)
                     if parsed_bet is None:
                         # Fallback: OCR raw text then parse locale-aware
@@ -752,12 +765,13 @@ class StateParser:
                         # (prevents "Won 5,249" from being treated as a bet)
                         if not is_showdown_won_label(name):
                             bet_this_round = parsed_bet
-                            logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
+                            logger.info(f"Player {table_position} bet OCR result: {bet_this_round:.2f}")
                             
                             # Update cache if enabled
                             if self.ocr_cache_manager:
                                 bet_cache = self.ocr_cache_manager.get_bet_cache(table_position)
-                                bet_cache.update_value(bet_this_round)
+                                bet_cache.update_value(bet_this_round, confidence=None)
+                                self.ocr_cache_manager.record_ocr_call("bet")
                         else:
                             logger.debug(f"[SHOWDOWN] Ignoring bet amount for showdown label at position {table_position}")
 
@@ -1062,3 +1076,38 @@ class StateParser:
             # Postflop: button acts last, so earlier relative positions are better
             # Hero is IP if within first 1/3 of players after button
             return relative_pos <= (num_players // 3)
+    
+    def get_cache_metrics(self) -> Optional[dict]:
+        """Get OCR cache metrics.
+        
+        Returns:
+            Dictionary with cache statistics, or None if caching is disabled
+        """
+        if self.ocr_cache_manager:
+            return self.ocr_cache_manager.get_metrics()
+        return None
+    
+    def reset_cache_metrics(self):
+        """Reset cache metrics counters."""
+        if self.ocr_cache_manager:
+            self.ocr_cache_manager.reset_metrics()
+    
+    def log_cache_metrics(self):
+        """Log cache metrics summary."""
+        metrics = self.get_cache_metrics()
+        if metrics:
+            logger.info("=" * 60)
+            logger.info("OCR CACHE METRICS SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"Total OCR calls: {metrics['total_ocr_calls']}")
+            logger.info(f"Total cache hits: {metrics['total_cache_hits']}")
+            logger.info(f"Total checks: {metrics['total_checks']}")
+            logger.info(f"Cache hit rate: {metrics['cache_hit_rate_percent']:.1f}%")
+            logger.info("")
+            logger.info("By type:")
+            for cache_type, type_metrics in metrics['by_type'].items():
+                logger.info(f"  {cache_type.upper()}:")
+                logger.info(f"    OCR calls: {type_metrics['ocr_calls']}")
+                logger.info(f"    Cache hits: {type_metrics['cache_hits']}")
+                logger.info(f"    Hit rate: {type_metrics['hit_rate_percent']:.1f}%")
+            logger.info("=" * 60)

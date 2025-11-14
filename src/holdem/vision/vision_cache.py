@@ -232,6 +232,7 @@ class OcrRegionCache:
     """Cache for OCR regions using hash-based change detection."""
     last_hash: int = 0
     last_value: Optional[float] = None
+    last_conf: Optional[float] = None  # Confidence score
     stable_frames: int = 0
     
     def should_run_ocr(self, roi: np.ndarray) -> bool:
@@ -253,13 +254,15 @@ class OcrRegionCache:
         self.stable_frames = 0
         return True
     
-    def update_value(self, value: Optional[float]):
+    def update_value(self, value: Optional[float], confidence: Optional[float] = None):
         """Update cached value after OCR.
         
         Args:
             value: OCR result value
+            confidence: OCR confidence score (0.0 to 1.0)
         """
         self.last_value = value
+        self.last_conf = confidence
     
     def get_cached_value(self) -> Optional[float]:
         """Get cached value.
@@ -269,10 +272,19 @@ class OcrRegionCache:
         """
         return self.last_value
     
+    def get_cached_confidence(self) -> Optional[float]:
+        """Get cached confidence score.
+        
+        Returns:
+            Cached confidence score or None
+        """
+        return self.last_conf
+    
     def reset(self):
         """Reset cache."""
         self.last_hash = 0
         self.last_value = None
+        self.last_conf = None
         self.stable_frames = 0
     
     @staticmethod
@@ -393,6 +405,12 @@ class OcrCacheManager:
         self.bet_cache: Dict[int, OcrRegionCache] = {}
         self.pot_cache: OcrRegionCache = OcrRegionCache()
         self.name_cache: PlayerNameCache = PlayerNameCache()
+        
+        # Metrics tracking
+        self._total_ocr_calls: int = 0
+        self._cache_hits: int = 0
+        self._ocr_calls_by_type: Dict[str, int] = {"stack": 0, "bet": 0, "pot": 0}
+        self._cache_hits_by_type: Dict[str, int] = {"stack": 0, "bet": 0, "pot": 0}
     
     def get_stack_cache(self, seat: int) -> OcrRegionCache:
         """Get cache for stack at seat.
@@ -435,6 +453,65 @@ class OcrCacheManager:
             PlayerNameCache for all players
         """
         return self.name_cache
+    
+    def record_ocr_call(self, cache_type: str):
+        """Record an OCR call.
+        
+        Args:
+            cache_type: Type of cache ("stack", "bet", "pot")
+        """
+        self._total_ocr_calls += 1
+        if cache_type in self._ocr_calls_by_type:
+            self._ocr_calls_by_type[cache_type] += 1
+    
+    def record_cache_hit(self, cache_type: str):
+        """Record a cache hit.
+        
+        Args:
+            cache_type: Type of cache ("stack", "bet", "pot")
+        """
+        self._cache_hits += 1
+        if cache_type in self._cache_hits_by_type:
+            self._cache_hits_by_type[cache_type] += 1
+    
+    def get_metrics(self) -> dict:
+        """Get cache metrics.
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        total_checks = self._total_ocr_calls + self._cache_hits
+        hit_rate = (self._cache_hits / total_checks * 100) if total_checks > 0 else 0.0
+        
+        metrics = {
+            "total_ocr_calls": self._total_ocr_calls,
+            "total_cache_hits": self._cache_hits,
+            "total_checks": total_checks,
+            "cache_hit_rate_percent": hit_rate,
+            "by_type": {}
+        }
+        
+        for cache_type in ["stack", "bet", "pot"]:
+            ocr_calls = self._ocr_calls_by_type[cache_type]
+            cache_hits = self._cache_hits_by_type[cache_type]
+            type_total = ocr_calls + cache_hits
+            type_hit_rate = (cache_hits / type_total * 100) if type_total > 0 else 0.0
+            
+            metrics["by_type"][cache_type] = {
+                "ocr_calls": ocr_calls,
+                "cache_hits": cache_hits,
+                "total_checks": type_total,
+                "hit_rate_percent": type_hit_rate
+            }
+        
+        return metrics
+    
+    def reset_metrics(self):
+        """Reset metrics counters."""
+        self._total_ocr_calls = 0
+        self._cache_hits = 0
+        self._ocr_calls_by_type = {"stack": 0, "bet": 0, "pot": 0}
+        self._cache_hits_by_type = {"stack": 0, "bet": 0, "pot": 0}
     
     def reset_all(self):
         """Reset all caches."""
