@@ -198,9 +198,6 @@ def main():
         vision_metrics=vision_metrics,
         perf_config=perf_config
     )
-        enable_chat_parsing=enable_chat,
-        vision_metrics=vision_metrics
-    )
     
     # Create leaf evaluator based on arguments
     if args.no_cfv_net:

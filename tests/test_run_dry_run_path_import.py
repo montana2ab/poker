@@ -87,6 +87,19 @@ def test_run_dry_run_imports_syntax():
         raise AssertionError(f"run_dry_run.py has syntax error: {e}")
 
 
+def test_run_autoplay_imports_syntax():
+    """Test that run_autoplay.py can be parsed without syntax errors."""
+    autoplay_path = Path(__file__).parent.parent / "src/holdem/cli/run_autoplay.py"
+    
+    try:
+        import ast
+        with open(autoplay_path, 'r') as f:
+            ast.parse(f.read())
+        print("✓ run_autoplay.py has valid Python syntax")
+    except SyntaxError as e:
+        raise AssertionError(f"run_autoplay.py has syntax error: {e}")
+
+
 if __name__ == "__main__":
     try:
         import pytest
@@ -99,5 +112,6 @@ if __name__ == "__main__":
         test_run_autoplay_no_duplicate_path_import()
         test_run_dry_run_argparse_uses_path()
         test_run_dry_run_imports_syntax()
+        test_run_autoplay_imports_syntax()
         
         print("\n✅ All tests passed!")
