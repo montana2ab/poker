@@ -14,6 +14,10 @@ vision_performance:
   # Enable hash-based ROI caching for OCR (pot, stacks, bets)
   cache_roi_hash: true
   
+  # Enable amount cache (stacks, bets, pot) with change detection
+  # When enabled, OCR is skipped if image hash hasn't changed
+  enable_amount_cache: true
+  
   # Downscale large ROIs before OCR to reduce processing time
   downscale_ocr_rois: true
   

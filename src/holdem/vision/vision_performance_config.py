@@ -39,6 +39,10 @@ class VisionPerformanceConfig:
     # Enable hash-based ROI caching for OCR
     cache_roi_hash: bool = True
     
+    # Enable amount cache (stacks, bets, pot) with image change detection
+    # When enabled, OCR is skipped if image hash hasn't changed
+    enable_amount_cache: bool = True
+    
     # Downscale large ROIs before OCR
     downscale_ocr_rois: bool = True
     
@@ -80,6 +84,7 @@ class VisionPerformanceConfig:
             enable_light_parse=config_dict.get("enable_light_parse", True),
             light_parse_interval=config_dict.get("light_parse_interval", 3),
             cache_roi_hash=config_dict.get("cache_roi_hash", True),
+            enable_amount_cache=config_dict.get("enable_amount_cache", True),
             downscale_ocr_rois=config_dict.get("downscale_ocr_rois", True),
             max_roi_dimension=config_dict.get("max_roi_dimension", 400),
             board_cache=BoardCacheConfig(**board_config) if board_config else BoardCacheConfig(),
