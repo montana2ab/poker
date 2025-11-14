@@ -171,7 +171,6 @@ def main():
     
     # Load vision performance config
     from holdem.vision.vision_performance_config import VisionPerformanceConfig
-    from pathlib import Path
     perf_config_path = Path("configs/vision_performance.yaml")
     if perf_config_path.exists():
         perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
@@ -198,9 +197,6 @@ def main():
         debug_dir=None,
         vision_metrics=vision_metrics,
         perf_config=perf_config
-    )
-        enable_chat_parsing=enable_chat,
-        vision_metrics=vision_metrics
     )
     
     # Create leaf evaluator based on arguments
