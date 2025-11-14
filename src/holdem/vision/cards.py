@@ -24,6 +24,21 @@ class CardRecognizer:
         self.templates = {}  # Board card templates
         self.hero_templates = {}  # Hero card templates
 
+        # Board card templates in color (for color-based prefilter)
+        self.board_templates_color = {}  # type: dict[str, np.ndarray]
+        
+        # Precomputed hue histograms (H channel, 32 bins) for board templates
+        self.board_templates_hue_hist = {}  # type: dict[str, np.ndarray]
+        
+        # Enable/disable board color prefilter (before template matching)
+        self.enable_board_color_prefilter = True
+        
+        # Minimum similarity (in [0,1]) to keep a board template as color candidate
+        self.board_color_prefilter_min_sim = 0.20
+        
+        # Maximum number of board templates to keep after color prefilter
+        self.board_color_prefilter_top_k = 12
+
         # Hero card templates in color (for color-based prefilter)
         self.hero_templates_color = {}  # type: dict[str, np.ndarray]
 
@@ -63,12 +78,32 @@ class CardRecognizer:
             for suit in self.SUITS:
                 card_name = f"{rank}{suit}"
                 template_path = self.templates_dir / f"{card_name}.png"
-                if template_path.exists():
-                    template = cv2.imread(str(template_path))
-                    if template is not None:
-                        self.templates[card_name] = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+                if not template_path.exists():
+                    continue
+                
+                tpl_bgr = cv2.imread(str(template_path))
+                if tpl_bgr is None or tpl_bgr.size == 0:
+                    logger.warning(f"Failed to load board template for {card_name} from {template_path}")
+                    continue
+                
+                # Store color template for this board card
+                self.board_templates_color[card_name] = tpl_bgr
+                
+                # Store grayscale template for matching
+                tpl_gray = cv2.cvtColor(tpl_bgr, cv2.COLOR_BGR2GRAY)
+                self.templates[card_name] = tpl_gray
+                
+                # Precompute hue histogram (H in HSV, 32 bins)
+                tpl_hsv = cv2.cvtColor(tpl_bgr, cv2.COLOR_BGR2HSV)
+                tpl_hist = cv2.calcHist([tpl_hsv], [0], None, [32], [0, 180])
+                tpl_hist = cv2.normalize(tpl_hist, tpl_hist, alpha=1.0, beta=0.0,
+                                         norm_type=cv2.NORM_L1)
+                self.board_templates_hue_hist[card_name] = tpl_hist
         
-        logger.info(f"Loaded {len(self.templates)} board card templates")
+        logger.info(
+            f"Loaded {len(self.templates)} board card templates "
+            f"(with color data and hue histograms)"
+        )
     
     def _load_hero_templates(self):
         """Load hero card templates from separate directory."""
@@ -107,14 +142,76 @@ class CardRecognizer:
             f"(with color data and hue histograms)"
         )
     
+    def run_card_color_prefilter(
+        self,
+        card_image: np.ndarray,
+        templates: dict[str, np.ndarray],
+        hue_histograms: dict[str, np.ndarray],
+        top_k: int,
+        min_sim: float,
+        label: str
+    ) -> List[Tuple[str, np.ndarray, float]]:
+        """
+        Generic color-based prefilter for card recognition.
+        
+        Computes color similarity between card_image and all templates,
+        returns the top-K candidates above min_sim threshold.
+        
+        Args:
+            card_image: The card image to match (BGR or grayscale, will be converted to BGR if needed)
+            templates: Dictionary of card_name -> grayscale template
+            hue_histograms: Dictionary of card_name -> precomputed hue histogram
+            top_k: Maximum number of candidates to return
+            min_sim: Minimum similarity threshold (0.0 to 1.0)
+            label: Label for logging (e.g., "Hero", "board")
+            
+        Returns:
+            List of (card_name, grayscale_template, similarity_score) tuples,
+            sorted by similarity in descending order, limited to top_k
+        """
+        # Ensure card_image is 3-channel BGR
+        color_img = card_image
+        if len(color_img.shape) == 2:
+            color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
+        elif len(color_img.shape) == 3 and color_img.shape[2] == 1:
+            color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
+        
+        roi_hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
+        
+        candidates = []
+        for card_name, tpl_gray in templates.items():
+            tpl_hist = hue_histograms.get(card_name)
+            if tpl_hist is None:
+                continue
+            
+            sim = self._hue_hist_similarity(roi_hsv, tpl_hist)
+            # Keep only templates above the minimum similarity threshold
+            if sim >= min_sim:
+                candidates.append((card_name, tpl_gray, sim))
+        
+        # Sort candidates by similarity in descending order
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        
+        # Limit to top-K candidates
+        if top_k > 0:
+            candidates = candidates[:top_k]
+        
+        logger.info(
+            f"{label} color pre-filter: {len(candidates)} candidates "
+            f"(top_k={top_k}, min_sim={min_sim:.2f})"
+        )
+        
+        return candidates
+    
     def recognize_card(self, img: np.ndarray, confidence_threshold: Optional[float] = None, 
-                      use_hero_templates: bool = False) -> Optional[Card]:
+                      use_hero_templates: bool = False, board_card_index: Optional[int] = None) -> Optional[Card]:
         """Recognize a single card from image.
         
         Args:
             img: Card image to recognize
             confidence_threshold: Minimum confidence score required
             use_hero_templates: If True, use hero templates instead of board templates
+            board_card_index: For board cards, the index (0-4) for logging purposes
         """
         # Auto-pick default threshold if not provided
         if confidence_threshold is None:
@@ -122,7 +219,7 @@ class CardRecognizer:
                 self.hero_match_threshold if use_hero_templates else self.board_match_threshold
             )
         if self.method == "template":
-            return self._recognize_template(img, confidence_threshold, use_hero_templates)
+            return self._recognize_template(img, confidence_threshold, use_hero_templates, board_card_index)
         elif self.method == "cnn":
             return self._recognize_cnn(img, confidence_threshold)
         else:
@@ -145,13 +242,14 @@ class CardRecognizer:
         return sim
     
     def _recognize_template(self, img: np.ndarray, threshold: float, 
-                           use_hero_templates: bool = False) -> Optional[Card]:
+                           use_hero_templates: bool = False, board_card_index: Optional[int] = None) -> Optional[Card]:
         """Template matching approach.
         
         Args:
             img: Card image to recognize
             threshold: Minimum confidence score required
             use_hero_templates: If True, use hero templates instead of board templates
+            board_card_index: For board cards, the index (0-4) for logging purposes
         """
         # Select appropriate template set
         templates_to_use = self.hero_templates if use_hero_templates and self.hero_templates else self.templates
@@ -173,45 +271,48 @@ class CardRecognizer:
         
         # Optional hero color pre-filter to reduce the number of templates
         if use_hero_templates and self.enable_hero_color_prefilter:
-            # Ensure ROI is 3-channel BGR
-            color_img = img
-            if len(color_img.shape) == 2:
-                color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
-            elif len(color_img.shape) == 3 and color_img.shape[2] == 1:
-                color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
-
-            roi_hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
-
-            candidates = []
-            for card_name, tpl_gray in self.hero_templates.items():
-                tpl_hist = self.hero_templates_hue_hist.get(card_name)
-                if tpl_hist is None:
-                    continue
-
-                sim = self._hue_hist_similarity(roi_hsv, tpl_hist)
-                # Garder seulement les templates au-dessus d'un seuil très large
-                if sim >= self.hero_color_prefilter_min_sim:
-                    candidates.append((card_name, tpl_gray, sim))
-
-            # Trier les candidats par similarité décroissante
-            candidates.sort(key=lambda x: x[2], reverse=True)
-
-            # Limiter aux top-K
-            top_k = self.hero_color_prefilter_top_k
-            if top_k > 0:
-                candidates = candidates[:top_k]
-
+            candidates = self.run_card_color_prefilter(
+                card_image=img,
+                templates=self.hero_templates,
+                hue_histograms=self.hero_templates_hue_hist,
+                top_k=self.hero_color_prefilter_top_k,
+                min_sim=self.hero_color_prefilter_min_sim,
+                label="Hero"
+            )
+            
             if candidates:
-                logger.info(
-                    f"Hero color pre-filter: {len(candidates)} candidates "
-                    f"(top_k={top_k}, min_sim={self.hero_color_prefilter_min_sim:.2f})"
-                )
-                # Reconstruire templates_to_use à partir des candidats
+                # Reconstruct templates_to_use from candidates
                 templates_to_use = {name: tpl for (name, tpl, _) in candidates}
             else:
                 logger.info(
                     "Hero color pre-filter: no candidate above min_sim, "
                     "using all hero templates"
+                )
+        
+        # Optional board color pre-filter to reduce the number of templates
+        if not use_hero_templates and self.enable_board_color_prefilter:
+            # Determine label for logging (include card index if provided)
+            if board_card_index is not None:
+                label = f"board card {board_card_index}"
+            else:
+                label = "board"
+            
+            candidates = self.run_card_color_prefilter(
+                card_image=img,
+                templates=self.templates,
+                hue_histograms=self.board_templates_hue_hist,
+                top_k=self.board_color_prefilter_top_k,
+                min_sim=self.board_color_prefilter_min_sim,
+                label=label
+            )
+            
+            if candidates:
+                # Reconstruct templates_to_use from candidates
+                templates_to_use = {name: tpl for (name, tpl, _) in candidates}
+            else:
+                logger.info(
+                    f"{label} color pre-filter: no candidate above min_sim, "
+                    "using all board templates"
                 )
         
         # Convert to grayscale
@@ -445,7 +546,9 @@ class CardRecognizer:
                 logger.warning(f"Card {i} region too small or empty: shape={card_img.shape}")
                 cards.append(None)
             else:
-                card = self.recognize_card(card_img, use_hero_templates=use_hero_templates)
+                # For board cards, pass the card index for better logging
+                board_index = i if not use_hero_templates else None
+                card = self.recognize_card(card_img, use_hero_templates=use_hero_templates, board_card_index=board_index)
                 cards.append(card)
                 
                 if card:
