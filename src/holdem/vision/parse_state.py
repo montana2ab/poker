@@ -269,6 +269,9 @@ class StateParser:
         ) if self.perf_config.enable_caching and self.perf_config.hero_cache.enabled else None
         
         self.ocr_cache_manager = OcrCacheManager() if self.perf_config.enable_caching and self.perf_config.cache_roi_hash else None
+        
+        # Track previous stacks for unlock detection
+        self._previous_stacks: Dict[int, float] = {}
     
     def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
         """Parse table state from screenshot.
@@ -640,6 +643,21 @@ class StateParser:
                                 expected_amount=None,  # No ground truth in production
                                 category="stack"
                             )
+            
+            # Check for player leaving (stack went to 0) and unlock name if needed
+            # This must happen BEFORE name OCR so unlocked seats can be re-detected
+            if self.ocr_cache_manager:
+                name_cache = self.ocr_cache_manager.get_name_cache()
+                previous_stack = self._previous_stacks.get(table_position, 0.0)
+                
+                # Unlock if stack went to 0 and name was locked
+                if stack <= 0.01 and previous_stack > 0.01:
+                    if name_cache.player_name_locked.get(table_position, False):
+                        logger.info(f"[PLAYER NAME CACHE] Unlocking seat {table_position} due to stack=0")
+                        name_cache.unlock_seat(table_position)
+                
+                # Update previous stack
+                self._previous_stacks[table_position] = stack
 
             # Extract name
             name_reg = player_region.get('name_region', {})
@@ -647,7 +665,40 @@ class StateParser:
                          name_reg.get('width', 0), name_reg.get('height', 0)
 
             name = f"Player{table_position}"
-            if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+            
+            # Check if name is locked in cache
+            if self.ocr_cache_manager:
+                name_cache = self.ocr_cache_manager.get_name_cache()
+                cached_name = name_cache.get_cached_name(table_position)
+                if cached_name:
+                    # Use cached locked name
+                    name = cached_name
+                    logger.debug(f"[PLAYER NAME CACHE] seat={table_position} name={name} (locked)")
+                elif y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                    # Name not locked - run OCR
+                    name_img = img[y:y+h, x:x+w]
+                    parsed_name = self.ocr_engine.read_text(name_img)
+                    if parsed_name:
+                        parsed_name_stripped = parsed_name.strip()
+                        
+                        # Check if this is a button label (Raise, Call, Bet, Fold, Check, All-in)
+                        if is_button_label(parsed_name_stripped):
+                            logger.info(f"[VISION] Ignoring button label as player name at position {table_position}: {parsed_name_stripped}")
+                            # Keep default player name instead of button label
+                            # This prevents the button label from being treated as a real player
+                        # Check if this is a showdown "Won X,XXX" label
+                        elif is_showdown_won_label(parsed_name_stripped):
+                            logger.info(f"[SHOWDOWN] Ignoring 'Won X,XXX' label as player name at position {table_position}: {parsed_name_stripped}")
+                            has_showdown_label = True  # Mark that we found a showdown label
+                            # Keep default player name instead of showdown label
+                            # This prevents the showdown label from being treated as a real player
+                        else:
+                            name = parsed_name_stripped
+                            logger.info(f"Player {table_position} name OCR: {name}")
+                            # Update name cache for stability tracking and potential locking
+                            name_cache.update_name(table_position, name, default_name=f"Player{table_position}")
+            elif y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
+                # No cache manager - use original logic
                 name_img = img[y:y+h, x:x+w]
                 parsed_name = self.ocr_engine.read_text(name_img)
                 if parsed_name:
