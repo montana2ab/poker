@@ -12,6 +12,8 @@ from holdem.types import TableState, PlayerState, Street, Card
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.ocr import OCREngine
+from holdem.vision.vision_performance_config import VisionPerformanceConfig
+from holdem.vision.vision_cache import BoardCache, HeroCache, OcrCacheManager
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.parse_state")
@@ -242,7 +244,8 @@ class StateParser:
         card_recognizer: CardRecognizer,
         ocr_engine: OCREngine,
         debug_dir: Optional[Path] = None,
-        vision_metrics: Optional['VisionMetrics'] = None
+        vision_metrics: Optional['VisionMetrics'] = None,
+        perf_config: Optional[VisionPerformanceConfig] = None
     ):
         self.profile = profile
         self.card_recognizer = card_recognizer
@@ -252,9 +255,31 @@ class StateParser:
         self._debug_counter = 0
         self.hero_cards_tracker = HeroCardsTracker()  # Track stable hero cards
         self._last_pot = 0.0  # Track pot for regression detection
+        
+        # Performance optimization config
+        self.perf_config = perf_config or VisionPerformanceConfig.default()
+        
+        # Caching for performance
+        self.board_cache = BoardCache(
+            stability_threshold=self.perf_config.board_cache.stability_threshold
+        ) if self.perf_config.enable_caching and self.perf_config.board_cache.enabled else None
+        
+        self.hero_cache = HeroCache(
+            stability_threshold=self.perf_config.hero_cache.stability_threshold
+        ) if self.perf_config.enable_caching and self.perf_config.hero_cache.enabled else None
+        
+        self.ocr_cache_manager = OcrCacheManager() if self.perf_config.enable_caching and self.perf_config.cache_roi_hash else None
     
-    def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
-        """Parse table state from screenshot."""
+    def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
+        """Parse table state from screenshot.
+        
+        Args:
+            screenshot: Screenshot image to parse
+            frame_index: Frame number for light parse logic (0 = always full parse)
+            
+        Returns:
+            TableState or None if parsing failed
+        """
         try:
             # Track parse latency if metrics are enabled
             parse_start = time.time() if self.vision_metrics else None
@@ -263,8 +288,15 @@ class StateParser:
             if self.debug_dir:
                 self._debug_counter += 1
             
-            # Extract community cards
-            board = self._parse_board(screenshot)
+            # Determine if this is a full parse or light parse
+            is_full_parse = True
+            if self.perf_config.enable_light_parse and frame_index > 0:
+                is_full_parse = (frame_index % self.perf_config.light_parse_interval == 0)
+                if not is_full_parse:
+                    logger.debug(f"[LIGHT PARSE] Frame {frame_index} - skipping heavy OCR")
+            
+            # Extract community cards (with caching)
+            board = self._parse_board(screenshot, is_full_parse=is_full_parse)
             
             # Determine street based on board cards
             num_board_cards = len([c for c in board if c is not None])
@@ -280,13 +312,13 @@ class StateParser:
                 street = Street.PREFLOP
             
             # Extract pot
-            pot = self._parse_pot(screenshot)
+            pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
             
             # Parse button position (dealer button)
             button_position = self._parse_button_position(screenshot)
             
             # Extract player states and check for showdown labels
-            players, has_showdown_label = self._parse_players(screenshot)
+            players, has_showdown_label = self._parse_players(screenshot, is_full_parse=is_full_parse)
             
             # Detect pot regression (inconsistent state)
             state_inconsistent = False
@@ -367,7 +399,7 @@ class StateParser:
             # Record parse latency if metrics are enabled
             if self.vision_metrics and parse_start is not None:
                 parse_latency_ms = (time.time() - parse_start) * 1000
-                self.vision_metrics.record_parse_latency(parse_latency_ms)
+                self.vision_metrics.record_parse_latency(parse_latency_ms, is_full_parse=is_full_parse)
             
             logger.debug(f"Parsed state: {street.name}, pot={pot}, current_bet={current_bet}, "
                         f"button={button_position}, hero_pos={hero_position}, is_IP={is_in_position}, "
@@ -379,8 +411,16 @@ class StateParser:
             logger.error(f"Error parsing state: {e}")
             return None
     
-    def _parse_board(self, img: np.ndarray) -> list:
-        """Parse community cards from image."""
+    def _parse_board(self, img: np.ndarray, is_full_parse: bool = True) -> list:
+        """Parse community cards from image with caching support.
+        
+        Args:
+            img: Screenshot image
+            is_full_parse: Whether to perform full recognition or use cache
+            
+        Returns:
+            List of 5 cards (some may be None)
+        """
         if not self.profile.card_regions:
             logger.warning("No card regions defined in profile")
             return [None] * 5
@@ -388,81 +428,162 @@ class StateParser:
         region = self.profile.card_regions[0]
         x, y, w, h = region['x'], region['y'], region['width'], region['height']
         
-        if y + h <= img.shape[0] and x + w <= img.shape[1]:
-            card_region = img[y:y+h, x:x+w]
-            logger.debug(f"Extracting board cards from region ({x},{y},{w},{h})")
-            
-            # Save debug image if debug mode is enabled
-            if self.debug_dir:
-                debug_path = self.debug_dir / f"board_region_{self._debug_counter:04d}.png"
-                try:
-                    success = cv2.imwrite(str(debug_path), card_region)
-                    if success:
-                        logger.debug(f"Saved board region to {debug_path}")
-                    else:
-                        logger.warning(f"Failed to save debug image to {debug_path}")
-                except Exception as e:
-                    logger.warning(f"Error saving debug image: {e}")
-            
-            cards = self.card_recognizer.recognize_cards(
-                card_region, 
-                num_cards=5,
-                card_spacing=getattr(self.profile, 'card_spacing', 0)
-            )
-            
-            # Track card recognition metrics if enabled
-            if self.vision_metrics:
-                # Get confidence scores from card recognizer
-                confidences = self.card_recognizer.last_confidence_scores
-                for i, card in enumerate(cards):
-                    if card is not None:
-                        # Get confidence for this card (if available)
-                        confidence = confidences[i] if i < len(confidences) else 0.0
-                        self.vision_metrics.record_card_recognition(
-                            detected_card=str(card),
-                            expected_card=None,
-                            confidence=confidence
-                        )
-            
-            # Log the result
-            cards_str = ", ".join(str(c) for c in cards if c is not None)
-            if cards_str:
-                num_recognized = len([c for c in cards if c is not None])
-                logger.info(f"Recognized {num_recognized} board card(s): {cards_str}")
-            else:
-                logger.warning("No board cards recognized - check card templates and region coordinates")
-            
-            return cards
-        else:
+        if y + h > img.shape[0] or x + w > img.shape[1]:
             logger.error(f"Card region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")
+            return [None] * 5
         
-        return [None] * 5
+        card_region = img[y:y+h, x:x+w]
+        
+        # Determine street first (needed for cache)
+        # We'll do a quick recognition if cache is not available
+        cards = None
+        
+        # Try to use board cache if enabled
+        if self.board_cache and not is_full_parse:
+            # Check if cache is stable - if so, use it
+            cached_cards = self.board_cache.get_cached_cards()
+            if cached_cards is not None:
+                logger.debug(f"[BOARD CACHE] Using cached board cards")
+                return cached_cards
+        
+        # Need to run recognition
+        logger.debug(f"Extracting board cards from region ({x},{y},{w},{h})")
+        
+        # Save debug image if debug mode is enabled
+        if self.debug_dir:
+            debug_path = self.debug_dir / f"board_region_{self._debug_counter:04d}.png"
+            try:
+                success = cv2.imwrite(str(debug_path), card_region)
+                if success:
+                    logger.debug(f"Saved board region to {debug_path}")
+                else:
+                    logger.warning(f"Failed to save debug image to {debug_path}")
+            except Exception as e:
+                logger.warning(f"Error saving debug image: {e}")
+        
+        cards = self.card_recognizer.recognize_cards(
+            card_region, 
+            num_cards=5,
+            card_spacing=getattr(self.profile, 'card_spacing', 0)
+        )
+        
+        # Determine street from cards
+        num_board_cards = len([c for c in cards if c is not None])
+        if num_board_cards == 0:
+            current_street = Street.PREFLOP
+        elif num_board_cards == 3:
+            current_street = Street.FLOP
+        elif num_board_cards == 4:
+            current_street = Street.TURN
+        elif num_board_cards == 5:
+            current_street = Street.RIVER
+        else:
+            current_street = Street.PREFLOP
+        
+        # Update board cache if enabled
+        if self.board_cache:
+            self.board_cache.update(current_street, cards)
+        
+        # Track card recognition metrics if enabled
+        if self.vision_metrics:
+            # Get confidence scores from card recognizer
+            confidences = self.card_recognizer.last_confidence_scores
+            for i, card in enumerate(cards):
+                if card is not None:
+                    # Get confidence for this card (if available)
+                    confidence = confidences[i] if i < len(confidences) else 0.0
+                    self.vision_metrics.record_card_recognition(
+                        detected_card=str(card),
+                        expected_card=None,
+                        confidence=confidence
+                    )
+        
+        # Log the result
+        cards_str = ", ".join(str(c) for c in cards if c is not None)
+        if cards_str:
+            num_recognized = len([c for c in cards if c is not None])
+            logger.info(f"Recognized {num_recognized} board card(s): {cards_str}")
+        else:
+            logger.warning("No board cards recognized - check card templates and region coordinates")
+        
+        return cards
     
-    def _parse_pot(self, img: np.ndarray) -> float:
-        """Parse pot amount from image."""
+    def _parse_pot(self, img: np.ndarray, is_full_parse: bool = True) -> float:
+        """Parse pot amount from image with OCR caching.
+        
+        Args:
+            img: Screenshot image
+            is_full_parse: Whether to perform OCR or use cache
+            
+        Returns:
+            Pot amount as float
+        """
         if not self.profile.pot_region:
             return 0.0
         
         region = self.profile.pot_region
         x, y, w, h = region['x'], region['y'], region['width'], region['height']
         
-        if y + h <= img.shape[0] and x + w <= img.shape[1]:
-            pot_region = img[y:y+h, x:x+w]
-            pot = self.ocr_engine.extract_number(pot_region)
-            
-            # Track OCR and amount metrics if enabled
-            if self.vision_metrics and pot is not None:
-                self.vision_metrics.record_amount(
-                    detected_amount=pot,
-                    expected_amount=None,  # No ground truth in production
-                    category="pot"
-                )
-            
-            return pot if pot is not None else 0.0
+        if y + h > img.shape[0] or x + w > img.shape[1]:
+            return 0.0
         
-        return 0.0
+        pot_region = img[y:y+h, x:x+w]
+        
+        # Try to use OCR cache if enabled and not full parse
+        if self.ocr_cache_manager and not is_full_parse:
+            pot_cache = self.ocr_cache_manager.get_pot_cache()
+            if not pot_cache.should_run_ocr(pot_region):
+                cached_pot = pot_cache.get_cached_value()
+                if cached_pot is not None:
+                    logger.debug(f"[OCR CACHE] Reusing pot value: {cached_pot:.2f}")
+                    return cached_pot
+        
+        # Downscale ROI if needed
+        if self.perf_config.downscale_ocr_rois:
+            pot_region = self._downscale_roi(pot_region)
+        
+        # Run OCR
+        pot = self.ocr_engine.extract_number(pot_region)
+        pot_value = pot if pot is not None else 0.0
+        
+        # Update cache if enabled
+        if self.ocr_cache_manager:
+            pot_cache = self.ocr_cache_manager.get_pot_cache()
+            pot_cache.update_value(pot_value)
+        
+        # Track OCR and amount metrics if enabled
+        if self.vision_metrics and pot is not None:
+            self.vision_metrics.record_amount(
+                detected_amount=pot,
+                expected_amount=None,  # No ground truth in production
+                category="pot"
+            )
+        
+        return pot_value
     
-    def _parse_players(self, img: np.ndarray) -> Tuple[list, bool]:
+    def _downscale_roi(self, roi: np.ndarray) -> np.ndarray:
+        """Downscale ROI if it exceeds maximum dimension.
+        
+        Args:
+            roi: Region of interest image
+            
+        Returns:
+            Downscaled ROI or original if small enough
+        """
+        h, w = roi.shape[:2]
+        max_side = max(h, w)
+        max_dim = self.perf_config.max_roi_dimension
+        
+        if max_side > max_dim:
+            scale = max_dim / max_side
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            roi = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            logger.debug(f"[OCR OPTIMIZATION] Downscaled ROI from {w}x{h} to {new_w}x{new_h}")
+        
+        return roi
+    
+    def _parse_players(self, img: np.ndarray, is_full_parse: bool = True) -> Tuple[list, bool]:
         """Parse player states from image.
         
         Returns:
@@ -482,22 +603,43 @@ class StateParser:
             stack = 1000.0  # Default
             if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 stack_img = img[y:y+h, x:x+w]
-                parsed_stack = self.ocr_engine.extract_number(stack_img)
-                if parsed_stack is None:
-                    # Fallback: OCR raw text then parse locale-aware
-                    raw_txt = self.ocr_engine.read_text(stack_img) or ""
-                    parsed_stack = _parse_amount_from_text(raw_txt)
-                if parsed_stack is not None:
-                    stack = parsed_stack
-                    logger.info(f"Player {table_position} stack OCR: {stack:.2f}")
+                
+                # Try to use OCR cache if enabled and not full parse (skip for hero in light parse)
+                should_run_ocr = is_full_parse or (table_position == hero_pos)
+                if self.ocr_cache_manager and not should_run_ocr:
+                    stack_cache = self.ocr_cache_manager.get_stack_cache(table_position)
+                    if not stack_cache.should_run_ocr(stack_img):
+                        cached_stack = stack_cache.get_cached_value()
+                        if cached_stack is not None:
+                            stack = cached_stack
+                            logger.debug(f"[OCR CACHE] Reusing stack for seat {table_position}: {stack:.2f}")
+                            should_run_ocr = False
+                
+                if should_run_ocr:
+                    # Downscale ROI if needed
+                    stack_img_processed = self._downscale_roi(stack_img) if self.perf_config.downscale_ocr_rois else stack_img
                     
-                    # Track amount metrics if enabled
-                    if self.vision_metrics:
-                        self.vision_metrics.record_amount(
-                            detected_amount=stack,
-                            expected_amount=None,  # No ground truth in production
-                            category="stack"
-                        )
+                    parsed_stack = self.ocr_engine.extract_number(stack_img_processed)
+                    if parsed_stack is None:
+                        # Fallback: OCR raw text then parse locale-aware
+                        raw_txt = self.ocr_engine.read_text(stack_img_processed) or ""
+                        parsed_stack = _parse_amount_from_text(raw_txt)
+                    if parsed_stack is not None:
+                        stack = parsed_stack
+                        logger.info(f"Player {table_position} stack OCR: {stack:.2f}")
+                        
+                        # Update cache if enabled
+                        if self.ocr_cache_manager:
+                            stack_cache = self.ocr_cache_manager.get_stack_cache(table_position)
+                            stack_cache.update_value(stack)
+                        
+                        # Track amount metrics if enabled
+                        if self.vision_metrics:
+                            self.vision_metrics.record_amount(
+                                detected_amount=stack,
+                                expected_amount=None,  # No ground truth in production
+                                category="stack"
+                            )
 
             # Extract name
             name_reg = player_region.get('name_region', {})
@@ -533,19 +675,40 @@ class StateParser:
                          bet_reg.get('width', 0), bet_reg.get('height', 0)
             if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 bet_img = img[y:y+h, x:x+w]
-                parsed_bet = self.ocr_engine.extract_number(bet_img)
-                if parsed_bet is None:
-                    # Fallback: OCR raw text then parse locale-aware
-                    raw_txt = self.ocr_engine.read_text(bet_img) or ""
-                    parsed_bet = _parse_amount_from_text(raw_txt)
-                if parsed_bet is not None:
-                    # Only record bet if this is not a showdown label in the name region
-                    # (prevents "Won 5,249" from being treated as a bet)
-                    if not is_showdown_won_label(name):
-                        bet_this_round = parsed_bet
-                        logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
-                    else:
-                        logger.debug(f"[SHOWDOWN] Ignoring bet amount for showdown label at position {table_position}")
+                
+                # Try to use OCR cache if enabled and not full parse
+                should_run_ocr = is_full_parse
+                if self.ocr_cache_manager and not should_run_ocr:
+                    bet_cache = self.ocr_cache_manager.get_bet_cache(table_position)
+                    if not bet_cache.should_run_ocr(bet_img):
+                        cached_bet = bet_cache.get_cached_value()
+                        if cached_bet is not None:
+                            bet_this_round = cached_bet
+                            logger.debug(f"[OCR CACHE] Reusing bet for seat {table_position}: {bet_this_round:.2f}")
+                            should_run_ocr = False
+                
+                if should_run_ocr:
+                    # Downscale ROI if needed
+                    bet_img_processed = self._downscale_roi(bet_img) if self.perf_config.downscale_ocr_rois else bet_img
+                    
+                    parsed_bet = self.ocr_engine.extract_number(bet_img_processed)
+                    if parsed_bet is None:
+                        # Fallback: OCR raw text then parse locale-aware
+                        raw_txt = self.ocr_engine.read_text(bet_img_processed) or ""
+                        parsed_bet = _parse_amount_from_text(raw_txt)
+                    if parsed_bet is not None:
+                        # Only record bet if this is not a showdown label in the name region
+                        # (prevents "Won 5,249" from being treated as a bet)
+                        if not is_showdown_won_label(name):
+                            bet_this_round = parsed_bet
+                            logger.info(f"Player {table_position} bet OCR: {bet_this_round:.2f}")
+                            
+                            # Update cache if enabled
+                            if self.ocr_cache_manager:
+                                bet_cache = self.ocr_cache_manager.get_bet_cache(table_position)
+                                bet_cache.update_value(bet_this_round)
+                        else:
+                            logger.debug(f"[SHOWDOWN] Ignoring bet amount for showdown label at position {table_position}")
 
             # Extract player action (CALL, CHECK, BET, RAISE, FOLD, ALL-IN)
             last_action = None
@@ -574,11 +737,11 @@ class StateParser:
             hole_cards = None
             if hero_pos is not None and table_position == hero_pos:
                 logger.info(f"Parsing hero cards at position {table_position}")
-                hole_cards = self._parse_player_cards(img, player_region, is_hero=True)
+                hole_cards = self._parse_player_cards(img, player_region, is_hero=True, is_full_parse=is_full_parse)
             elif parse_opp:
                 logger.info(f"Parsing opponent cards at position {table_position}")
                 # Templates héros et joueurs identiques -> on réutilise la même reco
-                hole_cards = self._parse_player_cards(img, player_region, is_hero=False)
+                hole_cards = self._parse_player_cards(img, player_region, is_hero=False, is_full_parse=is_full_parse)
 
             player = PlayerState(
                 name=name,
@@ -594,13 +757,14 @@ class StateParser:
 
         return players, has_showdown_label
     
-    def _parse_player_cards(self, img: np.ndarray, player_region: dict, is_hero: bool = False) -> Optional[List[Card]]:
+    def _parse_player_cards(self, img: np.ndarray, player_region: dict, is_hero: bool = False, is_full_parse: bool = True) -> Optional[List[Card]]:
         """Parse hole cards for a specific player.
         
         Args:
             img: Full table image
             player_region: Region definition for this player
-            is_hero: True if parsing hero cards (enables sticky tracking)
+            is_hero: True if parsing hero cards (enables sticky tracking and caching)
+            is_full_parse: Whether to perform full recognition or use cache
         """
         card_reg = player_region.get('card_region', {})
         x, y, w, h = card_reg.get('x', 0), card_reg.get('y', 0), \
@@ -608,6 +772,16 @@ class StateParser:
         
         player_pos = player_region.get('position', 'unknown')
         logger.debug(f"Extracting player cards for position {player_pos} from region ({x},{y},{w},{h})")
+        
+        # Try to use hero cache if enabled and not full parse
+        if is_hero and self.hero_cache and not is_full_parse:
+            # Create simple hand_id from pot (will improve later)
+            hand_id = int(self._last_pot * 100)  # Simple hash for now
+            if self.hero_cache.update(hand_id, None):
+                cached_cards = self.hero_cache.get_cached_cards()
+                if cached_cards:
+                    logger.debug(f"[HERO CACHE] Using cached hero cards")
+                    return cached_cards
         
         if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
             card_region = img[y:y+h, x:x+w]
@@ -657,6 +831,12 @@ class StateParser:
             # For hero cards, use sticky tracker to prevent degradation
             if is_hero and len(valid_cards) > 0:
                 tracked_cards = self.hero_cards_tracker.update(valid_cards, confidences)
+                
+                # Also update hero cache if enabled
+                if self.hero_cache and tracked_cards and len(tracked_cards) == 2:
+                    hand_id = int(self._last_pot * 100)
+                    self.hero_cache.update(hand_id, tracked_cards)
+                
                 if tracked_cards:
                     cards_str = ", ".join(str(c) for c in tracked_cards)
                     logger.info(f"Hero cards (tracked): {cards_str}")

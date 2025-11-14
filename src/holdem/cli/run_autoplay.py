@@ -169,6 +169,17 @@ def main():
     
     ocr_engine = OCREngine(backend=ocr_backend)
     
+    # Load vision performance config
+    from holdem.vision.vision_performance_config import VisionPerformanceConfig
+    from pathlib import Path
+    perf_config_path = Path("configs/vision_performance.yaml")
+    if perf_config_path.exists():
+        perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
+        logger.info("Loaded vision performance config from configs/vision_performance.yaml")
+    else:
+        perf_config = VisionPerformanceConfig.default()
+        logger.info("Using default vision performance config (all optimizations enabled)")
+    
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing
     if enable_chat and profile.chat_region:
@@ -183,6 +194,11 @@ def main():
         profile=profile,
         card_recognizer=card_recognizer,
         ocr_engine=ocr_engine,
+        enable_chat_parsing=enable_chat,
+        debug_dir=None,
+        vision_metrics=vision_metrics,
+        perf_config=perf_config
+    )
         enable_chat_parsing=enable_chat,
         vision_metrics=vision_metrics
     )
@@ -246,8 +262,17 @@ def main():
     logger.info("Auto-play mode started")
     logger.info(f"Real-time search: time_budget={args.time_budget_ms}ms, min_iters={args.min_iters}, workers={args.num_workers}")
     
+    # Log performance config
+    if perf_config.enable_light_parse:
+        logger.info(f"Light parse enabled: full parse every {perf_config.light_parse_interval} frames")
+    if perf_config.enable_caching:
+        logger.info("Caching enabled: board, hero cards, and OCR regions")
+    
     # Track metrics reporting
     last_metrics_report = time.time()
+    
+    # Track frame index for light parse
+    frame_index = 0
     
     try:
         # Track action history for belief updates
@@ -256,6 +281,9 @@ def main():
         last_street = None
         
         while True:
+            # Increment frame index
+            frame_index += 1
+            
             # Capture and parse state
             if profile.screen_region:
                 x, y, w, h = profile.screen_region
@@ -272,7 +300,7 @@ def main():
                 continue
             
             warped = table_detector.detect(screenshot)
-            state, events = state_parser.parse_with_events(warped)
+            state, events = state_parser.parse_with_events(warped, frame_index=frame_index)
             
             if not state:
                 time.sleep(1.0)

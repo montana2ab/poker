@@ -10,6 +10,7 @@ from holdem.vision.ocr import OCREngine
 from holdem.vision.calibrate import TableProfile
 from holdem.vision.parse_state import StateParser
 from holdem.vision.cards import CardRecognizer
+from holdem.vision.vision_performance_config import VisionPerformanceConfig
 from holdem.types import TableState, ActionType
 from holdem.utils.logging import get_logger
 
@@ -26,7 +27,8 @@ class ChatEnabledStateParser:
         ocr_engine: OCREngine,
         enable_chat_parsing: bool = True,
         debug_dir: Optional[Path] = None,
-        vision_metrics: Optional['VisionMetrics'] = None
+        vision_metrics: Optional['VisionMetrics'] = None,
+        perf_config: Optional[VisionPerformanceConfig] = None
     ):
         """Initialize chat-enabled state parser.
         
@@ -37,14 +39,18 @@ class ChatEnabledStateParser:
             enable_chat_parsing: Whether to parse chat for events
             debug_dir: Optional directory for debug images
             vision_metrics: Optional VisionMetrics instance for tracking
+            perf_config: Optional performance configuration
         """
         self.profile = profile
+        self.perf_config = perf_config or VisionPerformanceConfig.default()
+        
         self.state_parser = StateParser(
             profile=profile,
             card_recognizer=card_recognizer,
             ocr_engine=ocr_engine,
             debug_dir=debug_dir,
-            vision_metrics=vision_metrics
+            vision_metrics=vision_metrics,
+            perf_config=self.perf_config
         )
         
         self.enable_chat_parsing = enable_chat_parsing
@@ -56,7 +62,7 @@ class ChatEnabledStateParser:
         
         self.prev_state: Optional[TableState] = None
     
-    def parse(self, screenshot: np.ndarray) -> Optional[TableState]:
+    def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
         """Parse table state from screenshot (without events).
         
         This method provides compatibility with the standard StateParser interface.
@@ -64,27 +70,30 @@ class ChatEnabledStateParser:
         
         Args:
             screenshot: Screenshot of poker table
+            frame_index: Frame number for light parse logic
             
         Returns:
             TableState or None if parsing failed
         """
-        state, _ = self.parse_with_events(screenshot)
+        state, _ = self.parse_with_events(screenshot, frame_index=frame_index)
         return state
     
     def parse_with_events(
         self, 
-        screenshot: np.ndarray
+        screenshot: np.ndarray,
+        frame_index: int = 0
     ) -> Tuple[Optional[TableState], List[FusedEvent]]:
         """Parse table state and extract fused events.
         
         Args:
             screenshot: Screenshot of poker table
+            frame_index: Frame number for light parse logic
             
         Returns:
             Tuple of (TableState, List[FusedEvent])
         """
-        # Parse vision state
-        current_state = self.state_parser.parse(screenshot)
+        # Parse vision state with frame_index for light parse
+        current_state = self.state_parser.parse(screenshot, frame_index=frame_index)
         
         if current_state is None:
             logger.debug("Failed to parse table state from vision")
@@ -99,12 +108,20 @@ class ChatEnabledStateParser:
             if vision_events:
                 logger.debug(f"Extracted {len(vision_events)} events from vision")
         
-        # Extract chat events if enabled
+        # Extract chat events if enabled and on appropriate frame
         chat_events = []
-        if self.enable_chat_parsing and self.profile.chat_region:
+        should_parse_chat = (
+            self.enable_chat_parsing 
+            and self.profile.chat_region
+            and (frame_index == 0 or self.perf_config.chat_parse_interval == 0 or frame_index % self.perf_config.chat_parse_interval == 0)
+        )
+        
+        if should_parse_chat:
             chat_events = self._extract_chat_events(screenshot)
             if chat_events:
                 logger.info(f"Extracted {len(chat_events)} events from chat")
+        elif self.enable_chat_parsing and frame_index > 0:
+            logger.debug(f"[LIGHT PARSE] Skipping chat parsing on frame {frame_index}")
         
         # Fuse events from both sources
         fused_events = self.event_fuser.fuse_events(chat_events, vision_events)
