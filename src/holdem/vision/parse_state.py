@@ -328,6 +328,11 @@ class StateParser:
             # Extract player states and check for showdown labels
             players, has_showdown_label = self._parse_players(screenshot, is_full_parse=is_full_parse)
             
+            # Try to infer button position from blinds (if vision-based detection didn't work)
+            inferred_button = self._infer_button_from_blinds(players)
+            if inferred_button is not None:
+                button_position = inferred_button
+            
             # Detect pot regression (inconsistent state)
             state_inconsistent = False
             if self._last_pot > 0 and pot < self._last_pot and abs(pot - self._last_pot) > 0.01:
@@ -413,6 +418,8 @@ class StateParser:
                         f"button={button_position}, hero_pos={hero_position}, is_IP={is_in_position}, "
                         f"to_call={to_call:.2f}, eff_stack={effective_stack:.2f}, SPR={spr:.2f}, "
                         f"{len(players)} players")
+            logger.info(f"Parsed state: {street.name}, pot={pot:.2f}, current_bet={current_bet:.2f}, "
+                       f"button={button_position}, hero_pos={hero_position}, {len(players)} players")
             return state
             
         except Exception as e:
@@ -1051,6 +1058,79 @@ class StateParser:
             logger.debug(f"Image processing error in button detection: {e}")
         
         return min(score, 1.0)
+    
+    def _infer_button_from_blinds(self, players: List[PlayerState]) -> Optional[int]:
+        """Infer dealer button position from blind structure.
+        
+        In standard poker, the button is immediately before the small blind
+        in the order of seats. This function identifies SB and BB by their
+        bet amounts and calculates the button position.
+        
+        Args:
+            players: List of PlayerState objects with bet_this_round populated
+            
+        Returns:
+            Button position (0-based seat index) if successfully inferred,
+            None if blind pattern is unclear or cannot be determined
+            
+        Algorithm:
+            1. Collect all non-zero bets from bet_this_round
+            2. Identify smallest bet as SB, next smallest as BB
+            3. Find positions of players with SB and BB bets
+            4. Calculate button as (SB_position - 1) mod num_players
+            5. Handle edge cases (no blinds, heads-up, etc.)
+        """
+        if not players or len(players) < 2:
+            logger.debug("[BUTTON] Not enough players to infer button from blinds")
+            return None
+        
+        # Collect non-zero bets with their positions
+        bets_with_positions = []
+        for player in players:
+            if player.bet_this_round > 0.01:  # Ignore zero or very small bets
+                bets_with_positions.append((player.bet_this_round, player.position))
+        
+        if len(bets_with_positions) < 2:
+            logger.debug("[BUTTON] Not enough non-zero bets to infer blinds")
+            return None
+        
+        # Sort by bet amount to find SB (smallest) and BB (second smallest)
+        bets_with_positions.sort(key=lambda x: x[0])
+        
+        # Get the two smallest bets
+        sb_bet, sb_pos = bets_with_positions[0]
+        bb_bet, bb_pos = bets_with_positions[1]
+        
+        # Validate that BB is roughly 2x SB (standard blind structure)
+        # Allow some tolerance for rounding or non-standard structures
+        expected_bb = sb_bet * 2
+        if bb_bet < expected_bb * 0.8 or bb_bet > expected_bb * 1.3:
+            logger.debug(
+                f"[BUTTON] Blind structure unclear: SB={sb_bet:.2f}, BB={bb_bet:.2f} "
+                f"(expected BB ~{expected_bb:.2f})"
+            )
+            return None
+        
+        # Button is immediately before SB in seat order
+        # Special case for heads-up: button IS the small blind
+        # In a 6-max game with positions 0-5:
+        # If SB is at position 1, button is at position 0
+        # If SB is at position 0, button is at position 5 (wraps around)
+        num_players = len(players)
+        
+        if num_players == 2:
+            # Heads-up: button posts the small blind
+            button_pos = sb_pos
+        else:
+            # Multi-way: button is one seat before SB
+            button_pos = (sb_pos - 1) % num_players
+        
+        logger.info(
+            f"[BUTTON] Inferred from blinds: position={button_pos}, "
+            f"SB_pos={sb_pos} (bet={sb_bet:.2f}), BB_pos={bb_pos} (bet={bb_bet:.2f})"
+        )
+        
+        return button_pos
     
     def _calculate_multiway_position(
         self, 
