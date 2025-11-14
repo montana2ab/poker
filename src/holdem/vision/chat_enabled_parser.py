@@ -2,7 +2,7 @@
 
 import numpy as np
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 from holdem.vision.chat_parser import ChatParser, EventSource, GameEvent
 from holdem.vision.event_fusion import EventFuser, FusedEvent
@@ -11,7 +11,8 @@ from holdem.vision.calibrate import TableProfile
 from holdem.vision.parse_state import StateParser
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.vision_performance_config import VisionPerformanceConfig
-from holdem.types import TableState, ActionType
+from holdem.vision.button_detector import ButtonDetector
+from holdem.types import TableState, ActionType, Street
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.chat_enabled_parser")
@@ -60,7 +61,13 @@ class ChatEnabledStateParser:
             confidence_threshold=0.7
         )
         
+        # Button detector for automatic button position detection
+        # Assumes 6-max table by default (can be made configurable if needed)
+        self.button_detector = ButtonDetector(num_seats=6)
+        
         self.prev_state: Optional[TableState] = None
+        self._last_button_detection_street: Optional[Street] = None
+        self._current_hand_button: Optional[int] = None
     
     def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
         """Parse table state from screenshot (without events).
@@ -148,6 +155,10 @@ class ChatEnabledStateParser:
             # Update hero_active flag based on events
             self._update_hero_state_from_events(current_state, reliable_events)
         
+        # Detect button position if we have blind events and are at start of hand
+        # Only call once per hand (when transitioning to PREFLOP with empty board)
+        self._detect_button_position(current_state, chat_events + vision_events, reliable_events)
+        
         # Update previous state
         self.prev_state = current_state
         
@@ -175,6 +186,81 @@ class ChatEnabledStateParser:
                         state.hero_active = False
                         logger.info(f"[HERO STATE] Hero folded - marking hero_active=False")
                         break
+    
+    def _detect_button_position(
+        self,
+        state: TableState,
+        all_events: List[GameEvent],
+        reliable_events: List[FusedEvent]
+    ):
+        """Detect and update button position from blind events.
+        
+        This method is called once per hand when transitioning to PREFLOP
+        with an empty board and blind events are detected.
+        
+        Args:
+            state: Current table state to update
+            all_events: All events (chat + vision, before fusion)
+            reliable_events: Fused reliable events
+        """
+        # Only detect button at start of new hand (PREFLOP with empty board)
+        is_new_hand = (
+            state.street == Street.PREFLOP 
+            and len(state.board) == 0
+        )
+        
+        # Check if we already detected button for this street transition
+        if self._last_button_detection_street == state.street and self._current_hand_button is not None:
+            # Already detected for this hand, reuse cached value
+            state.button_position = self._current_hand_button
+            return
+        
+        # Only run detection on new hands or street changes
+        if not is_new_hand:
+            return
+        
+        # Check if we have any blind events in chat/vision
+        has_blind_events = any(
+            getattr(e, 'event_type', None) in ['post_small_blind', 'post_big_blind']
+            for e in all_events
+        )
+        
+        if not has_blind_events:
+            logger.debug("[BUTTON] No blind events detected, skipping button detection")
+            return
+        
+        # Build name_to_seat mapping from current state
+        name_to_seat: Dict[str, int] = {}
+        for player in state.players:
+            if player.name and player.name not in ["", "Player0", "Player1", "Player2", 
+                                                    "Player3", "Player4", "Player5"]:
+                name_to_seat[player.name] = player.position
+        
+        # Get active seats (players not folded)
+        active_seats = [p.position for p in state.players if not p.folded]
+        
+        if not name_to_seat or not active_seats:
+            logger.debug("[BUTTON] No valid players or active seats for button detection")
+            return
+        
+        # Call button detector
+        result = self.button_detector.infer_button(
+            events=all_events,
+            name_to_seat=name_to_seat,
+            active_seats=active_seats
+        )
+        
+        # Update state if button was inferred successfully
+        if result.button_seat is not None:
+            state.button_position = result.button_seat
+            self._current_hand_button = result.button_seat
+            self._last_button_detection_street = state.street
+            logger.info(
+                f"[BUTTON] Updated button_position to {result.button_seat} "
+                f"(SB={result.sb_seat}, BB={result.bb_seat})"
+            )
+        else:
+            logger.debug("[BUTTON] Could not infer button position from available events")
     
     def _extract_chat_events(self, screenshot: np.ndarray) -> List[GameEvent]:
         """Extract events from chat region."""
