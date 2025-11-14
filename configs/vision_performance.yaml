@@ -38,3 +38,17 @@ vision_performance:
   
   # Chat parsing frequency (0 = disable, 1 = every frame, N = every Nth frame)
   chat_parse_interval: 3
+  
+  # Visual button detection configuration
+  # Detects dealer button position using color-based detection on button_region patches
+  vision_button_detection:
+    # Detection mode:
+    # - "logical_only": Use only SB/BB logic (existing behavior)
+    # - "visual_only": Use only visual color detection (for testing)
+    # - "hybrid": Try logical first, fallback to visual (recommended)
+    # - "off": Disable button detection entirely
+    mode: "hybrid"
+    
+    # Minimum number of consecutive frames with same button position to stabilize
+    # Higher values reduce false positives but add latency
+    min_stable_frames: 2
