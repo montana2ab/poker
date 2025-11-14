@@ -163,7 +163,6 @@ def main():
     
     # Load vision performance config
     from holdem.vision.vision_performance_config import VisionPerformanceConfig
-    from pathlib import Path
     perf_config_path = Path("configs/vision_performance.yaml")
     if perf_config_path.exists():
         perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
