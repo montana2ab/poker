@@ -537,10 +537,15 @@ class StateParser:
         
         pot_region = img[y:y+h, x:x+w]
         
-        # Try to use OCR cache if enabled and not full parse
-        if self.ocr_cache_manager and not is_full_parse:
+        # Check if we should run OCR based on cache
+        should_run_ocr = True
+        if self.ocr_cache_manager:
             pot_cache = self.ocr_cache_manager.get_pot_cache()
-            if not pot_cache.should_run_ocr(pot_region):
+            # Always compute hash to check/update cache, even on full parse
+            should_run_ocr = pot_cache.should_run_ocr(pot_region)
+            
+            # On light parse, we can skip OCR if cache is valid
+            if not is_full_parse and not should_run_ocr:
                 cached_pot = pot_cache.get_cached_value()
                 if cached_pot is not None:
                     logger.info(f"[VISION] Reusing cached pot (hash unchanged): {cached_pot:.2f}")
@@ -615,11 +620,17 @@ class StateParser:
             if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 stack_img = img[y:y+h, x:x+w]
                 
-                # Try to use OCR cache if enabled and not full parse (skip for hero in light parse)
-                should_run_ocr = is_full_parse or (table_position == hero_pos)
-                if self.ocr_cache_manager and not should_run_ocr:
+                # Determine if we should run OCR (hero always updates, opponents can use cache on light parse)
+                should_run_ocr_decision = is_full_parse or (table_position == hero_pos)
+                should_run_ocr = should_run_ocr_decision
+                
+                if self.ocr_cache_manager:
                     stack_cache = self.ocr_cache_manager.get_stack_cache(table_position)
-                    if not stack_cache.should_run_ocr(stack_img):
+                    # Always compute hash to check/update cache
+                    cache_says_unchanged = not stack_cache.should_run_ocr(stack_img)
+                    
+                    # On light parse for non-hero, we can skip OCR if cache is valid
+                    if not should_run_ocr_decision and cache_says_unchanged:
                         cached_stack = stack_cache.get_cached_value()
                         if cached_stack is not None:
                             stack = cached_stack
@@ -738,11 +749,17 @@ class StateParser:
             if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 bet_img = img[y:y+h, x:x+w]
                 
-                # Try to use OCR cache if enabled and not full parse
-                should_run_ocr = is_full_parse
-                if self.ocr_cache_manager and not should_run_ocr:
+                # Determine if we should run OCR
+                should_run_ocr_decision = is_full_parse
+                should_run_ocr = should_run_ocr_decision
+                
+                if self.ocr_cache_manager:
                     bet_cache = self.ocr_cache_manager.get_bet_cache(table_position)
-                    if not bet_cache.should_run_ocr(bet_img):
+                    # Always compute hash to check/update cache
+                    cache_says_unchanged = not bet_cache.should_run_ocr(bet_img)
+                    
+                    # On light parse, we can skip OCR if cache is valid
+                    if not should_run_ocr_decision and cache_says_unchanged:
                         cached_bet = bet_cache.get_cached_value()
                         if cached_bet is not None:
                             bet_this_round = cached_bet
