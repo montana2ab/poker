@@ -290,6 +290,100 @@ class OcrRegionCache:
         return zlib.adler32(roi_bytes)
 
 
+@dataclass
+class PlayerNameCache:
+    """Cache for player names with lock mechanism to skip OCR after stability."""
+    player_names: Dict[int, str] = field(default_factory=dict)  # seat -> name
+    player_name_locked: Dict[int, bool] = field(default_factory=dict)  # seat -> locked
+    name_stability_count: Dict[int, int] = field(default_factory=dict)  # seat -> count
+    last_name_candidate: Dict[int, str] = field(default_factory=dict)  # seat -> candidate
+    stability_threshold: int = 2  # Number of consistent readings before lock
+    
+    def should_run_name_ocr(self, seat: int) -> bool:
+        """Check if name OCR should run for this seat.
+        
+        Args:
+            seat: Seat position
+            
+        Returns:
+            True if OCR should run, False if name is locked
+        """
+        is_locked = self.player_name_locked.get(seat, False)
+        if is_locked:
+            logger.debug(f"[PLAYER NAME CACHE] seat={seat} name={self.player_names.get(seat, '')} (locked)")
+        return not is_locked
+    
+    def get_cached_name(self, seat: int) -> Optional[str]:
+        """Get cached name for seat if locked.
+        
+        Args:
+            seat: Seat position
+            
+        Returns:
+            Cached name if locked, None otherwise
+        """
+        if self.player_name_locked.get(seat, False):
+            return self.player_names.get(seat)
+        return None
+    
+    def update_name(self, seat: int, name: str, default_name: str = ""):
+        """Update name for seat and check for stability/locking.
+        
+        Args:
+            seat: Seat position
+            name: OCR'd name
+            default_name: Default name to use if empty (e.g., "Player0")
+        """
+        # Ignore empty names or default names for stability tracking
+        if not name or name == default_name:
+            return
+        
+        # Check if this matches the last candidate
+        last_candidate = self.last_name_candidate.get(seat)
+        if last_candidate == name:
+            # Same name as last time - increase stability count
+            current_count = self.name_stability_count.get(seat, 0)
+            new_count = current_count + 1
+            self.name_stability_count[seat] = new_count
+            
+            logger.debug(f"[PLAYER NAME CACHE] seat={seat} name={name} stable for {new_count} frames")
+            
+            # Lock if stability threshold reached
+            if new_count >= self.stability_threshold and not self.player_name_locked.get(seat, False):
+                self.player_names[seat] = name
+                self.player_name_locked[seat] = True
+                logger.info(f"[PLAYER NAME LOCKED] seat={seat} name={name}")
+        else:
+            # Different name - reset stability tracking
+            self.last_name_candidate[seat] = name
+            self.name_stability_count[seat] = 1
+            logger.debug(f"[PLAYER NAME CACHE] seat={seat} new candidate name={name}")
+    
+    def unlock_seat(self, seat: int):
+        """Unlock a seat to allow name re-detection.
+        
+        This should be called when a player leaves (e.g., stack goes to 0).
+        
+        Args:
+            seat: Seat position
+        """
+        if self.player_name_locked.get(seat, False):
+            old_name = self.player_names.get(seat, "")
+            logger.info(f"[PLAYER NAME UNLOCK] seat={seat} old_name={old_name}")
+            self.player_name_locked[seat] = False
+            self.player_names.pop(seat, None)
+            self.last_name_candidate.pop(seat, None)
+            self.name_stability_count.pop(seat, None)
+    
+    def reset_all(self):
+        """Reset all name caches (e.g., at table change)."""
+        logger.debug("[PLAYER NAME CACHE] Resetting all name locks")
+        self.player_names.clear()
+        self.player_name_locked.clear()
+        self.name_stability_count.clear()
+        self.last_name_candidate.clear()
+
+
 class OcrCacheManager:
     """Manager for multiple OCR region caches."""
     
@@ -298,6 +392,7 @@ class OcrCacheManager:
         self.stack_cache: Dict[int, OcrRegionCache] = {}
         self.bet_cache: Dict[int, OcrRegionCache] = {}
         self.pot_cache: OcrRegionCache = OcrRegionCache()
+        self.name_cache: PlayerNameCache = PlayerNameCache()
     
     def get_stack_cache(self, seat: int) -> OcrRegionCache:
         """Get cache for stack at seat.
@@ -333,8 +428,17 @@ class OcrCacheManager:
         """
         return self.pot_cache
     
+    def get_name_cache(self) -> PlayerNameCache:
+        """Get cache for player names.
+        
+        Returns:
+            PlayerNameCache for all players
+        """
+        return self.name_cache
+    
     def reset_all(self):
         """Reset all caches."""
         self.stack_cache.clear()
         self.bet_cache.clear()
         self.pot_cache.reset()
+        self.name_cache.reset_all()
