@@ -157,6 +157,10 @@ class VisionMetrics:
         self.card_recognition_latencies: List[float] = []
         self.parse_latencies: List[float] = []
         
+        # Parse mode tracking (full vs light)
+        self.full_parse_count: int = 0
+        self.light_parse_count: int = 0
+        
         # Alert tracking
         self.alerts: List[Alert] = []
         
@@ -295,13 +299,20 @@ class VisionMetrics:
         # Check for alerts
         self._check_card_alerts()
     
-    def record_parse_latency(self, latency_ms: float):
+    def record_parse_latency(self, latency_ms: float, is_full_parse: bool = True):
         """Record full state parse latency.
         
         Args:
             latency_ms: Time taken for full state parse (milliseconds)
+            is_full_parse: Whether this was a full parse or light parse
         """
         self.parse_latencies.append(latency_ms)
+        
+        # Track parse mode
+        if is_full_parse:
+            self.full_parse_count += 1
+        else:
+            self.light_parse_count += 1
         
         # Check for latency alerts
         self._check_latency_alerts()
@@ -934,6 +945,12 @@ class VisionMetrics:
             if summary['performance']['p99_threshold_met'] is not None:
                 p99_status = "✓" if summary['performance']['p99_threshold_met'] else "✗"
                 lines.append(f"  P99 Threshold Met ({self.config.latency_p99_threshold}ms): {p99_status}")
+        
+        # Parse mode statistics
+        total_parses = self.full_parse_count + self.light_parse_count
+        if total_parses > 0:
+            lines.append(f"  Full Parses: {self.full_parse_count} ({self.full_parse_count/total_parses:.1%})")
+            lines.append(f"  Light Parses: {self.light_parse_count} ({self.light_parse_count/total_parses:.1%})")
         lines.append("")
         
         # Flicker Metrics

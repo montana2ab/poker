@@ -1,0 +1,36 @@
+# Vision Performance Configuration
+# Controls caching and optimization features to reduce parse latency
+
+vision_performance:
+  # Enable/disable all caching features
+  enable_caching: true
+  
+  # Enable/disable light parse mode (skip heavy OCR on some frames)
+  enable_light_parse: true
+  
+  # Interval for full parse (1 = every frame, 3 = every 3rd frame)
+  light_parse_interval: 3
+  
+  # Enable hash-based ROI caching for OCR (pot, stacks, bets)
+  cache_roi_hash: true
+  
+  # Downscale large ROIs before OCR to reduce processing time
+  downscale_ocr_rois: true
+  
+  # Maximum dimension for OCR ROIs (larger images will be downscaled)
+  max_roi_dimension: 400
+  
+  # Board card caching settings
+  board_cache:
+    enabled: true
+    # Require N consecutive frames with same cards to mark as stable
+    stability_threshold: 2
+  
+  # Hero card caching settings
+  hero_cache:
+    enabled: true
+    # Require N consecutive frames with same cards to mark as stable
+    stability_threshold: 2
+  
+  # Chat parsing frequency (0 = disable, 1 = every frame, N = every Nth frame)
+  chat_parse_interval: 3
