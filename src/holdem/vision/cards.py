@@ -24,6 +24,22 @@ class CardRecognizer:
         self.templates = {}  # Board card templates
         self.hero_templates = {}  # Hero card templates
 
+        # Hero card templates in color (for color-based prefilter)
+        self.hero_templates_color = {}  # type: dict[str, np.ndarray]
+
+        # Precomputed hue histograms (H channel, 32 bins) for hero templates
+        self.hero_templates_hue_hist = {}  # type: dict[str, np.ndarray]
+
+        # Enable/disable hero color prefilter (before template matching)
+        self.enable_hero_color_prefilter = True
+
+        # Minimum similarity (in [0,1]) to keep a hero template as color candidate
+        # Très bas pour filtrer juste les cas totalement aberrants
+        self.hero_color_prefilter_min_sim = 0.20
+
+        # Maximum number of hero templates to keep after color prefilter
+        self.hero_color_prefilter_top_k = 12
+
         # Matching thresholds (overridable)
         self.board_match_threshold = 0.70
         self.hero_match_threshold = 0.65
@@ -64,12 +80,32 @@ class CardRecognizer:
             for suit in self.SUITS:
                 card_name = f"{rank}{suit}"
                 template_path = self.hero_templates_dir / f"{card_name}.png"
-                if template_path.exists():
-                    template = cv2.imread(str(template_path))
-                    if template is not None:
-                        self.hero_templates[card_name] = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        
-        logger.info(f"Loaded {len(self.hero_templates)} hero card templates")
+                if not template_path.exists():
+                    continue
+
+                tpl_bgr = cv2.imread(str(template_path))
+                if tpl_bgr is None or tpl_bgr.size == 0:
+                    logger.warning(f"Failed to load hero template for {card_name} from {template_path}")
+                    continue
+
+                # Store color template for this hero card
+                self.hero_templates_color[card_name] = tpl_bgr
+
+                # Store grayscale template for matching
+                tpl_gray = cv2.cvtColor(tpl_bgr, cv2.COLOR_BGR2GRAY)
+                self.hero_templates[card_name] = tpl_gray
+
+                # Precompute hue histogram (H in HSV, 32 bins)
+                tpl_hsv = cv2.cvtColor(tpl_bgr, cv2.COLOR_BGR2HSV)
+                tpl_hist = cv2.calcHist([tpl_hsv], [0], None, [32], [0, 180])
+                tpl_hist = cv2.normalize(tpl_hist, tpl_hist, alpha=1.0, beta=0.0,
+                                         norm_type=cv2.NORM_L1)
+                self.hero_templates_hue_hist[card_name] = tpl_hist
+
+        logger.info(
+            f"Loaded {len(self.hero_templates)} hero card templates "
+            f"(with color data and hue histograms)"
+        )
     
     def recognize_card(self, img: np.ndarray, confidence_threshold: Optional[float] = None, 
                       use_hero_templates: bool = False) -> Optional[Card]:
@@ -91,6 +127,22 @@ class CardRecognizer:
             return self._recognize_cnn(img, confidence_threshold)
         else:
             raise ValueError(f"Unknown recognition method: {self.method}")
+    
+    def _hue_hist_similarity(self, roi_hsv: np.ndarray, tpl_hist: np.ndarray) -> float:
+        """
+        Compare l'histogramme de teinte H du ROI avec l'histogramme H d'un template héros.
+        Renvoie un score entre 0.0 et 1.0, en mappant la corrélation [-1,1] vers [0,1].
+        """
+        if roi_hsv is None or roi_hsv.size == 0 or tpl_hist is None or tpl_hist.size == 0:
+            return 0.0
+
+        roi_hist = cv2.calcHist([roi_hsv], [0], None, [32], [0, 180])
+        roi_hist = cv2.normalize(roi_hist, roi_hist, alpha=1.0, beta=0.0,
+                                 norm_type=cv2.NORM_L1)
+
+        score = cv2.compareHist(roi_hist, tpl_hist, cv2.HISTCMP_CORREL)
+        sim = max(0.0, (score + 1.0) / 2.0)
+        return sim
     
     def _recognize_template(self, img: np.ndarray, threshold: float, 
                            use_hero_templates: bool = False) -> Optional[Card]:
@@ -118,6 +170,49 @@ class CardRecognizer:
         if img.size == 0 or len(img.shape) < 2:
             logger.warning("Invalid image shape for card recognition")
             return None
+        
+        # Optional hero color pre-filter to reduce the number of templates
+        if use_hero_templates and self.enable_hero_color_prefilter:
+            # Ensure ROI is 3-channel BGR
+            color_img = img
+            if len(color_img.shape) == 2:
+                color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
+            elif len(color_img.shape) == 3 and color_img.shape[2] == 1:
+                color_img = cv2.cvtColor(color_img, cv2.COLOR_GRAY2BGR)
+
+            roi_hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
+
+            candidates = []
+            for card_name, tpl_gray in self.hero_templates.items():
+                tpl_hist = self.hero_templates_hue_hist.get(card_name)
+                if tpl_hist is None:
+                    continue
+
+                sim = self._hue_hist_similarity(roi_hsv, tpl_hist)
+                # Garder seulement les templates au-dessus d'un seuil très large
+                if sim >= self.hero_color_prefilter_min_sim:
+                    candidates.append((card_name, tpl_gray, sim))
+
+            # Trier les candidats par similarité décroissante
+            candidates.sort(key=lambda x: x[2], reverse=True)
+
+            # Limiter aux top-K
+            top_k = self.hero_color_prefilter_top_k
+            if top_k > 0:
+                candidates = candidates[:top_k]
+
+            if candidates:
+                logger.info(
+                    f"Hero color pre-filter: {len(candidates)} candidates "
+                    f"(top_k={top_k}, min_sim={self.hero_color_prefilter_min_sim:.2f})"
+                )
+                # Reconstruire templates_to_use à partir des candidats
+                templates_to_use = {name: tpl for (name, tpl, _) in candidates}
+            else:
+                logger.info(
+                    "Hero color pre-filter: no candidate above min_sim, "
+                    "using all hero templates"
+                )
         
         # Convert to grayscale
         if len(img.shape) == 3:
