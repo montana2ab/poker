@@ -1,0 +1,54 @@
+# Configuration optimisée pour Mac M2 avec parallélisation
+# Basé sur blueprint_training_5h.yaml — version 30 minutes (smoke test), parallélisation activée
+
+# Training mode: time-budget
+time_budget_seconds: 1800  # 30 minutes (smoke test)
+snapshot_interval_seconds: 0    # Disable policy snapshots for 30m smoke test (saves disk space)
+
+# Parallélisation (NOUVEAU - résout le problème --num-workers)
+num_workers: 0  # 0 = auto-detect (utilise tous les cores disponibles)
+                # Pour M2: 8 cores standard, 10-12 cores Pro/Max
+                # Ou spécifie un nombre exact: 4, 8, etc.
+batch_size: 100  # Nombre d'itérations par batch (100 est optimal pour la plupart des cas)
+
+# MCCFR / DCFR parameters (activés)
+discount_mode: dcfr            # DCFR activé (α=(t+d)/(t+2d), β=t/(t+d))
+discount_interval: 1000        # Application du discount toutes les 1000 itérations
+dcfr_reset_negative_regrets: true  # Reset des regrets négatifs (style CFR+)
+use_linear_weighting: true       # LCFR: moyenne pondérée par t pour la blueprint
+
+# Exploration avec epsilon schedule optimisé pour 30 minutes
+# Schedule compressé pour ~30 minutes (≈1–2M itérations en auto-parallélisation M2)
+epsilon_schedule:
+  - [0,        0.6]
+  - [100000,   0.5]
+  - [200000,   0.4]
+  - [400000,   0.3]
+  - [700000,   0.2]
+  - [1000000,  0.12]
+  - [1200000,  0.08]
+
+checkpoint_interval_seconds: 900   # toutes les 15 min (≈2 checkpoints en 30 min)
+seed: 42
+
+# Notes d'utilisation:
+#
+# Lancer avec cette configuration:
+#   python -m holdem.cli.train_blueprint \
+#       --config configs/blueprint_training_5h_parallel_copie.yaml \
+#       --buckets assets/abstraction/precomputed_buckets.pkl \
+#       --logdir runs/30m_parallel_smoke \
+#       --tensorboard
+#
+# Vous pouvez aussi surcharger num_workers via la ligne de commande:
+#   --num-workers 4   (utilise 4 workers)
+#   --num-workers 0   (auto-detect)
+#   --num-workers 1   (mode simple processus, pas de parallélisation)
+#
+# Performance attendue sur Mac M2 (≈30 minutes) :
+#   - M2 standard (8 cores): ~600-800 iter/s → ~1.1M–1.4M iterations
+#   - M2 Pro (10-12 cores): ~800-1000 iter/s → ~1.4M–1.8M iterations
+#   - M2 Max (12 cores): ~900-1200 iter/s → ~1.6M–2.1M iterations
+#
+# Comparé à l'ancien mode single-process (~120-140 iter/s → ~0.2M–0.25M en 30 min),
+# la parallélisation donne ~5–8x plus d'itérations dans le même temps !

@@ -1,0 +1,5 @@
+{
+  "num_shards": 5,
+  "total_examples": 500000,
+  "shard_size": 100000
+}

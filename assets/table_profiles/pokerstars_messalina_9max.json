@@ -1,76 +1,77 @@
 {
   "window_title": "Screen Region",
+  "chat_region": {
+    "x": 5,
+    "y": 562,
+    "width": 399,
+    "height": 72
+  },
   "owner_name": null,
   "screen_region": [963, 204, 947, 649],
   "card_regions": [
-    { "x": 321, "y": 215, "width": 310, "height": 82 }
+    { "x": 321, "y": 215, "width": 310, "height": 90 }
   ],
   "player_regions": [
     {
       "position": 0,
-      "name_region": { "x": 794, "y": 129, "width": 88, "height": 19 },
-      "stack_region": { "x": 809, "y": 157, "width": 61, "height": 18 },
+      "name_region": { "x": 778, "y": 131, "width": 116, "height": 25 },
+      "stack_region": { "x": 796, "y": 163, "width": 85, "height": 29 },
+      "bet_region": { "x": 616, "y": 178, "width": 72, "height": 23 },
+      "action_region": { "x": 778, "y": 131, "width": 116, "height": 25 },
       "card_region": { "x": 764, "y": 344, "width": 80, "height": 60 }
     },
     {
       "position": 1,
-      "name_region": { "x": 676, "y": 440, "width": 100, "height": 20 },
-      "stack_region": { "x": 676, "y": 470, "width": 100, "height": 20 },
-      "card_region": { "x": 686, "y": 490, "width": 80, "height": 60 }
+      "name_region": { "x": 800, "y": 339, "width": 130, "height": 24 },
+      "stack_region": { "x": 813, "y": 369, "width": 125, "height": 28 },
+      "bet_region": { "x": 659, "y": 338, "width": 58, "height": 21 },
+      "action_region": { "x": 800, "y": 339, "width": 130, "height": 24 },
+      "card_region": { "x": 777, "y": 285, "width": 122, "height": 47 }
     },
     {
       "position": 2,
-      "name_region": { "x": 480, "y": 517, "width": 100, "height": 20 },
-      "stack_region": { "x": 480, "y": 547, "width": 100, "height": 20 },
-      "card_region": { "x": 419, "y": 388, "width": 134, "height": 60 }
+      "name_region": { "x": 428, "y": 462, "width": 144, "height": 25 },
+      "stack_region": { "x": 468, "y": 490, "width": 73, "height": 28 },
+      "bet_region": { "x": 428, "y": 376, "width": 62, "height": 23 },
+      "action_region": { "x": 428, "y": 462, "width": 144, "height": 25 },
+      "card_region": { "x": 411, "y": 393, "width": 134, "height": 67 }
     },
     {
       "position": 3,
-      "name_region": { "x": 263, "y": 490, "width": 100, "height": 20 },
-      "stack_region": { "x": 258, "y": 520, "width": 100, "height": 20 },
+      "name_region": { "x": 29, "y": 343, "width": 120, "height": 26 },
+      "stack_region": { "x": 13, "y": 368, "width": 137, "height": 28 },
+      "bet_region": { "x": 237, "y": 338, "width": 56, "height": 22 },
+      "action_region": { "x": 29, "y": 343, "width": 120, "height": 26 },
       "card_region": { "x": 268, "y": 540, "width": 80, "height": 60 }
     },
     {
       "position": 4,
-      "name_region": { "x": 112, "y": 371, "width": 100, "height": 20 },
-      "stack_region": { "x": 112, "y": 401, "width": 100, "height": 20 },
+      "name_region": { "x": 56, "y": 131, "width": 121, "height": 33 },
+      "stack_region": { "x": 49, "y": 161, "width": 141, "height": 31 },
+      "bet_region": { "x": 110, "y": 488, "width": 90, "height": 20 },
+      "action_region": { "x": 56, "y": 131, "width": 121, "height": 33 },
       "card_region": { "x": 122, "y": 421, "width": 80, "height": 60 }
     },
     {
       "position": 5,
-      "name_region": { "x": 112, "y": 217, "width": 100, "height": 20 },
-      "stack_region": { "x": 112, "y": 247, "width": 100, "height": 20 },
+      "name_region": { "x": 384, "y": 70, "width": 124, "height": 27 },
+      "stack_region": { "x": 383, "y": 95, "width": 134, "height": 30 },
+      "bet_region": { "x": 523, "y": 134, "width": 69, "height": 23 },
+      "action_region": { "x": 384, "y": 70, "width": 124, "height": 27 },
       "card_region": { "x": 122, "y": 267, "width": 80, "height": 60 }
-    },
-    {
-      "position": 6,
-      "name_region": { "x": 258, "y": 98, "width": 100, "height": 20 },
-      "stack_region": { "x": 258, "y": 128, "width": 100, "height": 20 },
-      "card_region": { "x": 260, "y": 143, "width": 80, "height": 60 }
-    },
-    {
-      "position": 7,
-      "name_region": { "x": 480, "y": 71, "width": 100, "height": 20 },
-      "stack_region": { "x": 480, "y": 101, "width": 100, "height": 20 },
-      "card_region": { "x": 490, "y": 121, "width": 80, "height": 60 }
-    },
-    {
-      "position": 8,
-      "name_region": { "x": 676, "y": 148, "width": 100, "height": 20 },
-      "stack_region": { "x": 676, "y": 178, "width": 100, "height": 20 },
-      "card_region": { "x": 686, "y": 198, "width": 80, "height": 60 }
     }
   ],
   "pot_region": { "x": 378, "y": 162, "width": 189, "height": 64 },
   "bet_regions": [],
   "button_regions": {
-    "fold":  { "x": 236, "y": 551, "width": 100, "height": 40 },
-    "check": { "x": 378, "y": 551, "width": 100, "height": 40 },
-    "call":  { "x": 378, "y": 551, "width": 100, "height": 40 },
-    "bet":   { "x": 520, "y": 551, "width": 100, "height": 40 },
-    "raise": { "x": 520, "y": 551, "width": 100, "height": 40 },
+    "fold":  { "x": 1442, "y": 814, "width": 121, "height": 33 },
+    "check": { "x": 1604, "y": 817, "width": 132, "height": 43 },
+    "call":  { "x": 1604, "y": 817, "width": 132, "height": 43 },
+    "bet":   { "x": 1767, "y": 814, "width": 124, "height": 49 },
+    "raise": { "x": 1767, "y": 814, "width": 124, "height": 49 },
     "allin": { "x": 662, "y": 551, "width": 100, "height": 40 }
   },
+  "dealer_button_region": null,
   "hero_position": 2,
   "hero_templates_dir": "assets/hero_templates",
   "parse_opponent_cards": true

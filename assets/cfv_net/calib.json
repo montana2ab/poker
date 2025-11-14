@@ -1,0 +1,13 @@
+{
+  "isotonic_calibration": {
+    "q10": {
+      "x": [],
+      "y": []
+    },
+    "q90": {
+      "x": [],
+      "y": []
+    }
+  },
+  "note": "Calibration data should be computed from validation set"
+}

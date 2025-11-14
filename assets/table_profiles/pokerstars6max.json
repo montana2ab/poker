@@ -1,0 +1,95 @@
+
+ {
+  "window_title": "Screen Region",
+  "owner_name": null,
+  "screen_region": [963, 204, 947, 649],
+  "card_regions": [
+    { "x": 321, "y": 215, "width": 310, "height": 82 }
+ ],
+  "player_regions": [
+    {
+      "position": 0,
+      "name_region": { "x": 794, "y": 129, "width": 88, "height": 19 },
+      "stack_region": { "x": 809, "y": 157, "width": 61, "height": 18 },
+      "card_region": { "x": 764, "y": 344, "width": 80, "height": 60 }
+    },
+    {
+      "position": 1,
+      "name_region": { "x": 830, "y": 342, "width": 77, "height": 19 },
+      "stack_region": { "x": 839, "y": 367, "width": 54, "height": 22 },
+      "card_region": { "x": 777, "y": 285, "width": 122, "height": 47 }
+    },
+    {
+      "position": 2,
+      "name_region": { "x": 457, "y": 462, "width": 92, "height": 21 },
+      "stack_region": { "x": 468, "y": 490, "width": 69, "height": 21 },
+      "card_region": { "x": 415, "y": 390, "width": 134, "height": 60 }
+    },
+    {
+      "position": 3,
+      "name_region": { "x": 263, "y": 490, "width": 100, "height": 20 },
+      "stack_region": { "x": 258, "y": 520, "width": 100, "height": 20 },
+      "card_region": { "x": 268, "y": 540, "width": 80, "height": 60 }
+    },
+    {
+      "position": 4,
+      "name_region": { "x": 112, "y": 371, "width": 100, "height": 20 },
+      "stack_region": { "x": 112, "y": 401, "width": 100, "height": 20 },
+      "card_region": { "x": 122, "y": 421, "width": 80, "height": 60 }
+    },
+    {
+      "position": 5,
+      "name_region": { "x": 112, "y": 217, "width": 100, "height": 20 },
+      "stack_region": { "x": 112, "y": 247, "width": 100, "height": 20 },
+      "card_region": { "x": 122, "y": 267, "width": 80, "height": 60 }
+    }
+  ],
+  "pot_region": {
+    "x": 378,
+    "y": 162,
+    "width": 189,
+    "height": 64
+  },
+  "bet_regions": [],
+  "button_regions": {
+    "fold": {
+      "x": 236,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    },
+    "check": {
+      "x": 378,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    },
+    "call": {
+      "x": 378,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    },
+    "bet": {
+      "x": 520,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    },
+    "raise": {
+      "x": 520,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    },
+    "allin": {
+      "x": 662,
+      "y": 551,
+      "width": 100,
+      "height": 40
+    }
+  },
+  "dealer_button_region": null,
+  "hero_position": null,
+  "hero_templates_dir": null
+}

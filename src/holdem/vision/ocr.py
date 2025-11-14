@@ -71,7 +71,7 @@ class OCREngine:
                         lang='en',
                         show_log=False,
                         use_gpu=False,
-                        enable_mkldnn=False,
+                        enable_mkldnn=True,
                         use_space_char=False,  # Poker amounts don't need spaces
                         rec_batch_num=1,       # Process one region at a time
                         det_limit_side_len=640,  # Smaller detection window
