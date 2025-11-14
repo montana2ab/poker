@@ -291,26 +291,22 @@ def detect_button_by_color(
             logger.debug(f"[BUTTON VISUAL] Seat {seat_idx}: region out of bounds")
             continue
         
-        # Extract patch
-        patch = frame[y:y+h, x:x+w].copy()
+        # Extract patch (no copy needed, we're just reading)
+        patch = frame[y:y+h, x:x+w]
         
         if patch.size == 0:
             continue
         
-        # Convert to grayscale for easier analysis
+        # Ultra-fast detection strategy:
+        # 1. Check max brightness (should be in gray range)
+        # 2. Check variance (should have contrast from "D")
+        # 3. Check color neutrality on downsampled patch (for speed)
+        
+        # Convert to grayscale once
         gray_patch = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
         
-        # Strategy: Check if patch has BOTH light gray regions AND darker regions (the "D")
-        # This is more reliable than downsampling which mixes them together
-        
-        # Calculate statistics
-        mean_gray = np.mean(gray_patch)
-        max_gray = np.max(gray_patch)
-        min_gray = np.min(gray_patch)
-        variance = np.var(gray_patch)
-        
-        # Check 1: Maximum value should be in light gray range (the button background)
-        # This indicates presence of light gray, even if dark "D" brings down the average
+        # Check 1: Maximum brightness should be in light gray range
+        max_gray = gray_patch.max()
         if not (MIN_GRAY_VALUE <= max_gray <= MAX_GRAY_VALUE):
             logger.debug(
                 f"[BUTTON VISUAL] Seat {seat_idx}: max brightness out of range "
@@ -319,6 +315,7 @@ def detect_button_by_color(
             continue
         
         # Check 2: Should have sufficient contrast (variance) indicating "D" letter
+        variance = gray_patch.var()  # Use numpy method for speed
         if variance < MIN_VARIANCE:
             logger.debug(
                 f"[BUTTON VISUAL] Seat {seat_idx}: insufficient contrast "
@@ -326,40 +323,44 @@ def detect_button_by_color(
             )
             continue
         
-        # Check 3: Color neutrality check on the lighter pixels (button background)
-        # Sample the brightest 25% of pixels to check if they're gray
-        bright_threshold = np.percentile(gray_patch, 75)
-        bright_mask = gray_patch >= bright_threshold
+        # Check 3: Color neutrality - downsample first for speed
+        # Only process upper quartile pixels (bright ones)
+        bright_threshold = gray_patch.mean() + gray_patch.std() * 0.5
         
-        if np.any(bright_mask):
-            # Get RGB values of bright pixels only
-            bright_pixels_bgr = patch[bright_mask]
-            if len(bright_pixels_bgr) > 0:
-                mean_b = np.mean(bright_pixels_bgr[:, 0])
-                mean_g = np.mean(bright_pixels_bgr[:, 1])
-                mean_r = np.mean(bright_pixels_bgr[:, 2])
-                
-                # Check color neutrality
-                max_diff = max(abs(mean_r - mean_g), abs(mean_r - mean_b), abs(mean_g - mean_b))
-                if max_diff > MAX_COLOR_DIFF:
-                    logger.debug(
-                        f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels not neutral gray "
-                        f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f}, max_diff: {max_diff:.1f})"
-                    )
-                    continue
-                
-                # Check that bright pixels are in valid range
-                if not (MIN_GRAY_VALUE <= mean_r <= MAX_GRAY_VALUE and
-                       MIN_GRAY_VALUE <= mean_g <= MAX_GRAY_VALUE and
-                       MIN_GRAY_VALUE <= mean_b <= MAX_GRAY_VALUE):
-                    logger.debug(
-                        f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels out of gray range "
-                        f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f})"
-                    )
-                    continue
-        else:
-            # No bright pixels found
+        # Simple check: sample a few bright pixels and check color neutrality
+        # This is much faster than full masking
+        bright_y, bright_x = np.where(gray_patch >= bright_threshold)
+        
+        if len(bright_y) < 5:  # Need at least a few bright pixels
             logger.debug(f"[BUTTON VISUAL] Seat {seat_idx}: no bright pixels found")
+            continue
+        
+        # Sample up to 10 bright pixels (faster than all)
+        sample_size = min(10, len(bright_y))
+        indices = np.linspace(0, len(bright_y) - 1, sample_size, dtype=int)
+        
+        sampled_bgr = patch[bright_y[indices], bright_x[indices]]
+        mean_b = sampled_bgr[:, 0].mean()
+        mean_g = sampled_bgr[:, 1].mean()
+        mean_r = sampled_bgr[:, 2].mean()
+        
+        # Check color neutrality
+        max_diff = max(abs(mean_r - mean_g), abs(mean_r - mean_b), abs(mean_g - mean_b))
+        if max_diff > MAX_COLOR_DIFF:
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels not neutral gray "
+                f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f}, max_diff: {max_diff:.1f})"
+            )
+            continue
+        
+        # Check that bright pixels are in valid range
+        if not (MIN_GRAY_VALUE <= mean_r <= MAX_GRAY_VALUE and
+               MIN_GRAY_VALUE <= mean_g <= MAX_GRAY_VALUE and
+               MIN_GRAY_VALUE <= mean_b <= MAX_GRAY_VALUE):
+            logger.debug(
+                f"[BUTTON VISUAL] Seat {seat_idx}: bright pixels out of gray range "
+                f"(BGR: {mean_b:.1f}, {mean_g:.1f}, {mean_r:.1f})"
+            )
             continue
         
         # This seat is a candidate!
