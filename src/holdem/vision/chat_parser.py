@@ -74,6 +74,11 @@ class ChatParser:
         'allin': re.compile(r'^(.+?)\s+(?:is\s+)?all[- ]in', re.IGNORECASE),
         'leave': re.compile(r'^(.+?)\s+leaves?\s+(?:the\s+)?table', re.IGNORECASE),
         
+        # Blinds and antes - for button detection
+        'post_sb': re.compile(r'^(.+?):\s+posts?\s+small\s+blind\s+\$?([\d,\.]+)', re.IGNORECASE),
+        'post_bb': re.compile(r'^(.+?):\s+posts?\s+(?:big\s+)?blind\s+\$?([\d,\.]+)', re.IGNORECASE),
+        'post_ante': re.compile(r'^(.+?):\s+posts?\s+(?:the\s+)?ante\s+\$?([\d,\.]+)', re.IGNORECASE),
+        
         # Street changes
         'flop': re.compile(r'\*\*\*\s*flop\s*\*\*\*\s*\[([^\]]+)\]', re.IGNORECASE),
         'turn': re.compile(r'\*\*\*\s*turn\s*\*\*\*\s*\[([^\]]+)\]', re.IGNORECASE),
@@ -355,6 +360,46 @@ class ChatParser:
                     sources=[EventSource.CHAT],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text, 'original_action': 'leave'}
+                )
+            
+            # Blind and ante events - for button detection
+            elif pattern_name == 'post_sb':
+                player = match.group(1).strip()
+                amount = self._parse_amount(match.group(2))
+                return GameEvent(
+                    event_type="post_small_blind",
+                    player=player,
+                    amount=amount,
+                    sources=[EventSource.CHAT],
+                    confidence=0.95,
+                    timestamp=chat_line.timestamp,
+                    raw_data={'chat': chat_line.text}
+                )
+            
+            elif pattern_name == 'post_bb':
+                player = match.group(1).strip()
+                amount = self._parse_amount(match.group(2))
+                return GameEvent(
+                    event_type="post_big_blind",
+                    player=player,
+                    amount=amount,
+                    sources=[EventSource.CHAT],
+                    confidence=0.95,
+                    timestamp=chat_line.timestamp,
+                    raw_data={'chat': chat_line.text}
+                )
+            
+            elif pattern_name == 'post_ante':
+                player = match.group(1).strip()
+                amount = self._parse_amount(match.group(2))
+                return GameEvent(
+                    event_type="post_ante",
+                    player=player,
+                    amount=amount,
+                    sources=[EventSource.CHAT],
+                    confidence=0.95,
+                    timestamp=chat_line.timestamp,
+                    raw_data={'chat': chat_line.text}
                 )
             
             # Street change events
