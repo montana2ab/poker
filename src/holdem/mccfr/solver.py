@@ -965,19 +965,42 @@ class MCCFRSolver:
         return metrics
     
     def save_policy(self, logdir: Path):
-        """Save final average policy."""
+        """Save final average policy with bucket metadata for validation."""
         logdir.mkdir(parents=True, exist_ok=True)
         
-        policy_store = PolicyStore(self.sampler.regret_tracker)
+        # Calculate bucket metadata
+        bucket_metadata = {
+            'bucket_file_sha': self._calculate_bucket_hash(),
+            'k_preflop': self.bucketing.config.k_preflop,
+            'k_flop': self.bucketing.config.k_flop,
+            'k_turn': self.bucketing.config.k_turn,
+            'k_river': self.bucketing.config.k_river,
+            'num_samples': self.bucketing.config.num_samples,
+            'seed': self.bucketing.config.seed,
+            'num_players': self.bucketing.config.num_players
+        }
         
-        # Save as pickle
-        policy_store.save(logdir / "avg_policy.pkl")
+        policy_store = PolicyStore(self.sampler.regret_tracker, bucket_metadata=bucket_metadata)
         
-        # Save as JSON
-        policy_store.save_json(logdir / "avg_policy.json")
+        # Save as pickle with metadata
+        policy_store.save(logdir / "avg_policy.pkl", bucket_metadata=bucket_metadata)
         
-        logger.info(f"Saved final policy to {logdir}")
+        # Save as JSON with metadata
+        policy_store.save_json(logdir / "avg_policy.json", bucket_metadata=bucket_metadata)
+        
+        logger.info(f"Saved final policy to {logdir} with bucket metadata")
+        logger.info(f"  Bucket SHA256: {bucket_metadata['bucket_file_sha'][:16]}...")
     
     def get_policy(self) -> PolicyStore:
-        """Get current policy store."""
-        return PolicyStore(self.sampler.regret_tracker)
+        """Get current policy store with bucket metadata."""
+        bucket_metadata = {
+            'bucket_file_sha': self._calculate_bucket_hash(),
+            'k_preflop': self.bucketing.config.k_preflop,
+            'k_flop': self.bucketing.config.k_flop,
+            'k_turn': self.bucketing.config.k_turn,
+            'k_river': self.bucketing.config.k_river,
+            'num_samples': self.bucketing.config.num_samples,
+            'seed': self.bucketing.config.seed,
+            'num_players': self.bucketing.config.num_players
+        }
+        return PolicyStore(self.sampler.regret_tracker, bucket_metadata=bucket_metadata)
