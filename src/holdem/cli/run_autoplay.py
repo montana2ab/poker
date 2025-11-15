@@ -92,6 +92,10 @@ def main():
                        help="Metrics report format (text or json, default: text)")
     parser.add_argument("--hero-position", type=int, default=None,
                        help="Fixed hero position (0-5 for 6-max). Overrides config value. If not provided, uses config or auto-detection.")
+    parser.add_argument("--enable-detailed-vision-logs", action="store_true",
+                       help="Enable detailed vision timing profiling (logs to logs/vision_timing/)")
+    parser.add_argument("--vision-timing-log-dir", type=Path, default=None,
+                       help="Directory for vision timing logs (default: logs/vision_timing)")
     
     args = parser.parse_args()
     
@@ -107,6 +111,19 @@ def main():
         logger.info(f"Metrics report interval: {args.metrics_report_interval}s")
     else:
         logger.info("Vision metrics tracking disabled")
+    
+    # Create vision timing profiler if enabled
+    vision_profiler = None
+    if args.enable_detailed_vision_logs:
+        try:
+            from holdem.vision.vision_timing import create_profiler
+            log_dir = args.vision_timing_log_dir if args.vision_timing_log_dir else Path("logs/vision_timing")
+            vision_profiler = create_profiler(enabled=True, log_dir=log_dir)
+            logger.info(f"Detailed vision timing profiling enabled - logs will be written to {log_dir}")
+        except ImportError:
+            logger.warning("Could not import vision_timing module - detailed profiling disabled")
+    else:
+        logger.debug("Detailed vision timing profiling disabled")
     
     if not args.i_understand_the_tos:
         logger.error("Auto-play requires --i-understand-the-tos flag")
@@ -423,6 +440,11 @@ def main():
             header="FINAL VISION METRICS REPORT",
             do_export=True
         )
+    
+    # Close vision profiler if enabled
+    if vision_profiler:
+        vision_profiler.close()
+        logger.info("Vision timing profiler closed")
 
 
 if __name__ == "__main__":
