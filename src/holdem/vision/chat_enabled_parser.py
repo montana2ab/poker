@@ -29,7 +29,8 @@ class ChatEnabledStateParser:
         enable_chat_parsing: bool = True,
         debug_dir: Optional[Path] = None,
         vision_metrics: Optional['VisionMetrics'] = None,
-        perf_config: Optional[VisionPerformanceConfig] = None
+        perf_config: Optional[VisionPerformanceConfig] = None,
+        hero_position: Optional[int] = None
     ):
         """Initialize chat-enabled state parser.
         
@@ -41,9 +42,30 @@ class ChatEnabledStateParser:
             debug_dir: Optional directory for debug images
             vision_metrics: Optional VisionMetrics instance for tracking
             perf_config: Optional performance configuration
+            hero_position: Optional fixed hero position (overrides profile.hero_position)
         """
         self.profile = profile
         self.perf_config = perf_config or VisionPerformanceConfig.default()
+        
+        # Determine hero position: CLI > config > None
+        self.hero_pos: Optional[int] = None
+        hero_pos_source = None
+        
+        if hero_position is not None:
+            # CLI argument provided
+            self.hero_pos = hero_position
+            hero_pos_source = "cli"
+        elif profile.hero_position is not None:
+            # Config value provided
+            self.hero_pos = profile.hero_position
+            hero_pos_source = "config"
+        # else: remain None, use fallback behavior
+        
+        # Log hero position source
+        if self.hero_pos is not None:
+            logger.info(f"Using fixed hero position: {self.hero_pos} (source: {hero_pos_source})")
+        else:
+            logger.info("No fixed hero position - using automatic detection")
         
         self.state_parser = StateParser(
             profile=profile,
@@ -51,7 +73,8 @@ class ChatEnabledStateParser:
             ocr_engine=ocr_engine,
             debug_dir=debug_dir,
             vision_metrics=vision_metrics,
-            perf_config=self.perf_config
+            perf_config=self.perf_config,
+            hero_position=self.hero_pos
         )
         
         self.enable_chat_parsing = enable_chat_parsing

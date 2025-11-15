@@ -90,6 +90,6 @@
     }
   },
   "dealer_button_region": null,
-  "hero_position": null,
+  "hero_position": 2,
   "hero_templates_dir": null
 }
