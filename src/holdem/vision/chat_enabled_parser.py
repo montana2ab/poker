@@ -454,7 +454,7 @@ class ChatEnabledStateParser:
         if street == "FLOP" and len(cards) == 3:
             if not board_cache.has_flop():
                 board_cache.mark_flop(cards)
-                state.board = cards + [None, None]  # Flop + placeholders for turn/river
+                state.board = cards  # Only flop cards (turn/river added later)
                 logger.info(
                     f"[BOARD CACHE] Flop marked from {source_str}: "
                     f"{cards_str} (confidence={event.confidence:.2f})"
@@ -470,7 +470,7 @@ class ChatEnabledStateParser:
                     board_cache.mark_flop(flop_cards)
                 if not board_cache.has_turn():
                     board_cache.mark_turn(turn_card)
-                    state.board = flop_cards + [turn_card, None]  # flop + turn + placeholder
+                    state.board = cards  # All 4 cards (flop + turn)
                     logger.info(
                         f"[BOARD CACHE] Turn marked from {source_str}: "
                         f"{str(turn_card)} (confidence={event.confidence:.2f})"
@@ -482,7 +482,7 @@ class ChatEnabledStateParser:
                     board_cache.mark_turn(turn_card)
                     # Preserve existing flop cards, add turn
                     if len(state.board) >= 3:
-                        state.board = state.board[:3] + [turn_card, None]
+                        state.board = state.board[:3] + [turn_card]
                     logger.info(
                         f"[BOARD CACHE] Turn marked from {source_str}: "
                         f"{str(turn_card)} (confidence={event.confidence:.2f})"
