@@ -103,21 +103,9 @@ def _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_de
             chat_img = warped[y:y+h, x:x+w]
             crop_latency = (time.time() - crop_start) * 1000
             
-            # 4. Pre-process chat image for better OCR
-            preprocess_start = time.time()
-            # Convert to grayscale if not already
-            if len(chat_img.shape) == 3:
-                chat_img_gray = cv2.cvtColor(chat_img, cv2.COLOR_BGR2GRAY)
-            else:
-                chat_img_gray = chat_img
-            
-            # Apply slight contrast enhancement
-            chat_img_processed = cv2.convertScaleAbs(chat_img_gray, alpha=1.2, beta=10)
-            preprocess_latency = (time.time() - preprocess_start) * 1000
-            
-            # 5. Run OCR on chat region
+            # 4. Run OCR on chat region (preprocessing is now inside extract_chat_lines)
             ocr_start = time.time()
-            chat_lines = chat_parser.extract_chat_lines(chat_img_processed)
+            chat_lines = chat_parser.extract_chat_lines(chat_img, log_preprocess_time=True)
             ocr_latency = (time.time() - ocr_start) * 1000
             
             # 6. Parse chat lines into events
@@ -137,8 +125,7 @@ def _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_de
             logger.info(f"[CHAT OCR FOCUS] ===== Cycle {cycle_count} =====")
             logger.info(f"[CHAT OCR FOCUS] Screenshot latency: {screenshot_latency:.2f} ms")
             logger.info(f"[CHAT OCR FOCUS] Chat crop latency: {crop_latency:.2f} ms")
-            logger.info(f"[CHAT OCR FOCUS] Preprocess latency: {preprocess_latency:.2f} ms")
-            logger.info(f"[CHAT OCR FOCUS] OCR latency: {ocr_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] OCR latency (includes preprocess): {ocr_latency:.2f} ms")
             logger.info(f"[CHAT OCR FOCUS] Chat parse latency: {parse_latency:.2f} ms")
             logger.info(f"[CHAT OCR FOCUS] Total chat cycle latency: {total_latency:.2f} ms")
             
@@ -170,8 +157,7 @@ def _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_de
                     "latencies_ms": {
                         "screenshot": round(screenshot_latency, 2),
                         "crop": round(crop_latency, 2),
-                        "preprocess": round(preprocess_latency, 2),
-                        "ocr": round(ocr_latency, 2),
+                        "ocr": round(ocr_latency, 2),  # Includes preprocessing
                         "parse": round(parse_latency, 2),
                         "total": round(total_latency, 2)
                     },
