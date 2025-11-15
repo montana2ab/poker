@@ -545,14 +545,22 @@ class EventFuser:
             cards1 = set(str(c) for c in event1.cards if c)
             cards2 = set(str(c) for c in event2.cards if c)
             
-            # If both have cards, check for overlap (at least partial match)
+            # If both have cards, check for exact match or very high overlap
             if cards1 and cards2:
-                # For board events, we want exact match or high overlap
+                # For board events, require high overlap to fuse
+                # This prevents fusion when sources have conflicting cards
                 overlap = len(cards1 & cards2)
                 total_unique = len(cards1 | cards2)
+                min_cards = min(len(cards1), len(cards2))
                 
-                # Allow fusion if >= 66% overlap (2/3 cards match for flop)
-                return overlap / max(total_unique, 1) >= 0.66
+                # Require at least 80% of cards to match (e.g., 3/3 for flop, or 2/3 + diff source)
+                # This is stricter to avoid fusing conflicting boards
+                if total_unique == min_cards:
+                    # Exact match
+                    return True
+                else:
+                    # Partial overlap - only fuse if > 80% overlap
+                    return overlap / max(total_unique, 1) >= 0.8
             
             # If one has cards and other doesn't, still match by street
             return True
@@ -629,7 +637,7 @@ class EventFuser:
         elif len(unique_sources) == 2:
             # Two sources is high confidence
             # Check if we have chat + vision, that's best
-            if EventSource.CHAT in unique_sources:
+            if EventSource.CHAT in unique_sources or EventSource.CHAT_OCR in unique_sources:
                 confidence = 0.95
             # Stack + bet region is also good
             elif (EventSource.VISION_STACK in unique_sources and 
@@ -644,7 +652,7 @@ class EventFuser:
         else:
             # Single source - confidence depends on which one
             single_source = list(unique_sources)[0] if unique_sources else EventSource.VISION
-            if single_source == EventSource.CHAT:
+            if single_source == EventSource.CHAT or single_source == EventSource.CHAT_OCR:
                 confidence = 0.85  # Chat is pretty reliable
             elif single_source == EventSource.VISION_BET_REGION:
                 confidence = 0.70  # Bet OCR can be noisy
