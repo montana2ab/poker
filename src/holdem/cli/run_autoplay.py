@@ -344,6 +344,40 @@ def main():
         logger.info("Hero position not specified - will use auto-detection")
         logger.info("TIP: Specify --hero-position for better performance (e.g., --hero-position 2)")
     
+    # If chat OCR focus mode is enabled, setup minimal components and run that mode
+    if args.chat_ocr_focus:
+        # Load vision performance config (needed for table detector)
+        from holdem.vision.vision_performance_config import VisionPerformanceConfig
+        perf_config_path = Path("configs/vision_performance.yaml")
+        if perf_config_path.exists():
+            perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
+            logger.info("Loaded vision performance config from configs/vision_performance.yaml")
+        else:
+            perf_config = VisionPerformanceConfig.default()
+            logger.info("Using default vision performance config (all optimizations enabled)")
+        
+        # Setup minimal components for chat OCR focus mode
+        screen_capture = ScreenCapture()
+        enable_homography = perf_config.detect_table.enable_homography if perf_config else True
+        table_detector = TableDetector(profile, enable_homography=enable_homography)
+        
+        # Determine OCR backend
+        if args.ocr_backend:
+            ocr_backend = args.ocr_backend
+            logger.info(f"Using OCR backend: {ocr_backend} (specified via --ocr-backend)")
+        elif args.force_tesseract:
+            ocr_backend = "pytesseract"
+            logger.info("Using OCR backend: pytesseract (specified via --force-tesseract)")
+        else:
+            ocr_backend = "paddleocr"
+            logger.info("Using OCR backend: paddleocr (default)")
+        
+        ocr_engine = OCREngine(backend=ocr_backend)
+        
+        # Run chat OCR focus mode and exit
+        _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_detector)
+        return
+    
     # Load policy
     logger.info(f"Loading policy from {args.policy}")
     if args.policy.suffix == '.json':
@@ -400,11 +434,6 @@ def main():
         logger.info("Using OCR backend: paddleocr (default)")
     
     ocr_engine = OCREngine(backend=ocr_backend)
-    
-    # If chat OCR focus mode is enabled, run that mode and exit
-    if args.chat_ocr_focus:
-        _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_detector)
-        return
     
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing
