@@ -281,6 +281,10 @@ class StateParser:
         
         # Track previous stacks for unlock detection
         self._previous_stacks: Dict[int, float] = {}
+        
+        # Health check for disabled homography (track recent parse validity)
+        self._recent_parse_health: list = []  # List of booleans indicating parse health
+        self._health_check_window = perf_config.detect_table.health_check_window if perf_config else 20
     
     def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
         """Parse table state from screenshot.
@@ -307,8 +311,19 @@ class StateParser:
                 if not is_full_parse:
                     logger.debug(f"[LIGHT PARSE] Frame {frame_index} - skipping heavy OCR")
             
-            # Extract community cards (with caching)
-            board = self._parse_board(screenshot, is_full_parse=is_full_parse)
+            # Determine street based on existing board cache or quick check
+            # We need to know the street before deciding whether to parse board
+            initial_street = self._determine_initial_street()
+            
+            # Extract community cards - SKIP IN PREFLOP (optimization)
+            board = []
+            if initial_street == Street.PREFLOP:
+                # In PREFLOP, board is always empty - no need to parse
+                board = [None] * 5
+                logger.debug("[PREFLOP OPTIMIZATION] Skipping board card recognition (no board in preflop)")
+            else:
+                # Parse board for FLOP/TURN/RIVER
+                board = self._parse_board(screenshot, is_full_parse=is_full_parse)
             
             # Determine street based on board cards
             num_board_cards = len([c for c in board if c is not None])
@@ -323,6 +338,16 @@ class StateParser:
             else:
                 street = Street.PREFLOP
             
+            # Detect new hand and reset hero cache if needed
+            is_new_hand = (street == Street.PREFLOP and num_board_cards == 0)
+            if is_new_hand and self.hero_cache:
+                # Additional check: pot should be close to blind levels for true new hand
+                # This prevents false resets mid-hand
+                if pot <= 10.0:  # Arbitrary threshold - adjust based on typical blind levels
+                    logger.info("[NEW HAND] Detected new hand, resetting hero cache")
+                    self.hero_cache.reset()
+                    self.hero_cards_tracker.reset()
+            
             # Extract pot
             pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
             
@@ -331,6 +356,9 @@ class StateParser:
             
             # Extract player states and check for showdown labels
             players, has_showdown_label = self._parse_players(screenshot, is_full_parse=is_full_parse)
+            
+            # Health check for disabled homography
+            self._check_parse_health(pot, players)
             
             # Try to infer button position from blinds (if vision-based detection didn't work)
             inferred_button = self._infer_button_from_blinds(players)
@@ -875,15 +903,13 @@ class StateParser:
         player_pos = player_region.get('position', 'unknown')
         logger.debug(f"Extracting player cards for position {player_pos} from region ({x},{y},{w},{h})")
         
-        # Try to use hero cache if enabled and not full parse
-        if is_hero and self.hero_cache and not is_full_parse:
-            # Create simple hand_id from pot (will improve later)
-            hand_id = int(self._last_pot * 100)  # Simple hash for now
-            if self.hero_cache.update(hand_id, None):
-                cached_cards = self.hero_cache.get_cached_cards()
-                if cached_cards:
-                    logger.debug(f"[HERO CACHE] Using cached hero cards")
-                    return cached_cards
+        # Try to use hero cache if enabled - check if cards are stable
+        if is_hero and self.hero_cache:
+            cached_cards = self.hero_cache.get_cached_cards()
+            if cached_cards and len(cached_cards) == 2:
+                # Hero cache is stable - reuse cards without re-recognition
+                logger.debug(f"[HERO CACHE] Hero cards reuse from cache: {', '.join(str(c) for c in cached_cards)} (no reparse needed)")
+                return cached_cards
         
         if y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
             card_region = img[y:y+h, x:x+w]
@@ -934,10 +960,13 @@ class StateParser:
             if is_hero and len(valid_cards) > 0:
                 tracked_cards = self.hero_cards_tracker.update(valid_cards, confidences)
                 
-                # Also update hero cache if enabled
+                # Update hero cache if enabled and we have 2 stable cards
                 if self.hero_cache and tracked_cards and len(tracked_cards) == 2:
-                    hand_id = int(self._last_pot * 100)
-                    self.hero_cache.update(hand_id, tracked_cards)
+                    # Check if tracker has marked cards as stable
+                    if self.hero_cards_tracker.confirmed_cards and len(self.hero_cards_tracker.confirmed_cards) == 2:
+                        # Create hand_id for cache (simple but effective)
+                        hand_id = int(self._last_pot * 100)
+                        self.hero_cache.update(hand_id, tracked_cards)
                 
                 if tracked_cards:
                     cards_str = ", ".join(str(c) for c in tracked_cards)
@@ -1186,6 +1215,61 @@ class StateParser:
             # Postflop: button acts last, so earlier relative positions are better
             # Hero is IP if within first 1/3 of players after button
             return relative_pos <= (num_players // 3)
+    
+    def _determine_initial_street(self) -> Street:
+        """Determine initial street based on board cache or assume PREFLOP.
+        
+        Returns:
+            Street enum value for initial street determination
+        """
+        # Check if we have a cached board to infer street
+        if self.board_cache and self.board_cache.street:
+            return self.board_cache.street
+        
+        # No cached board info - assume PREFLOP to skip board parsing
+        # This is safe because:
+        # 1. Most frames are PREFLOP (longest phase)
+        # 2. If we're wrong, next frame will correct it
+        # 3. PREFLOP board is always empty anyway
+        return Street.PREFLOP
+    
+    def _check_parse_health(self, pot: float, players: list):
+        """Check parse health when homography is disabled.
+        
+        Tracks recent parse validity and logs warning if consistently invalid.
+        This helps detect table layout changes when homography is disabled.
+        
+        Args:
+            pot: Parsed pot value
+            players: List of PlayerState objects
+        """
+        # Only check if homography is disabled via performance config
+        if not self.perf_config or self.perf_config.detect_table.enable_homography:
+            return
+        
+        # Determine if this parse looks valid
+        # Valid = has pot > 0 OR at least one player with stack > 0
+        has_valid_pot = pot > 0.01
+        has_valid_stack = any(p.stack > 0.01 for p in players)
+        parse_valid = has_valid_pot or has_valid_stack
+        
+        # Track recent parse health
+        self._recent_parse_health.append(parse_valid)
+        
+        # Keep only the last N parses
+        if len(self._recent_parse_health) > self._health_check_window:
+            self._recent_parse_health.pop(0)
+        
+        # Check if we have enough data and all recent parses are invalid
+        if len(self._recent_parse_health) >= self._health_check_window:
+            if not any(self._recent_parse_health):
+                logger.warning(
+                    "[HOMOGRAPHY DISABLED] Table layout may have changed - "
+                    f"no valid stacks or pot detected in last {self._health_check_window} parses. "
+                    "Consider re-enabling homography or recalibrating regions."
+                )
+                # Reset health tracking to avoid spamming warnings
+                self._recent_parse_health = []
     
     def get_cache_metrics(self) -> Optional[dict]:
         """Get OCR cache metrics.

@@ -21,6 +21,13 @@ class HeroCacheConfig:
 
 
 @dataclass
+class DetectTableConfig:
+    """Configuration for table detection / homography."""
+    enable_homography: bool = True
+    health_check_window: int = 20
+
+
+@dataclass
 class VisionButtonDetectionConfig:
     """Configuration for visual button detection."""
     mode: str = "hybrid"  # "logical_only", "visual_only", "hybrid", "off"
@@ -65,6 +72,9 @@ class VisionPerformanceConfig:
     # Chat parsing frequency (0 = disable, 1 = every frame, N = every Nth frame)
     chat_parse_interval: int = 3
     
+    # Table detection / homography settings
+    detect_table: DetectTableConfig = None
+    
     # Visual button detection settings
     vision_button_detection: VisionButtonDetectionConfig = None
     
@@ -74,6 +84,8 @@ class VisionPerformanceConfig:
             self.board_cache = BoardCacheConfig()
         if self.hero_cache is None:
             self.hero_cache = HeroCacheConfig()
+        if self.detect_table is None:
+            self.detect_table = DetectTableConfig()
         if self.vision_button_detection is None:
             self.vision_button_detection = VisionButtonDetectionConfig()
     
@@ -90,6 +102,7 @@ class VisionPerformanceConfig:
         # Extract nested configs
         board_config = config_dict.get("board_cache", {})
         hero_config = config_dict.get("hero_cache", {})
+        detect_table_config = config_dict.get("detect_table", {})
         button_config = config_dict.get("vision_button_detection", {})
         
         return cls(
@@ -103,6 +116,7 @@ class VisionPerformanceConfig:
             board_cache=BoardCacheConfig(**board_config) if board_config else BoardCacheConfig(),
             hero_cache=HeroCacheConfig(**hero_config) if hero_config else HeroCacheConfig(),
             chat_parse_interval=config_dict.get("chat_parse_interval", 3),
+            detect_table=DetectTableConfig(**detect_table_config) if detect_table_config else DetectTableConfig(),
             vision_button_detection=VisionButtonDetectionConfig(**button_config) if button_config else VisionButtonDetectionConfig()
         )
     
