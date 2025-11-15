@@ -190,13 +190,27 @@ class ChatParser:
                     events.append(event)
         else:
             # Single action format - use existing pattern matching
+            # Prioritize board dealing patterns first to avoid conflicts
+            board_patterns = ['dealing_flop', 'dealing_turn', 'dealing_river', 'flop', 'turn', 'river']
+            for action_name in board_patterns:
+                pattern = self.PATTERNS.get(action_name)
+                if pattern:
+                    match = pattern.search(text)
+                    if match:
+                        event = self._create_event_from_match(action_name, match, chat_line)
+                        if event:
+                            events.append(event)
+                        return events  # Return immediately for board events
+            
+            # Then check other patterns
             for action_name, pattern in self.PATTERNS.items():
-                match = pattern.search(text)
-                if match:
-                    event = self._create_event_from_match(action_name, match, chat_line)
-                    if event:
-                        events.append(event)
-                    break  # Only return first match for non-Dealer format
+                if action_name not in board_patterns:
+                    match = pattern.search(text)
+                    if match:
+                        event = self._create_event_from_match(action_name, match, chat_line)
+                        if event:
+                            events.append(event)
+                        break  # Only return first match for non-Dealer format
         
         if events:
             logger.debug(f"Extracted {len(events)} events from chat line: '{text}'")
@@ -409,17 +423,33 @@ class ChatParser:
                     raw_data={'chat': chat_line.text}
                 )
             
-            # Street change events
+            # Street change events (*** FLOP *** format)
             elif pattern_name in ['flop', 'turn', 'river']:
                 cards_str = match.group(1).strip()
                 cards = self._parse_cards(cards_str)
                 return GameEvent(
-                    event_type="street_change",
+                    event_type="board_update",
                     street=pattern_name.upper(),
                     cards=cards,
                     sources=[EventSource.CHAT_OCR],
+                    confidence=0.9,  # High confidence for chat board
                     timestamp=chat_line.timestamp,
-                    raw_data={'chat': chat_line.text}
+                    raw_data={'chat': chat_line.text, 'format': 'street_marker'}
+                )
+            
+            # Board dealing events (Dealing Flop/Turn/River format)
+            elif pattern_name in ['dealing_flop', 'dealing_turn', 'dealing_river']:
+                cards_str = match.group(1).strip()
+                cards = self._parse_cards(cards_str)
+                street_name = pattern_name.replace('dealing_', '').upper()
+                return GameEvent(
+                    event_type="board_update",
+                    street=street_name,
+                    cards=cards,
+                    sources=[EventSource.CHAT_OCR],
+                    confidence=0.9,  # High confidence for chat board
+                    timestamp=chat_line.timestamp,
+                    raw_data={'chat': chat_line.text, 'format': 'dealing'}
                 )
             
             # Card deal events
@@ -502,7 +532,13 @@ class ChatParser:
             return None
     
     def _parse_cards(self, cards_str: str) -> List[Card]:
-        """Parse cards from string like 'Ah Kd' or 'Ah, Kd, Qs'."""
+        """Parse cards from string like 'Ah Kd' or 'Ah, Kd, Qs'.
+        
+        Includes OCR error correction for common misreads:
+        - '0' -> 'T' (Ten)
+        - 'l' or 'I' -> '1' or 'T' based on context
+        - 'o' or 'O' -> '0' or 'Q' based on context
+        """
         cards = []
         
         # Remove brackets and split by space or comma
@@ -513,17 +549,61 @@ class ChatParser:
             token = token.strip()
             if len(token) >= 2:
                 try:
-                    # Extract rank and suit (normalize rank to uppercase and suit to lowercase to match Card.from_string() format)
+                    # Extract rank and suit
                     rank = token[0].upper()
                     suit = token[1].lower()
+                    
+                    # OCR error correction for rank
+                    rank = self._correct_rank_ocr(rank)
+                    
+                    # OCR error correction for suit
+                    suit = self._correct_suit_ocr(suit)
                     
                     # Validate rank and suit
                     if rank in '23456789TJQKA' and suit in 'hdcs':
                         cards.append(Card(rank=rank, suit=suit))
+                    else:
+                        logger.warning(f"Invalid card after correction: '{rank}{suit}' (original: '{token}')")
                 except Exception as e:
                     logger.warning(f"Failed to parse card '{token}': {e}")
         
         return cards
+    
+    def _correct_rank_ocr(self, rank: str) -> str:
+        """Correct common OCR errors in card rank.
+        
+        Args:
+            rank: Original rank character
+            
+        Returns:
+            Corrected rank character
+        """
+        # Common OCR errors for rank
+        corrections = {
+            '0': 'T',  # Zero -> Ten
+            'O': 'Q',  # O -> Queen (more likely than zero in poker)
+            'I': 'T',  # I -> Ten (common misread)
+            'L': 'A',  # L -> Ace (sometimes)
+            '1': 'T',  # 1 -> Ten (sometimes)
+        }
+        return corrections.get(rank, rank)
+    
+    def _correct_suit_ocr(self, suit: str) -> str:
+        """Correct common OCR errors in card suit.
+        
+        Args:
+            suit: Original suit character
+            
+        Returns:
+            Corrected suit character
+        """
+        # Common OCR errors for suit
+        corrections = {
+            'n': 'h',  # n -> hearts (common misread)
+            'o': 'd',  # o -> diamonds (sometimes)
+            'e': 'c',  # e -> clubs (sometimes)
+        }
+        return corrections.get(suit, suit)
     
     def parse_chat_region(self, chat_region: np.ndarray) -> List[GameEvent]:
         """Extract and parse all events from a chat region."""
