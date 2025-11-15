@@ -17,6 +17,14 @@ from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.chat_enabled_parser")
 
+# Import timing profiler
+try:
+    from holdem.vision.vision_timing import get_profiler
+    _TIMING_AVAILABLE = True
+except ImportError:
+    _TIMING_AVAILABLE = False
+    get_profiler = None
+
 
 class ChatEnabledStateParser:
     """Extended StateParser with chat parsing and event fusion."""
@@ -161,7 +169,18 @@ class ChatEnabledStateParser:
         )
         
         if should_parse_chat:
-            chat_events = self._extract_chat_events(screenshot)
+            # Get timing recorder if available
+            timing_recorder = None
+            if _TIMING_AVAILABLE:
+                profiler = get_profiler()
+                if profiler:
+                    # Get the most recent recorder (from state_parser.parse)
+                    # Note: This is a bit of a hack - we're assuming the state_parser just created one
+                    # A better approach would be to pass it through, but that requires more refactoring
+                    # For now, we'll create timing blocks that will be recorded separately
+                    pass
+            
+            chat_events = self._extract_chat_events(screenshot, timing_recorder=timing_recorder)
             if chat_events:
                 logger.info(f"[CHAT OCR] Extracted {len(chat_events)} events from chat")
                 for event in chat_events:

@@ -18,12 +18,36 @@ vision_metrics:
   # Prevents false alarms from small sample sizes
   min_samples_for_alert: 10
 
+# Vision Timing Profiling Configuration
+# Detailed timing logs for performance analysis and optimization
+vision_timing:
+  # Enable detailed timing profiling (default: false)
+  # When enabled, writes detailed timing breakdowns to JSONL log files
+  enabled: false
+  
+  # Directory for timing log files (default: logs/vision_timing)
+  log_dir: "logs/vision_timing"
+  
+  # Custom log filename (optional, default: vision_timing_{timestamp}.jsonl)
+  # If not specified, uses auto-generated timestamped filename
+  log_filename: null
+
 # Example usage:
 # from holdem.vision.vision_metrics import VisionMetrics, VisionMetricsConfig
+# from holdem.vision.vision_timing import create_profiler
 # import yaml
 #
 # with open('configs/vision_metrics_config.yaml') as f:
 #     config_dict = yaml.safe_load(f)
 # 
+# # Setup metrics
 # config = VisionMetricsConfig(**config_dict['vision_metrics'])
 # metrics = VisionMetrics(config=config)
+#
+# # Setup timing profiler
+# timing_config = config_dict.get('vision_timing', {})
+# profiler = create_profiler(
+#     enabled=timing_config.get('enabled', False),
+#     log_dir=timing_config.get('log_dir'),
+#     log_filename=timing_config.get('log_filename')
+# )
