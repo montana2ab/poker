@@ -20,6 +20,185 @@ from holdem.utils.logging import setup_logger
 logger = setup_logger("run_dry_run")
 
 
+def _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_detector):
+    """Run in chat OCR focus mode - only process chat, skip full vision.
+    
+    This mode is for debugging and calibrating chat OCR only.
+    """
+    import time
+    import json
+    from datetime import datetime
+    from holdem.vision.chat_parser import ChatParser
+    import cv2
+    
+    # Create chat parser
+    chat_parser = ChatParser(ocr_engine)
+    
+    # Check if profile has chat region
+    if not profile.chat_region:
+        logger.error("[CHAT OCR FOCUS] No chat_region defined in profile - cannot proceed")
+        logger.error("[CHAT OCR FOCUS] Please add chat_region to your table profile")
+        return
+    
+    chat_region_def = profile.chat_region
+    logger.info(f"[CHAT OCR FOCUS] Chat region: x={chat_region_def['x']}, y={chat_region_def['y']}, "
+                f"width={chat_region_def['width']}, height={chat_region_def['height']}")
+    
+    # Create optional JSONL log file
+    jsonl_file = None
+    if args.enable_detailed_vision_logs:
+        log_dir = args.vision_timing_log_dir if args.vision_timing_log_dir else Path("logs/chat_ocr_focus")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        jsonl_path = log_dir / f"chat_ocr_focus_{timestamp}.jsonl"
+        jsonl_file = open(jsonl_path, 'w')
+        logger.info(f"[CHAT OCR FOCUS] Logging to {jsonl_path}")
+    
+    logger.info("[CHAT OCR FOCUS] Starting chat-only processing loop")
+    logger.info(f"[CHAT OCR FOCUS] Interval: {args.interval}s")
+    
+    cycle_count = 0
+    
+    try:
+        while True:
+            cycle_count += 1
+            cycle_start = time.time()
+            
+            # 1. Capture screenshot
+            screenshot_start = time.time()
+            if profile.screen_region:
+                x, y, w, h = profile.screen_region
+                screenshot = screen_capture.capture_region(x, y, w, h)
+            elif profile.window_title:
+                screenshot = screen_capture.capture_window(
+                    profile.window_title,
+                    owner_name=profile.owner_name,
+                    screen_region=profile.screen_region
+                )
+            else:
+                logger.error("[CHAT OCR FOCUS] No screen region or window title in profile")
+                break
+            screenshot_latency = (time.time() - screenshot_start) * 1000
+            
+            if screenshot is None:
+                logger.warning("[CHAT OCR FOCUS] Failed to capture screenshot")
+                time.sleep(args.interval)
+                continue
+            
+            # 2. Detect/warp table
+            warped = table_detector.detect(screenshot)
+            
+            # 3. Extract chat region
+            crop_start = time.time()
+            x, y, w, h = chat_region_def['x'], chat_region_def['y'], \
+                         chat_region_def['width'], chat_region_def['height']
+            
+            if y + h > warped.shape[0] or x + w > warped.shape[1]:
+                logger.error(f"[CHAT OCR FOCUS] Chat region out of bounds: ({x},{y},{w},{h}) vs image {warped.shape}")
+                time.sleep(args.interval)
+                continue
+            
+            chat_img = warped[y:y+h, x:x+w]
+            crop_latency = (time.time() - crop_start) * 1000
+            
+            # 4. Pre-process chat image for better OCR
+            preprocess_start = time.time()
+            # Convert to grayscale if not already
+            if len(chat_img.shape) == 3:
+                chat_img_gray = cv2.cvtColor(chat_img, cv2.COLOR_BGR2GRAY)
+            else:
+                chat_img_gray = chat_img
+            
+            # Apply slight contrast enhancement
+            chat_img_processed = cv2.convertScaleAbs(chat_img_gray, alpha=1.2, beta=10)
+            preprocess_latency = (time.time() - preprocess_start) * 1000
+            
+            # 5. Run OCR on chat region
+            ocr_start = time.time()
+            chat_lines = chat_parser.extract_chat_lines(chat_img_processed)
+            ocr_latency = (time.time() - ocr_start) * 1000
+            
+            # 6. Parse chat lines into events
+            parse_start = time.time()
+            events = []
+            for line in chat_lines:
+                line_events = chat_parser.parse_chat_line_multi(line)
+                if line_events:
+                    events.extend(line_events)
+            parse_latency = (time.time() - parse_start) * 1000
+            
+            # Calculate total cycle time
+            total_latency = (time.time() - cycle_start) * 1000
+            
+            # 7. Log detailed information
+            logger.info("")
+            logger.info(f"[CHAT OCR FOCUS] ===== Cycle {cycle_count} =====")
+            logger.info(f"[CHAT OCR FOCUS] Screenshot latency: {screenshot_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] Chat crop latency: {crop_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] Preprocess latency: {preprocess_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] OCR latency: {ocr_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] Chat parse latency: {parse_latency:.2f} ms")
+            logger.info(f"[CHAT OCR FOCUS] Total chat cycle latency: {total_latency:.2f} ms")
+            
+            # Log raw chat text
+            if chat_lines:
+                logger.info(f"[CHAT OCR FOCUS] Raw chat text ({len(chat_lines)} lines):")
+                for i, line in enumerate(chat_lines):
+                    logger.info(f"[CHAT OCR FOCUS]   Line {i+1}: {line.raw_text}")
+            else:
+                logger.info("[CHAT OCR FOCUS] Raw chat text: (no text detected)")
+            
+            # Log extracted events
+            if events:
+                logger.info(f"[CHAT OCR FOCUS] Extracted {len(events)} event(s):")
+                for event in events:
+                    logger.info(
+                        f"[CHAT OCR FOCUS] Event from chat: type={event.event_type}, "
+                        f"player={event.player}, action={event.action}, "
+                        f"amount={event.amount}, confidence={event.confidence:.2f}"
+                    )
+            else:
+                logger.info("[CHAT OCR FOCUS] Extracted events: (none)")
+            
+            # Write to JSONL if enabled
+            if jsonl_file:
+                record = {
+                    "timestamp": datetime.now().isoformat(),
+                    "cycle": cycle_count,
+                    "latencies_ms": {
+                        "screenshot": round(screenshot_latency, 2),
+                        "crop": round(crop_latency, 2),
+                        "preprocess": round(preprocess_latency, 2),
+                        "ocr": round(ocr_latency, 2),
+                        "parse": round(parse_latency, 2),
+                        "total": round(total_latency, 2)
+                    },
+                    "chat_lines": [line.raw_text for line in chat_lines],
+                    "events": [
+                        {
+                            "type": event.event_type,
+                            "player": event.player,
+                            "action": event.action.name if event.action else None,
+                            "amount": event.amount,
+                            "confidence": event.confidence
+                        }
+                        for event in events
+                    ]
+                }
+                jsonl_file.write(json.dumps(record) + "\n")
+                jsonl_file.flush()
+            
+            # Sleep before next cycle
+            time.sleep(args.interval)
+            
+    except KeyboardInterrupt:
+        logger.info("[CHAT OCR FOCUS] Stopping chat OCR focus mode")
+    finally:
+        if jsonl_file:
+            jsonl_file.close()
+            logger.info(f"[CHAT OCR FOCUS] Closed log file")
+
+
 def _report_vision_metrics(vision_metrics, args, logger, header, do_export):
     """Helper function to generate and report vision metrics.
     
@@ -94,8 +273,20 @@ def main():
                        help="Enable detailed vision timing profiling (logs to logs/vision_timing/)")
     parser.add_argument("--vision-timing-log-dir", type=Path, default=None,
                        help="Directory for vision timing logs (default: logs/vision_timing)")
+    parser.add_argument("--chat-ocr-focus", action="store_true",
+                       help="Enable chat OCR focus mode (only process chat, skip full vision)")
     
     args = parser.parse_args()
+    
+    # Display chat OCR focus mode banner if enabled
+    if args.chat_ocr_focus:
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("[CHAT OCR FOCUS] Enabled: only chat OCR + events will be processed")
+        logger.info("[CHAT OCR FOCUS] Full vision parsing (pot, stacks, bets, board, cards) is DISABLED")
+        logger.info("[CHAT OCR FOCUS] This is a debug mode for calibrating chat OCR only")
+        logger.info("=" * 80)
+        logger.info("")
     
     # Determine if vision metrics should be enabled
     enable_metrics = args.enable_vision_metrics and not args.disable_vision_metrics
@@ -201,6 +392,11 @@ def main():
         logger.info("Using OCR backend: paddleocr (default)")
     
     ocr_engine = OCREngine(backend=ocr_backend)
+    
+    # If chat OCR focus mode is enabled, run that mode and exit
+    if args.chat_ocr_focus:
+        _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_detector)
+        return
     
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing
