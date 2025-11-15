@@ -290,3 +290,133 @@ class TestExecutorDefaultBehavior:
         executor = ActionExecutor(config, mock_profile)
         # Should default to True via getattr
         assert executor.safe_click_enabled is True
+
+
+class TestExecutorRetryIntegration:
+    """Integration tests for retry mechanism with ActionExecutor."""
+    
+    def test_fold_succeeds_after_retry(self, mock_profile, safe_click_config):
+        """Test that fold action succeeds after initial UI not ready."""
+        executor = ActionExecutor(safe_click_config, mock_profile)
+        
+        with patch('holdem.control.safe_click.ScreenCapture') as mock_capture:
+            mock_instance = mock_capture.return_value
+            # First attempt: checkbox, second attempt: valid button
+            mock_instance.capture_region.side_effect = [
+                create_checkbox_image(),
+                create_light_button_image()
+            ]
+            
+            with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+                mock_pyautogui = Mock()
+                mock_get_pyautogui.return_value = mock_pyautogui
+                
+                with patch('holdem.control.safe_click.time.sleep'):
+                    action = Action(action_type=ActionType.FOLD)
+                    button_region = mock_profile.button_regions['fold']
+                    
+                    result = executor._click_button(button_region, action)
+                    assert result is True
+                    # Should have retried and clicked
+                    assert mock_instance.capture_region.call_count == 2
+                    mock_pyautogui.click.assert_called_once()
+    
+    def test_call_fails_after_all_retries(self, mock_profile, safe_click_config):
+        """Test that call action fails after exhausting retries."""
+        executor = ActionExecutor(safe_click_config, mock_profile)
+        
+        with patch('holdem.control.safe_click.ScreenCapture') as mock_capture:
+            mock_instance = mock_capture.return_value
+            # All attempts return checkbox
+            mock_instance.capture_region.return_value = create_checkbox_image()
+            
+            with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+                mock_pyautogui = Mock()
+                mock_get_pyautogui.return_value = mock_pyautogui
+                
+                with patch('holdem.control.safe_click.time.sleep'):
+                    action = Action(action_type=ActionType.CALL, amount=100.0)
+                    button_region = mock_profile.button_regions['call']
+                    
+                    result = executor._click_button(button_region, action)
+                    assert result is False
+                    # Should have tried 3 times (1 initial + 2 retries)
+                    assert mock_instance.capture_region.call_count == 3
+                    # Should not have clicked
+                    mock_pyautogui.click.assert_not_called()
+    
+    def test_bet_half_pot_with_retry(self, mock_profile, safe_click_config):
+        """Test BET_HALF_POT with retry on sizing button."""
+        executor = ActionExecutor(safe_click_config, mock_profile)
+        
+        with patch('holdem.control.safe_click.ScreenCapture') as mock_capture:
+            mock_instance = mock_capture.return_value
+            # First click (sizing button): checkbox, then valid
+            # Second click (confirm button): valid immediately
+            mock_instance.capture_region.side_effect = [
+                create_checkbox_image(),
+                create_light_button_image(),
+                create_light_button_image()
+            ]
+            
+            with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+                mock_pyautogui = Mock()
+                mock_get_pyautogui.return_value = mock_pyautogui
+                
+                with patch('holdem.control.safe_click.time.sleep'):
+                    action = Action(action_type=ActionType.BET_HALF_POT)
+                    state = Mock(spec=TableState)
+                    
+                    result = executor._execute_quick_bet(action, state)
+                    assert result is True
+                    # Should have clicked both buttons
+                    assert mock_pyautogui.click.call_count == 2
+    
+    def test_bet_pot_sizing_button_fails_all_retries(self, mock_profile, safe_click_config):
+        """Test BET_POT fails when sizing button never becomes ready."""
+        executor = ActionExecutor(safe_click_config, mock_profile)
+        
+        with patch('holdem.control.safe_click.ScreenCapture') as mock_capture:
+            mock_instance = mock_capture.return_value
+            # Sizing button always shows checkbox
+            mock_instance.capture_region.return_value = create_checkbox_image()
+            
+            with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+                mock_pyautogui = Mock()
+                mock_get_pyautogui.return_value = mock_pyautogui
+                
+                with patch('holdem.control.safe_click.time.sleep'):
+                    action = Action(action_type=ActionType.BET_POT)
+                    state = Mock(spec=TableState)
+                    
+                    result = executor._execute_quick_bet(action, state)
+                    assert result is False
+                    # Should not have clicked any button
+                    mock_pyautogui.click.assert_not_called()
+    
+    def test_bet_pot_confirm_button_fails_after_sizing_succeeds(self, mock_profile, safe_click_config):
+        """Test BET_POT fails when confirm button doesn't become ready."""
+        executor = ActionExecutor(safe_click_config, mock_profile)
+        
+        with patch('holdem.control.safe_click.ScreenCapture') as mock_capture:
+            mock_instance = mock_capture.return_value
+            # Sizing button succeeds, confirm button always checkbox
+            mock_instance.capture_region.side_effect = [
+                create_light_button_image(),  # Sizing button OK
+                create_checkbox_image(),       # Confirm button not ready (attempt 1)
+                create_checkbox_image(),       # Confirm button not ready (attempt 2)
+                create_checkbox_image(),       # Confirm button not ready (attempt 3)
+            ]
+            
+            with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+                mock_pyautogui = Mock()
+                mock_get_pyautogui.return_value = mock_pyautogui
+                
+                with patch('holdem.control.safe_click.time.sleep'):
+                    action = Action(action_type=ActionType.BET_POT)
+                    state = Mock(spec=TableState)
+                    
+                    result = executor._execute_quick_bet(action, state)
+                    assert result is False
+                    # Should have clicked only sizing button, not confirm
+                    assert mock_pyautogui.click.call_count == 1

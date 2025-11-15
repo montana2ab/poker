@@ -1,4 +1,16 @@
-"""Safe click functionality for action buttons to prevent checkbox misclicks."""
+"""Safe click functionality for action buttons to prevent checkbox misclicks.
+
+This module provides safe click functionality that prevents the bot from clicking on
+action buttons when the UI is not ready (e.g., when checkboxes like "Call Any" or 
+"Call 100" are still visible at the button position).
+
+Key features:
+- Lightweight pixel analysis to detect if buttons are rendered vs checkboxes
+- Automatic retry mechanism (default: 2 retries with 50ms delay) for cases where
+  the UI is transitioning from checkboxes to action buttons
+- No heavy vision operations (OCR, template matching) - keeps performance optimal
+- Total overhead: < 10ms on success, < 110ms with full retries
+"""
 
 import time
 import numpy as np
@@ -21,7 +33,9 @@ def safe_click_action_button(
     width: int, 
     height: int, 
     label: Optional[str] = None,
-    click_delay: float = 0.1
+    click_delay: float = 0.1,
+    max_retries: int = 2,
+    retry_delay: float = 0.05
 ) -> bool:
     """
     Vérifie visuellement qu'un vrai bouton d'action est présent à la position donnée,
@@ -31,6 +45,10 @@ def safe_click_action_button(
     à cocher "Call 100" / "Call Any" sont encore présentes à l'emplacement du bouton,
     ce qui indiquerait que les vrais boutons d'action ne sont pas encore visibles.
     
+    Si la vérification échoue initialement, la fonction effectue des retries avec
+    un court délai entre chaque tentative pour gérer le cas où l'UI n'est pas encore
+    complètement rendue.
+    
     Args:
         x: Coordonnée X du centre du bouton
         y: Coordonnée Y du centre du bouton
@@ -38,15 +56,17 @@ def safe_click_action_button(
         height: Hauteur du bouton (pour déterminer la région à capturer)
         label: Label optionnel du bouton pour les logs (ex: "Fold", "Call", "Pot")
         click_delay: Délai après le clic (en secondes)
+        max_retries: Nombre maximum de tentatives (default: 2)
+        retry_delay: Délai entre les tentatives en secondes (default: 0.05s / 50ms)
         
     Returns:
-        True si le clic a été effectué, False si la vérification a échoué
+        True si le clic a été effectué, False si la vérification a échoué après tous les retries
         
     Performance:
         - Capture uniquement une petite région autour du bouton (~40x20 pixels)
         - Analyse seulement quelques pixels clés
         - N'alourdit pas le pipeline de vision principal
-        - Exécution typique: < 10ms
+        - Exécution typique: < 10ms (succès immédiat) ou < 110ms (avec 2 retries)
     """
     action_desc = label if label else f"button at ({x}, {y})"
     
@@ -59,38 +79,58 @@ def safe_click_action_button(
     region_x = max(0, x - capture_width // 2)
     region_y = max(0, y - capture_height // 2)
     
-    try:
-        # Capturer uniquement la petite région autour du bouton
-        screen_capture = ScreenCapture()
-        region_img = screen_capture.capture_region(
-            region_x, 
-            region_y, 
-            capture_width, 
-            capture_height
-        )
-        
-        if region_img is None or region_img.size == 0:
-            logger.warning(f"[SAFE_CLICK] Failed to capture region for {action_desc}")
-            return False
-        
-        # Analyser quelques pixels clés pour déterminer si c'est un bouton ou une checkbox
-        is_valid = _analyze_button_pixels(region_img, capture_width, capture_height)
-        
-        if not is_valid:
-            logger.debug(f"[SAFE_CLICK] Skip click: {action_desc} - UI not ready or checkbox detected")
-            return False
-        
-        # La vérification a réussi, effectuer le clic
-        logger.debug(f"[SAFE_CLICK] Action button looks valid, performing click on {action_desc} at ({x}, {y})")
-        pyautogui = _get_pyautogui()
-        pyautogui.click(x, y)
-        time.sleep(click_delay)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"[SAFE_CLICK] Error during safe click verification: {e}", exc_info=True)
-        return False
+    # Boucle de retry
+    for attempt in range(max_retries + 1):
+        try:
+            # Capturer uniquement la petite région autour du bouton
+            screen_capture = ScreenCapture()
+            region_img = screen_capture.capture_region(
+                region_x, 
+                region_y, 
+                capture_width, 
+                capture_height
+            )
+            
+            if region_img is None or region_img.size == 0:
+                if attempt < max_retries:
+                    logger.debug(f"[AUTOPLAY] UI not ready for {action_desc}, retrying ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.warning(f"[SAFE_CLICK] Failed to capture region for {action_desc} after {max_retries + 1} attempts")
+                    return False
+            
+            # Analyser quelques pixels clés pour déterminer si c'est un bouton ou une checkbox
+            is_valid = _analyze_button_pixels(region_img, capture_width, capture_height)
+            
+            if not is_valid:
+                if attempt < max_retries:
+                    logger.debug(f"[AUTOPLAY] UI not ready for {action_desc}, retrying ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.debug(f"[SAFE_CLICK] Skip click: {action_desc} - UI not ready or checkbox detected after {max_retries + 1} attempts")
+                    return False
+            
+            # La vérification a réussi, effectuer le clic
+            logger.debug(f"[SAFE_CLICK] Action button looks valid, performing click on {action_desc} at ({x}, {y})")
+            pyautogui = _get_pyautogui()
+            pyautogui.click(x, y)
+            time.sleep(click_delay)
+            
+            return True
+            
+        except Exception as e:
+            if attempt < max_retries:
+                logger.debug(f"[AUTOPLAY] Error during verification for {action_desc}, retrying ({attempt + 1}/{max_retries}): {e}")
+                time.sleep(retry_delay)
+                continue
+            else:
+                logger.error(f"[SAFE_CLICK] Error during safe click verification after {max_retries + 1} attempts: {e}", exc_info=True)
+                return False
+    
+    # Ne devrait jamais arriver ici, mais par sécurité
+    return False
 
 
 def _analyze_button_pixels(img: np.ndarray, width: int, height: int) -> bool:
@@ -188,7 +228,9 @@ def safe_click_with_fallback(
     height: int,
     label: Optional[str] = None,
     click_delay: float = 0.1,
-    enable_safe_click: bool = True
+    enable_safe_click: bool = True,
+    max_retries: int = 2,
+    retry_delay: float = 0.05
 ) -> bool:
     """
     Wrapper pour safe_click_action_button avec fallback sur un clic direct.
@@ -204,6 +246,8 @@ def safe_click_with_fallback(
         label: Label optionnel du bouton
         click_delay: Délai après le clic
         enable_safe_click: Si False, effectue un clic direct sans vérification
+        max_retries: Nombre maximum de tentatives (default: 2)
+        retry_delay: Délai entre les tentatives en secondes (default: 0.05s / 50ms)
         
     Returns:
         True si le clic a été effectué (directement ou après vérification)
@@ -216,5 +260,5 @@ def safe_click_with_fallback(
         time.sleep(click_delay)
         return True
     
-    # Tentative avec safe click
-    return safe_click_action_button(x, y, width, height, label, click_delay)
+    # Tentative avec safe click et retries
+    return safe_click_action_button(x, y, width, height, label, click_delay, max_retries, retry_delay)

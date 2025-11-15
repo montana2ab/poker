@@ -397,13 +397,30 @@ class ActionExecutor:
                 pyautogui.typewrite(amount_str, interval=self.type_interval)
                 time.sleep(self.input_delay)
                 
-                # Click the bet/raise button to confirm
+                # Click the bet/raise button to confirm (with safe click)
                 x = button_region['x'] + button_region['width'] // 2
                 y = button_region['y'] + button_region['height'] // 2
+                width = button_region['width']
+                height = button_region['height']
                 
-                logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} button at ({x}, {y})")
-                pyautogui.click(x, y)
-                time.sleep(self.config.min_action_delay_ms / 1000.0)
+                if self.safe_click_enabled:
+                    logger.info(f"[AUTO-PLAY] Safe clicking {action.action_type.value} button at ({x}, {y})")
+                    success = safe_click_action_button(
+                        x=x,
+                        y=y,
+                        width=width,
+                        height=height,
+                        label=action.action_type.value,
+                        click_delay=self.config.min_action_delay_ms / 1000.0
+                    )
+                    
+                    if not success:
+                        logger.info(f"[AUTOPLAY] Skip action click, UI not ready or checkbox detected (action={action.action_type.value})")
+                        return False
+                else:
+                    logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} button at ({x}, {y})")
+                    pyautogui.click(x, y)
+                    time.sleep(self.config.min_action_delay_ms / 1000.0)
                 
                 return True
                 
@@ -411,15 +428,32 @@ class ActionExecutor:
                 logger.error(f"Failed to input bet amount: {e}, falling back to default bet")
                 # Fall through to default behavior
         
-        # Default: just click the button (uses client's default amount)
+        # Default: just click the button (uses client's default amount) with safe click
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
+        width = button_region['width']
+        height = button_region['height']
         
-        logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
-        _configure_pyautogui_once(self)
-        pyautogui = _get_pyautogui()
-        pyautogui.click(x, y)
-        time.sleep(self.config.min_action_delay_ms / 1000.0)
+        if self.safe_click_enabled:
+            logger.info(f"[AUTO-PLAY] Safe clicking {action.action_type.value} at screen position ({x}, {y})")
+            success = safe_click_action_button(
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                label=action.action_type.value,
+                click_delay=self.config.min_action_delay_ms / 1000.0
+            )
+            
+            if not success:
+                logger.info(f"[AUTOPLAY] Skip action click, UI not ready or checkbox detected (action={action.action_type.value})")
+                return False
+        else:
+            logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
+            _configure_pyautogui_once(self)
+            pyautogui = _get_pyautogui()
+            pyautogui.click(x, y)
+            time.sleep(self.config.min_action_delay_ms / 1000.0)
         
         if not bet_input_box:
             logger.warning(
