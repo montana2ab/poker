@@ -18,6 +18,14 @@ from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.parse_state")
 
+# Import timing profiler
+try:
+    from holdem.vision.vision_timing import get_profiler
+    _TIMING_AVAILABLE = True
+except ImportError:
+    _TIMING_AVAILABLE = False
+    get_profiler = None
+
 # Import VisionMetrics if available
 try:
     from holdem.vision.vision_metrics import VisionMetrics
@@ -296,6 +304,13 @@ class StateParser:
         Returns:
             TableState or None if parsing failed
         """
+        # Create timing recorder if profiling is enabled
+        timing_recorder = None
+        if _TIMING_AVAILABLE:
+            profiler = get_profiler()
+            if profiler:
+                timing_recorder = profiler.create_recorder()
+        
         try:
             # Track parse latency if metrics are enabled
             parse_start = time.time() if self.vision_metrics else None
@@ -311,6 +326,12 @@ class StateParser:
                 if not is_full_parse:
                     logger.debug(f"[LIGHT PARSE] Frame {frame_index} - skipping heavy OCR")
             
+            # Set timing metadata
+            if timing_recorder:
+                timing_recorder.set_metadata(
+                    mode="full" if is_full_parse else "light"
+                )
+            
             # Determine street based on existing board cache or quick check
             # We need to know the street before deciding whether to parse board
             initial_street = self._determine_initial_street()
@@ -323,7 +344,11 @@ class StateParser:
                 logger.debug("[PREFLOP OPTIMIZATION] Skipping board card recognition (no board in preflop)")
             else:
                 # Parse board for FLOP/TURN/RIVER, passing initial_street hint for optimization
-                board = self._parse_board(screenshot, is_full_parse=is_full_parse, current_street=initial_street)
+                if timing_recorder:
+                    with timing_recorder.time_block("board_vision"):
+                        board = self._parse_board(screenshot, is_full_parse=is_full_parse, current_street=initial_street)
+                else:
+                    board = self._parse_board(screenshot, is_full_parse=is_full_parse, current_street=initial_street)
             
             # Determine street based on board cards
             num_board_cards = len([c for c in board if c is not None])
@@ -339,7 +364,11 @@ class StateParser:
                 street = Street.PREFLOP
             
             # Extract pot
-            pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
+            if timing_recorder:
+                with timing_recorder.time_block("ocr_pot"):
+                    pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
+            else:
+                pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
             
             # Detect new hand and reset caches if needed
             # New hand signals:
@@ -359,7 +388,7 @@ class StateParser:
             button_position = self._parse_button_position(screenshot)
             
             # Extract player states and check for showdown labels
-            players, has_showdown_label = self._parse_players(screenshot, is_full_parse=is_full_parse)
+            players, has_showdown_label = self._parse_players(screenshot, is_full_parse=is_full_parse, timing_recorder=timing_recorder)
             
             # Health check for disabled homography
             self._check_parse_health(pot, players)
@@ -429,29 +458,73 @@ class StateParser:
                 spr = effective_stack / max(pot, 0.01)
             
             # Create table state
-            state = TableState(
-                street=street,
-                pot=pot,
-                board=[c for c in board if c is not None],
-                players=players,
-                current_bet=current_bet,
-                small_blind=1.0,
-                big_blind=2.0,
-                button_position=button_position,
-                hero_position=hero_position,
-                is_in_position=is_in_position,
-                to_call=to_call,
-                effective_stack=effective_stack,
-                spr=spr,
-                frame_has_showdown_label=has_showdown_label,
-                state_inconsistent=state_inconsistent,
-                last_pot=self._last_pot
-            )
+            if timing_recorder:
+                with timing_recorder.time_block("build_parsed_state"):
+                    state = TableState(
+                        street=street,
+                        pot=pot,
+                        board=[c for c in board if c is not None],
+                        players=players,
+                        current_bet=current_bet,
+                        small_blind=1.0,
+                        big_blind=2.0,
+                        button_position=button_position,
+                        hero_position=hero_position,
+                        is_in_position=is_in_position,
+                        to_call=to_call,
+                        effective_stack=effective_stack,
+                        spr=spr,
+                        frame_has_showdown_label=has_showdown_label,
+                        state_inconsistent=state_inconsistent,
+                        last_pot=self._last_pot
+                    )
+            else:
+                state = TableState(
+                    street=street,
+                    pot=pot,
+                    board=[c for c in board if c is not None],
+                    players=players,
+                    current_bet=current_bet,
+                    small_blind=1.0,
+                    big_blind=2.0,
+                    button_position=button_position,
+                    hero_position=hero_position,
+                    is_in_position=is_in_position,
+                    to_call=to_call,
+                    effective_stack=effective_stack,
+                    spr=spr,
+                    frame_has_showdown_label=has_showdown_label,
+                    state_inconsistent=state_inconsistent,
+                    last_pot=self._last_pot
+                )
             
             # Record parse latency if metrics are enabled
             if self.vision_metrics and parse_start is not None:
                 parse_latency_ms = (time.time() - parse_start) * 1000
                 self.vision_metrics.record_parse_latency(parse_latency_ms, is_full_parse=is_full_parse)
+            
+            # Update timing metadata and write record
+            if timing_recorder:
+                timing_recorder.set_metadata(
+                    street=street.name,
+                    hero_pos=hero_position,
+                    button=button_position,
+                    num_players=len(players),
+                    board_cards=len([c for c in board if c is not None])
+                )
+                
+                # Track cache hits/misses if available
+                if self.ocr_cache_manager:
+                    metrics = self.ocr_cache_manager.get_metrics()
+                    if metrics:
+                        # Note: We can't track per-parse cache hits easily, so we'll skip this for now
+                        pass
+                
+                # Get profiler and write record
+                profiler = get_profiler()
+                if profiler:
+                    record = timing_recorder.get_record()
+                    profiler.write_record(record)
             
             logger.debug(f"Parsed state: {street.name}, pot={pot}, current_bet={current_bet}, "
                         f"button={button_position}, hero_pos={hero_position}, is_IP={is_in_position}, "
@@ -793,8 +866,13 @@ class StateParser:
         
         return roi
     
-    def _parse_players(self, img: np.ndarray, is_full_parse: bool = True) -> Tuple[list, bool]:
+    def _parse_players(self, img: np.ndarray, is_full_parse: bool = True, timing_recorder=None) -> Tuple[list, bool]:
         """Parse player states from image.
+        
+        Args:
+            img: Screenshot image
+            is_full_parse: Whether to perform full parsing
+            timing_recorder: Optional timing recorder for profiling
         
         Returns:
             Tuple of (players list, has_showdown_label boolean)
@@ -802,6 +880,11 @@ class StateParser:
         players = []
         has_showdown_label = False  # Track if any showdown label detected
         parse_opp = getattr(self.profile, "parse_opponent_cards", False)
+        
+        # Timing accumulators for detailed profiling
+        stack_ocr_time = 0.0
+        bet_ocr_time = 0.0
+        name_ocr_time = 0.0
         
         # Use fixed hero position if provided, otherwise fallback to profile
         if self.fixed_hero_position is not None:
@@ -842,12 +925,20 @@ class StateParser:
                     # Downscale ROI if needed
                     stack_img_processed = self._downscale_roi(stack_img) if self.perf_config.downscale_ocr_rois else stack_img
                     
+                    # Time stack OCR
+                    if timing_recorder:
+                        ocr_start = time.perf_counter()
+                    
                     logger.info(f"[VISION] OCR stack for seat {table_position} (image changed)")
                     parsed_stack = self.ocr_engine.extract_number(stack_img_processed)
                     if parsed_stack is None:
                         # Fallback: OCR raw text then parse locale-aware
                         raw_txt = self.ocr_engine.read_text(stack_img_processed) or ""
                         parsed_stack = _parse_amount_from_text(raw_txt)
+                    
+                    if timing_recorder:
+                        stack_ocr_time += (time.perf_counter() - ocr_start) * 1000.0
+                    
                     if parsed_stack is not None:
                         stack = parsed_stack
                         logger.info(f"Player {table_position} stack OCR result: {stack:.2f}")
@@ -899,7 +990,16 @@ class StateParser:
                 elif y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                     # Name not locked - run OCR
                     name_img = img[y:y+h, x:x+w]
+                    
+                    # Time name OCR
+                    if timing_recorder:
+                        ocr_start = time.perf_counter()
+                    
                     parsed_name = self.ocr_engine.read_text(name_img)
+                    
+                    if timing_recorder:
+                        name_ocr_time += (time.perf_counter() - ocr_start) * 1000.0
+                    
                     if parsed_name:
                         parsed_name_stripped = parsed_name.strip()
                         
@@ -922,7 +1022,16 @@ class StateParser:
             elif y + h <= img.shape[0] and x + w <= img.shape[1] and w > 0 and h > 0:
                 # No cache manager - use original logic
                 name_img = img[y:y+h, x:x+w]
+                
+                # Time name OCR
+                if timing_recorder:
+                    ocr_start = time.perf_counter()
+                
                 parsed_name = self.ocr_engine.read_text(name_img)
+                
+                if timing_recorder:
+                    name_ocr_time += (time.perf_counter() - ocr_start) * 1000.0
+                
                 if parsed_name:
                     parsed_name_stripped = parsed_name.strip()
                     
@@ -971,12 +1080,20 @@ class StateParser:
                     # Downscale ROI if needed
                     bet_img_processed = self._downscale_roi(bet_img) if self.perf_config.downscale_ocr_rois else bet_img
                     
+                    # Time bet OCR
+                    if timing_recorder:
+                        ocr_start = time.perf_counter()
+                    
                     logger.info(f"[VISION] OCR bet for seat {table_position} (image changed)")
                     parsed_bet = self.ocr_engine.extract_number(bet_img_processed)
                     if parsed_bet is None:
                         # Fallback: OCR raw text then parse locale-aware
                         raw_txt = self.ocr_engine.read_text(bet_img_processed) or ""
                         parsed_bet = _parse_amount_from_text(raw_txt)
+                    
+                    if timing_recorder:
+                        bet_ocr_time += (time.perf_counter() - ocr_start) * 1000.0
+                    
                     if parsed_bet is not None:
                         # Only record bet if this is not a showdown label in the name region
                         # (prevents "Won 5,249" from being treated as a bet)
@@ -1019,7 +1136,11 @@ class StateParser:
             hole_cards = None
             if hero_pos is not None and table_position == hero_pos:
                 logger.info(f"Parsing hero cards at position {table_position}")
-                hole_cards = self._parse_player_cards(img, player_region, is_hero=True, is_full_parse=is_full_parse)
+                if timing_recorder:
+                    with timing_recorder.time_block("hero_cards"):
+                        hole_cards = self._parse_player_cards(img, player_region, is_hero=True, is_full_parse=is_full_parse)
+                else:
+                    hole_cards = self._parse_player_cards(img, player_region, is_hero=True, is_full_parse=is_full_parse)
             elif parse_opp:
                 logger.info(f"Parsing opponent cards at position {table_position}")
                 # Templates héros et joueurs identiques -> on réutilise la même reco
@@ -1036,6 +1157,12 @@ class StateParser:
                 last_action=last_action
             )
             players.append(player)
+
+        # Record accumulated timing data
+        if timing_recorder:
+            timing_recorder.record_timing("ocr_stacks", stack_ocr_time)
+            timing_recorder.record_timing("ocr_bets", bet_ocr_time)
+            timing_recorder.record_timing("ocr_names", name_ocr_time)
 
         return players, has_showdown_label
     
