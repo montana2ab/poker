@@ -450,36 +450,74 @@ class ChatEnabledStateParser:
                 )
         
         # Update board cache based on street
+        # Chat parser sends ALL board cards (e.g., [Ah Kd Qs] for flop, [Ah Kd Qs 7c] for turn)
         if street == "FLOP" and len(cards) == 3:
             if not board_cache.has_flop():
                 board_cache.mark_flop(cards)
-                state.board = cards + state.board[3:]  # Update state board
+                state.board = cards + [None, None]  # Flop + placeholders for turn/river
                 logger.info(
                     f"[BOARD CACHE] Flop marked from {source_str}: "
                     f"{cards_str} (confidence={event.confidence:.2f})"
                 )
         
-        elif street == "TURN" and len(cards) == 1:
-            if board_cache.has_flop() and not board_cache.has_turn():
-                board_cache.mark_turn(cards[0])
-                # Ensure flop is in state.board, then add turn
-                if len(state.board) >= 3:
-                    state.board = state.board[:3] + [cards[0]] + state.board[4:]
-                logger.info(
-                    f"[BOARD CACHE] Turn marked from {source_str}: "
-                    f"{str(cards[0])} (confidence={event.confidence:.2f})"
-                )
+        elif street == "TURN":
+            # Chat sends all 4 cards [flop + turn] or just the turn card
+            if len(cards) == 4:
+                # Full board provided: extract turn card (4th card)
+                turn_card = cards[3]
+                flop_cards = cards[:3]
+                if not board_cache.has_flop():
+                    board_cache.mark_flop(flop_cards)
+                if not board_cache.has_turn():
+                    board_cache.mark_turn(turn_card)
+                    state.board = flop_cards + [turn_card, None]  # flop + turn + placeholder
+                    logger.info(
+                        f"[BOARD CACHE] Turn marked from {source_str}: "
+                        f"{str(turn_card)} (confidence={event.confidence:.2f})"
+                    )
+            elif len(cards) == 1:
+                # Only turn card provided
+                turn_card = cards[0]
+                if board_cache.has_flop() and not board_cache.has_turn():
+                    board_cache.mark_turn(turn_card)
+                    # Preserve existing flop cards, add turn
+                    if len(state.board) >= 3:
+                        state.board = state.board[:3] + [turn_card, None]
+                    logger.info(
+                        f"[BOARD CACHE] Turn marked from {source_str}: "
+                        f"{str(turn_card)} (confidence={event.confidence:.2f})"
+                    )
         
-        elif street == "RIVER" and len(cards) == 1:
-            if board_cache.has_turn() and not board_cache.has_river():
-                board_cache.mark_river(cards[0])
-                # Ensure flop + turn are in state.board, then add river
-                if len(state.board) >= 4:
-                    state.board = state.board[:4] + [cards[0]]
-                logger.info(
-                    f"[BOARD CACHE] River marked from {source_str}: "
-                    f"{str(cards[0])} (confidence={event.confidence:.2f})"
-                )
+        elif street == "RIVER":
+            # Chat sends all 5 cards [flop + turn + river] or just the river card
+            if len(cards) == 5:
+                # Full board provided: extract river card (5th card)
+                river_card = cards[4]
+                flop_cards = cards[:3]
+                turn_card = cards[3]
+                if not board_cache.has_flop():
+                    board_cache.mark_flop(flop_cards)
+                if not board_cache.has_turn():
+                    board_cache.mark_turn(turn_card)
+                if not board_cache.has_river():
+                    board_cache.mark_river(river_card)
+                    state.board = cards  # All 5 cards
+                    logger.info(
+                        f"[BOARD CACHE] River marked from {source_str}: "
+                        f"{str(river_card)} (confidence={event.confidence:.2f})"
+                    )
+            elif len(cards) == 1:
+                # Only river card provided
+                river_card = cards[0]
+                if board_cache.has_turn() and not board_cache.has_river():
+                    board_cache.mark_river(river_card)
+                    # Preserve existing flop+turn cards, add river
+                    if len(state.board) >= 4:
+                        state.board = state.board[:4] + [river_card]
+                    logger.info(
+                        f"[BOARD CACHE] River marked from {source_str}: "
+                        f"{str(river_card)} (confidence={event.confidence:.2f})"
+                    )
     
     def _detect_button_position(
         self,
