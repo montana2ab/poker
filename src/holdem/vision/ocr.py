@@ -394,11 +394,23 @@ class OCREngine:
         return ""
 
     def _read_easyocr(self, img: np.ndarray) -> str:
-        """Read using EasyOCR."""
+        """Read using EasyOCR with enhanced parameters for chat OCR."""
         try:
             # EasyOCR readtext returns list of (bbox, text, confidence) tuples
             # detail=0 returns just the text strings
-            result = self.easy_ocr.readtext(img, detail=0)
+            # Enhanced parameters for better chat OCR quality:
+            # - contrast_ths=0.3: Lower threshold for better handling of low contrast text
+            # - adjust_contrast=0.7: Adjust contrast for better recognition
+            # - allowlist: Limit to characters actually used in PokerStars chat
+            #   (digits, letters, brackets, colon, comma, parentheses, space)
+            allowlist = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz[]():, '
+            result = self.easy_ocr.readtext(
+                img, 
+                detail=0,
+                contrast_ths=0.3,
+                adjust_contrast=0.7,
+                allowlist=allowlist
+            )
             if result:
                 # Join all detected text with spaces
                 return " ".join(result)
