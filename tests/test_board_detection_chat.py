@@ -437,6 +437,86 @@ class TestBoardMetrics:
         assert "Total Detections: 2" in report
         assert "From Vision: 1" in report
         assert "From Chat: 1" in report
+    
+    def test_parse_turn_full_board_format(self, chat_parser):
+        """Test parsing turn with full board (4 cards)."""
+        chat_line = ChatLine(
+            text="*** TURN *** [Ah Kd Qs 7c]",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "TURN"
+        assert len(event.cards) == 4
+        # Verify all 4 cards are present
+        card_strs = [str(c) for c in event.cards]
+        assert "Ah" in card_strs
+        assert "Kd" in card_strs
+        assert "Qs" in card_strs
+        assert "7c" in card_strs
+    
+    def test_parse_river_full_board_format(self, chat_parser):
+        """Test parsing river with full board (5 cards)."""
+        chat_line = ChatLine(
+            text="*** RIVER *** [Ah Kd Qs 7c 2d]",
+            timestamp=datetime.now()
+        )
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "RIVER"
+        assert len(event.cards) == 5
+        # Verify all 5 cards are present
+        card_strs = [str(c) for c in event.cards]
+        assert "Ah" in card_strs
+        assert "Kd" in card_strs
+        assert "Qs" in card_strs
+        assert "7c" in card_strs
+        assert "2d" in card_strs
+    
+    def test_board_fusion_turn_incremental_vs_full(self, event_fuser):
+        """Test fusion when vision sends [7c] and chat sends [Ah Kd Qs 7c]."""
+        # Vision sends only the new turn card
+        vision_event = GameEvent(
+            event_type="board_update",
+            street="TURN",
+            cards=[Card(rank='7', suit='c')],
+            sources=[EventSource.VISION],
+            confidence=0.7,
+            timestamp=datetime.now()
+        )
+        
+        # Chat sends all 4 cards
+        chat_event = GameEvent(
+            event_type="board_update",
+            street="TURN",
+            cards=[
+                Card(rank='A', suit='h'),
+                Card(rank='K', suit='d'),
+                Card(rank='Q', suit='s'),
+                Card(rank='7', suit='c')
+            ],
+            sources=[EventSource.CHAT_OCR],
+            confidence=0.9,
+            timestamp=datetime.now()
+        )
+        
+        fused_events = event_fuser.fuse_events([chat_event], [vision_event])
+        
+        # Should fuse successfully (vision card [7c] is subset of chat cards)
+        assert len(fused_events) == 1
+        fused = fused_events[0]
+        assert fused.street == "TURN"
+        # Should prefer chat cards (more complete)
+        assert len(fused.cards) == 4
+        assert EventSource.CHAT_OCR in fused.sources
+        assert EventSource.VISION in fused.sources
+        assert not fused.has_source_conflict
 
 
 if __name__ == "__main__":
