@@ -73,3 +73,6 @@ assets/table_profiles/*_descriptors.npy
 
 # Abstraction data
 data/abstractions/
+
+# Evaluation results
+eval_runs/
