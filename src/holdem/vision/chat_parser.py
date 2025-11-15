@@ -247,7 +247,16 @@ class ChatParser:
     VALID_RANKS = 'A23456789TJQK'
     VALID_SUITS = 'shdc'
     
+    # Chat-specific rank confusion table (prioritized for board cards from chat)
+    # These corrections are applied first for chat OCR
+    CHAT_RANK_CONFUSION = {
+        'S': '5',  # S -> 5 (common OCR confusion for chat board cards like "Sc" -> "5c")
+        's': '5',  # s -> 5 (lowercase variant)
+        '$': '5',  # $ -> 5 (similar shape to 5)
+    }
+    
     # Rank correction table - only for first character (rank position)
+    # Used as fallback after CHAT_RANK_CONFUSION
     RANK_FIX = {
         'B': '8',  # B -> 8
         '&': '8',  # & -> 8
@@ -259,7 +268,6 @@ class ChatParser:
         'L': 'A',  # L -> A (Ace)
         '1': 'T',  # 1 -> T (Ten)
         'Z': '7',  # Z -> 7 (common OCR error)
-        'S': '8',  # S -> 8 (when s appears in rank position due to OCR error, converted to uppercase)
     }
     
     # Suit correction table - only for second character (suit position)
@@ -278,9 +286,72 @@ class ChatParser:
         'e': 'c',  # e -> c (clubs)
     }
     
-    def __init__(self, ocr_engine: OCREngine):
+    def __init__(self, ocr_engine: OCREngine, enable_preprocessing: bool = True):
         self.ocr_engine = ocr_engine
         self._chat_history: List[ChatLine] = []
+        self.enable_preprocessing = enable_preprocessing
+    
+    def fix_chat_card(self, raw: str) -> Optional[str]:
+        """Fix and validate a card string from chat OCR with prioritized confusion table.
+        
+        This function uses a chat-specific confusion table for common OCR errors,
+        particularly for board cards where 'S' is often confused with '5'.
+        
+        Logic:
+        1. Clean the input (remove brackets, parentheses, commas, spaces)
+        2. If already valid (rank ∈ VALID_RANKS and suit ∈ VALID_SUITS), return as-is
+        3. If len == 2 and rank is in CHAT_RANK_CONFUSION, try correction
+        4. Fall back to general fix_card() logic
+        
+        Args:
+            raw: Raw card string from OCR (e.g., "Sc", "5c", "[3d]")
+            
+        Returns:
+            Corrected card string (e.g., "5c", "3d") or None if invalid
+        """
+        if not raw:
+            return None
+        
+        # Clean the string - remove brackets, parentheses, commas, spaces
+        cleaned = raw.strip()
+        for char in '[](),\t ':
+            cleaned = cleaned.replace(char, '')
+        
+        # Must be exactly 2 characters after cleaning
+        if len(cleaned) != 2:
+            return None
+        
+        # Extract rank and suit
+        rank_char = cleaned[0].upper()  # Ranks are uppercase
+        suit_char = cleaned[1].lower()  # Suits are lowercase
+        
+        # Check if already valid
+        if rank_char in self.VALID_RANKS and suit_char in self.VALID_SUITS:
+            return rank_char + suit_char
+        
+        # Priority correction: check CHAT_RANK_CONFUSION table first
+        if rank_char in self.CHAT_RANK_CONFUSION or cleaned[0] in self.CHAT_RANK_CONFUSION:
+            # Try with uppercase version
+            corrected_rank = self.CHAT_RANK_CONFUSION.get(rank_char)
+            if not corrected_rank:
+                # Try with original case
+                corrected_rank = self.CHAT_RANK_CONFUSION.get(cleaned[0])
+            
+            if corrected_rank and corrected_rank in self.VALID_RANKS:
+                # Check if suit is valid or can be corrected
+                corrected_suit = suit_char if suit_char in self.VALID_SUITS else self.SUIT_FIX.get(suit_char)
+                
+                if corrected_suit and corrected_suit in self.VALID_SUITS:
+                    corrected_card = corrected_rank + corrected_suit
+                    if corrected_card != cleaned:
+                        logger.info(f"[CHAT CARD FIX] Accepted corrected card '{corrected_card}' (original: '{raw}')")
+                    return corrected_card
+        
+        # Fall back to general fix_card logic
+        result = self.fix_card(raw)
+        if result and result != cleaned:
+            logger.info(f"[CHAT CARD FIX] Accepted corrected card '{result}' (original: '{raw}')")
+        return result
     
     def _fix_rank(self, char: str) -> Optional[str]:
         """Fix rank character (position 0 of card).
@@ -876,8 +947,8 @@ class ChatParser:
     def _parse_cards(self, cards_str: str) -> List[Card]:
         """Parse cards from string like 'Ah Kd' or 'Ah, Kd, Qs'.
         
-        Uses the new fix_card() function for OCR error correction with separate
-        rank and suit correction tables. Never transforms already valid suits.
+        Uses fix_chat_card() function which prioritizes chat-specific OCR corrections
+        (e.g., 'S' -> '5' for board cards) before falling back to general corrections.
         """
         cards = []
         
@@ -891,18 +962,14 @@ class ChatParser:
                 continue
             
             try:
-                # Use the new fix_card function for correction
-                fixed = self.fix_card(token)
+                # Use fix_chat_card which prioritizes chat-specific corrections
+                fixed = self.fix_chat_card(token)
                 
                 if fixed:
                     # Extract rank and suit from the fixed card
                     rank = fixed[0]
                     suit = fixed[1]
                     cards.append(Card(rank=rank, suit=suit))
-                    
-                    # Log if correction was applied
-                    if token != fixed:
-                        logger.info(f"[CHAT CARD FIX] Accepted corrected card '{fixed}' (original: '{token}')")
                 else:
                     # Card could not be corrected
                     logger.warning(f"[CHAT CARD FIX] Invalid card after correction: '{token}'")
