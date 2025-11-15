@@ -106,22 +106,8 @@ def apply_fused_events_to_state(state: TableState, fused_events: List[FusedEvent
                             f"{old_street.name} -> {new_street.name}"
                         )
                 
-                # Update board cards if available and reliable
-                if event.cards and event.confidence >= 0.75:
-                    # Only update board if we don't already have these cards
-                    if has_chat:
-                        # Chat is authoritative for board cards
-                        if event.street == "FLOP" and len(event.cards) == 3:
-                            state.board = list(event.cards) + state.board[3:5] if len(state.board) >= 5 else list(event.cards)
-                            log.debug(f"[BOARD UPDATE] Flop cards from chat: {[str(c) for c in event.cards]}")
-                        elif event.street == "TURN" and len(event.cards) == 1:
-                            if len(state.board) >= 3:
-                                state.board = state.board[:3] + list(event.cards) + state.board[4:5] if len(state.board) >= 5 else state.board[:3] + list(event.cards)
-                                log.debug(f"[BOARD UPDATE] Turn card from chat: {str(event.cards[0])}")
-                        elif event.street == "RIVER" and len(event.cards) == 1:
-                            if len(state.board) >= 4:
-                                state.board = state.board[:4] + list(event.cards)
-                                log.debug(f"[BOARD UPDATE] River card from chat: {str(event.cards[0])}")
+                # Note: Board card updates are handled by _update_board_cache_from_event()
+                # which is called separately after this function
         
         # 2. Handle pot_update events
         elif event.event_type == "pot_update":

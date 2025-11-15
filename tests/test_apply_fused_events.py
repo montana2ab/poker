@@ -40,10 +40,7 @@ class TestApplyFusedEventsToState:
         
         # Verify street was updated
         assert state.street == Street.FLOP
-        assert len(state.board) >= 3
-        assert state.board[0] == cards[0]
-        assert state.board[1] == cards[1]
-        assert state.board[2] == cards[2]
+        # Note: Board card updates are handled by _update_board_cache_from_event() separately
     
     def test_street_update_from_chat_turn(self):
         """Test that board_update event from chat updates street from FLOP to TURN."""
@@ -75,8 +72,7 @@ class TestApplyFusedEventsToState:
         
         # Verify street was updated
         assert state.street == Street.TURN
-        assert len(state.board) >= 4
-        assert state.board[3] == turn_card[0]
+        # Note: Board card updates are handled by _update_board_cache_from_event() separately
     
     def test_street_update_from_chat_river(self):
         """Test that board_update event from chat updates street from TURN to RIVER."""
@@ -113,8 +109,7 @@ class TestApplyFusedEventsToState:
         
         # Verify street was updated
         assert state.street == Street.RIVER
-        assert len(state.board) == 5
-        assert state.board[4] == river_card[0]
+        # Note: Board card updates are handled by _update_board_cache_from_event() separately
     
     def test_street_no_backwards_transition(self):
         """Test that street doesn't go backwards (RIVER -> FLOP should be ignored)."""
