@@ -473,5 +473,135 @@ class TestSpecificCorrectionCases:
         assert chat_parser.fix_card('') is None  # Empty
 
 
+class TestProblemStatementRequirements:
+    """Test specific requirements from the problem statement."""
+    
+    @pytest.fixture
+    def mock_ocr_engine(self):
+        """Create a mock OCR engine."""
+        mock = Mock(spec=OCREngine)
+        return mock
+    
+    @pytest.fixture
+    def chat_parser(self, mock_ocr_engine):
+        """Create a chat parser instance."""
+        return ChatParser(mock_ocr_engine)
+    
+    def test_dealing_flop_4d_Zh_Kc(self, chat_parser):
+        """Test: 'Dealing Flop: [4d Zh Kc]' -> flop = ['4d', '7h', 'Kc']."""
+        chat_line = ChatLine(
+            text="Dealing Flop: [4d Zh Kc]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "FLOP"
+        assert len(event.cards) == 3
+        
+        # Check cards are parsed correctly with Zh -> 7h correction
+        cards_str = [str(c) for c in event.cards]
+        assert cards_str == ['4d', '7h', 'Kc']
+    
+    def test_dealing_river_sc(self, chat_parser):
+        """Test: 'Dealing River: [8c]' read as 'sc' -> carte = '8c'."""
+        chat_line = ChatLine(
+            text="Dealing River: [sc]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "RIVER"
+        assert len(event.cards) == 1
+        
+        # Check card is corrected from sc to 8c
+        assert str(event.cards[0]) == "8c"
+    
+    def test_dealing_turn_95(self, chat_parser):
+        """Test: 'Dealing Turn: [95]' -> carte = '9s'."""
+        chat_line = ChatLine(
+            text="Dealing Turn: [95]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "TURN"
+        assert len(event.cards) == 1
+        
+        # Check card is corrected from 95 to 9s
+        assert str(event.cards[0]) == "9s"
+    
+    def test_dealing_flop_Qs_Qd_3h_with_Q5(self, chat_parser):
+        """Test: 'Dealing Flop: [Qs Qd 3h]' with 'Q5' -> 'Qs', 'Qd', '3h'."""
+        # Test with Q5 being misread
+        chat_line = ChatLine(
+            text="Dealing Flop: [Q5 Qd 3h]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "FLOP"
+        assert len(event.cards) == 3
+        
+        # Check cards are parsed correctly with Q5 -> Qs correction
+        cards_str = [str(c) for c in event.cards]
+        assert cards_str == ['Qs', 'Qd', '3h']
+    
+    def test_fix_card_Z_to_7(self, chat_parser):
+        """Test that fix_card correctly handles Z -> 7."""
+        assert chat_parser.fix_card('Zh') == '7h'
+        assert chat_parser.fix_card('Zd') == '7d'
+        assert chat_parser.fix_card('Zs') == '7s'
+        assert chat_parser.fix_card('Zc') == '7c'
+    
+    def test_fix_card_s_to_8_in_rank_position(self, chat_parser):
+        """Test that fix_card correctly handles 's' in rank position -> 8."""
+        assert chat_parser.fix_card('sc') == '8c'
+        assert chat_parser.fix_card('sh') == '8h'
+        assert chat_parser.fix_card('sd') == '8d'
+        assert chat_parser.fix_card('ss') == '8s'
+    
+    def test_complexity_O1_per_card(self, chat_parser):
+        """Test that card correction maintains O(1) complexity per card."""
+        import time
+        
+        # Test with a batch of cards
+        test_cards = ['Zh', 'sc', '95', 'Q5', '8s', 'Ad', 'Kh', 'Qc', 'Jd', 'Ts']
+        
+        # Warm-up
+        for card in test_cards:
+            chat_parser.fix_card(card)
+        
+        # Measure time for multiple iterations
+        iterations = 1000
+        start = time.time()
+        for _ in range(iterations):
+            for card in test_cards:
+                chat_parser.fix_card(card)
+        elapsed = time.time() - start
+        
+        # Average time per card should be negligible (< 0.01ms)
+        avg_time_per_card = (elapsed / (iterations * len(test_cards))) * 1000
+        print(f"\nAverage time per card: {avg_time_per_card:.6f}ms")
+        
+        # Should be very fast (< 0.01ms per card on modern hardware)
+        assert avg_time_per_card < 0.01, f"Card correction too slow: {avg_time_per_card:.6f}ms per card"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
