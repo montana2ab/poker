@@ -584,12 +584,7 @@ class ChatParser:
                 if not segment:
                     continue
                 
-                # Skip board dealing segments
-                if self._is_board_dealing(segment):
-                    logger.debug(f"Skipping board dealing segment: '{segment}'")
-                    continue
-                
-                # Try to parse action from segment
+                # Parse segment (including board dealing segments)
                 event = self._parse_segment(segment, chat_line)
                 if event:
                     events.append(event)
