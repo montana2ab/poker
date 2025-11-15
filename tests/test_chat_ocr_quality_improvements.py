@@ -28,9 +28,9 @@ class TestCardCorrectionLogic:
     
     def test_char_fixes_ampersand_to_8(self, chat_parser):
         """Test that '&' is corrected to '8' in card rank."""
-        # Test the CHAR_FIXES mapping exists
-        assert '&' in chat_parser.CHAR_FIXES
-        assert chat_parser.CHAR_FIXES['&'] == '8'
+        # Test the RANK_FIX mapping exists
+        assert '&' in chat_parser.RANK_FIX
+        assert chat_parser.RANK_FIX['&'] == '8'
         
         # Parse a card with & instead of 8
         cards = chat_parser._parse_cards('&s')
@@ -40,32 +40,39 @@ class TestCardCorrectionLogic:
     
     def test_char_fixes_B_to_8(self, chat_parser):
         """Test that 'B' is corrected to '8' in card rank."""
-        assert 'B' in chat_parser.CHAR_FIXES
-        assert chat_parser.CHAR_FIXES['B'] == '8'
+        assert 'B' in chat_parser.RANK_FIX
+        assert chat_parser.RANK_FIX['B'] == '8'
         
         cards = chat_parser._parse_cards('Bd')
         assert len(cards) == 1
         assert cards[0].rank == '8'
         assert cards[0].suit == 'd'
     
-    def test_char_fixes_O_to_0(self, chat_parser):
-        """Test that 'O' correction is handled by _correct_rank_ocr (O -> Q)."""
-        # Note: 'O' is not in CHAR_FIXES because it's handled by _correct_rank_ocr
-        # The existing logic correctly maps O -> Q for poker context
-        assert 'O' not in chat_parser.CHAR_FIXES
+    def test_char_fixes_O_to_Q(self, chat_parser):
+        """Test that 'O' is corrected to 'Q' in rank position."""
+        # O should be in RANK_FIX and map to Q
+        assert 'O' in chat_parser.RANK_FIX
+        assert chat_parser.RANK_FIX['O'] == 'Q'
         
-        # Verify the existing _correct_rank_ocr handles O correctly
-        assert chat_parser._correct_rank_ocr('O') == 'Q'
+        # Verify the new fix_card handles O correctly
+        assert chat_parser.fix_card('Os') == 'Qs'
     
     def test_char_fixes_lowercase_l_to_1(self, chat_parser):
-        """Test that 'l' is corrected to '1' in card rank."""
-        assert 'l' in chat_parser.CHAR_FIXES
-        assert chat_parser.CHAR_FIXES['l'] == '1'
+        """Test that 'l' is corrected to '1' in card rank (but 1 is invalid)."""
+        assert 'l' in chat_parser.RANK_FIX
+        assert chat_parser.RANK_FIX['l'] == '1'
+        # Note: '1' is not a valid poker rank, so this will fail validation
+        # This is expected behavior - 'l' cannot be corrected to a valid rank
     
-    def test_char_fixes_I_to_1(self, chat_parser):
-        """Test that 'I' is corrected to '1' in card rank."""
-        assert 'I' in chat_parser.CHAR_FIXES
-        assert chat_parser.CHAR_FIXES['I'] == '1'
+    def test_char_fixes_I_to_T(self, chat_parser):
+        """Test that 'I' is corrected to 'T' (Ten) in card rank."""
+        assert 'I' in chat_parser.RANK_FIX
+        assert chat_parser.RANK_FIX['I'] == 'T'
+        
+        cards = chat_parser._parse_cards('Is')
+        assert len(cards) == 1
+        assert cards[0].rank == 'T'
+        assert cards[0].suit == 's'
     
     def test_dealing_flop_with_ampersand(self, chat_parser):
         """Test parsing 'Dealing Flop: [As Td &s]' produces ['As', 'Td', '8s']."""
@@ -265,12 +272,12 @@ class TestIntegrationWithExistingTests:
         assert str(cards[2]) == "Qh"
     
     def test_existing_ocr_corrections_still_work(self, chat_parser):
-        """Test that existing _correct_rank_ocr and _correct_suit_ocr still work."""
+        """Test that the new fix_card function handles common corrections."""
         # Test existing correction: 0 -> T
-        assert chat_parser._correct_rank_ocr('0') == 'T'
+        assert chat_parser.fix_card('0s') == 'Ts'
         
-        # Test existing suit corrections
-        assert chat_parser._correct_suit_ocr('n') == 'h'
+        # Test suit corrections using SUIT_FIX
+        assert chat_parser.fix_card('8n') == '8h'  # n -> h (hearts)
     
     def test_flop_parsing_backward_compatible(self, chat_parser):
         """Test that flop parsing works with normal cards (backward compatibility)."""
@@ -283,6 +290,187 @@ class TestIntegrationWithExistingTests:
         assert len(events) == 1
         assert events[0].event_type == "board_update"
         assert len(events[0].cards) == 3
+
+
+class TestSpecificCorrectionCases:
+    """Test specific correction cases mentioned in the problem statement."""
+    
+    @pytest.fixture
+    def mock_ocr_engine(self):
+        """Create a mock OCR engine."""
+        mock = Mock(spec=OCREngine)
+        return mock
+    
+    @pytest.fixture
+    def chat_parser(self, mock_ocr_engine):
+        """Create a chat parser instance."""
+        return ChatParser(mock_ocr_engine)
+    
+    def test_dealing_flop_3d_9h_8s(self, chat_parser):
+        """Test parsing 'Dealing Flop: [3d 9h 8s]' -> cards recognized: 3d, 9h, 8s."""
+        chat_line = ChatLine(
+            text="Dealing Flop: [3d 9h 8s]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "FLOP"
+        assert len(event.cards) == 3
+        
+        # Check cards are parsed correctly
+        assert str(event.cards[0]) == "3d"
+        assert str(event.cards[1]) == "9h"
+        assert str(event.cards[2]) == "8s"
+    
+    def test_dealing_flop_Td_9d_7s(self, chat_parser):
+        """Test parsing 'Dealing Flop: [Td 9d 7s]' -> cards recognized: Td, 9d, 7s."""
+        chat_line = ChatLine(
+            text="Dealing Flop: [Td 9d 7s]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "FLOP"
+        assert len(event.cards) == 3
+        
+        # Check cards are parsed correctly
+        assert str(event.cards[0]) == "Td"
+        assert str(event.cards[1]) == "9d"
+        assert str(event.cards[2]) == "7s"
+    
+    def test_dealing_flop_6h_Bd_8h(self, chat_parser):
+        """Test parsing 'Dealing Flop: [6h Bd 8h]' -> cards recognized: 6h, 8d, 8h (Bd -> 8d)."""
+        chat_line = ChatLine(
+            text="Dealing Flop: [6h Bd 8h]",
+            timestamp=datetime.now()
+        )
+        
+        events = chat_parser.parse_chat_line_multi(chat_line)
+        
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type == "board_update"
+        assert event.street == "FLOP"
+        assert len(event.cards) == 3
+        
+        # Check cards are parsed correctly - Bd should be corrected to 8d
+        assert str(event.cards[0]) == "6h"
+        assert str(event.cards[1]) == "8d"  # B -> 8
+        assert str(event.cards[2]) == "8h"
+    
+    def test_8s_stays_8s_not_85(self, chat_parser):
+        """Test that '8s' is NOT transformed to '85' - verify valid suits are preserved."""
+        # Direct test using fix_card
+        result = chat_parser.fix_card('8s')
+        assert result == '8s', f"Expected '8s' but got '{result}'"
+        
+        # Test via _parse_cards
+        cards = chat_parser._parse_cards('8s')
+        assert len(cards) == 1
+        assert str(cards[0]) == "8s"
+    
+    def test_7s_stays_7s_not_75(self, chat_parser):
+        """Test that '7s' is NOT transformed to '75' - verify valid suits are preserved."""
+        # Direct test using fix_card
+        result = chat_parser.fix_card('7s')
+        assert result == '7s', f"Expected '7s' but got '{result}'"
+        
+        # Test via _parse_cards
+        cards = chat_parser._parse_cards('7s')
+        assert len(cards) == 1
+        assert str(cards[0]) == "7s"
+    
+    def test_all_valid_suits_preserved(self, chat_parser):
+        """Test that all valid suits (s, h, d, c) are preserved and never transformed."""
+        valid_suits = ['s', 'h', 'd', 'c']
+        
+        for suit in valid_suits:
+            card = f'A{suit}'
+            result = chat_parser.fix_card(card)
+            assert result == card, f"Valid card '{card}' was incorrectly transformed to '{result}'"
+    
+    def test_all_valid_ranks_preserved(self, chat_parser):
+        """Test that all valid ranks are preserved and never transformed."""
+        valid_ranks = 'A23456789TJQK'
+        
+        for rank in valid_ranks:
+            card = f'{rank}s'
+            result = chat_parser.fix_card(card)
+            assert result == card, f"Valid card '{card}' was incorrectly transformed to '{result}'"
+    
+    def test_suit_5_corrects_to_s(self, chat_parser):
+        """Test that '5' in suit position is corrected to 's' (spades)."""
+        result = chat_parser.fix_card('85')
+        assert result == '8s', f"Expected '8s' but got '{result}'"
+    
+    def test_suit_dollar_corrects_to_s(self, chat_parser):
+        """Test that '$' in suit position is corrected to 's' (spades)."""
+        result = chat_parser.fix_card('8$')
+        assert result == '8s', f"Expected '8s' but got '{result}'"
+    
+    def test_suit_S_corrects_to_s(self, chat_parser):
+        """Test that 'S' (uppercase) in suit position is corrected to 's' (spades)."""
+        result = chat_parser.fix_card('8S')
+        assert result == '8s', f"Expected '8s' but got '{result}'"
+    
+    def test_suit_D_corrects_to_d(self, chat_parser):
+        """Test that 'D' (uppercase) in suit position is corrected to 'd' (diamonds)."""
+        result = chat_parser.fix_card('8D')
+        assert result == '8d', f"Expected '8d' but got '{result}'"
+    
+    def test_suit_0_corrects_to_d(self, chat_parser):
+        """Test that '0' in suit position is corrected to 'd' (diamonds)."""
+        result = chat_parser.fix_card('80')
+        assert result == '8d', f"Expected '8d' but got '{result}'"
+    
+    def test_suit_O_corrects_to_d(self, chat_parser):
+        """Test that 'O' in suit position is corrected to 'd' (diamonds)."""
+        result = chat_parser.fix_card('8O')
+        assert result == '8d', f"Expected '8d' but got '{result}'"
+    
+    def test_suit_b_corrects_to_h(self, chat_parser):
+        """Test that 'b' in suit position is corrected to 'h' (hearts)."""
+        result = chat_parser.fix_card('8b')
+        assert result == '8h', f"Expected '8h' but got '{result}'"
+    
+    def test_suit_H_corrects_to_h(self, chat_parser):
+        """Test that 'H' (uppercase) in suit position is corrected to 'h' (hearts)."""
+        result = chat_parser.fix_card('8H')
+        assert result == '8h', f"Expected '8h' but got '{result}'"
+    
+    def test_suit_C_corrects_to_c(self, chat_parser):
+        """Test that 'C' (uppercase) in suit position is corrected to 'c' (clubs)."""
+        result = chat_parser.fix_card('8C')
+        assert result == '8c', f"Expected '8c' but got '{result}'"
+    
+    def test_fix_card_cleaning_removes_brackets(self, chat_parser):
+        """Test that fix_card properly cleans brackets from input."""
+        result = chat_parser.fix_card('[8s]')
+        assert result == '8s'
+    
+    def test_fix_card_cleaning_removes_parentheses(self, chat_parser):
+        """Test that fix_card properly cleans parentheses from input."""
+        result = chat_parser.fix_card('(8s)')
+        assert result == '8s'
+    
+    def test_fix_card_cleaning_removes_commas(self, chat_parser):
+        """Test that fix_card properly cleans commas from input."""
+        result = chat_parser.fix_card('8,s')
+        assert result == '8s'
+    
+    def test_fix_card_rejects_wrong_length(self, chat_parser):
+        """Test that fix_card rejects strings that are not exactly 2 chars after cleaning."""
+        assert chat_parser.fix_card('8') is None  # Too short
+        assert chat_parser.fix_card('8ss') is None  # Too long
+        assert chat_parser.fix_card('') is None  # Empty
 
 
 if __name__ == "__main__":
