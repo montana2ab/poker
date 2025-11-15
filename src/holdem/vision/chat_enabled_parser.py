@@ -84,6 +84,9 @@ class ChatEnabledStateParser:
             confidence_threshold=0.7
         )
         
+        # Store vision_metrics for board tracking
+        self.vision_metrics = vision_metrics
+        
         # Button detector for automatic button position detection
         # Assumes 6-max table by default (can be made configurable if needed)
         self.button_detector = ButtonDetector(num_seats=6)
@@ -176,7 +179,7 @@ class ChatEnabledStateParser:
         if reliable_events:
             logger.info(f"Fused {len(fused_events)} events, {len(reliable_events)} reliable")
             
-            # Log event details
+            # Log event details and update board cache from board_update events
             for event in reliable_events:
                 sources_str = ", ".join(s.value for s in event.sources)
                 multi_source = " [CONFIRMED]" if event.is_multi_source() else ""
@@ -188,6 +191,19 @@ class ChatEnabledStateParser:
                     f"Confidence: {event.confidence:.2f} - "
                     f"Sources: {sources_str}{multi_source}"
                 )
+                
+                # Update board cache from board_update events
+                if event.event_type == "board_update" and event.cards and event.street:
+                    # Record conflict in metrics if detected
+                    if event.has_source_conflict and self.vision_metrics:
+                        self.vision_metrics.record_board_detection(
+                            source="conflict",
+                            street=event.street,
+                            confidence=event.confidence,
+                            cards=[str(c) for c in event.cards]
+                        )
+                    
+                    self._update_board_cache_from_event(event, current_state)
             
             # Update hero_active flag based on events
             self._update_hero_state_from_events(current_state, reliable_events)
@@ -224,6 +240,91 @@ class ChatEnabledStateParser:
                         state.hero_active = False
                         logger.info(f"[HERO STATE] Hero folded - marking hero_active=False")
                         break
+    
+    def _update_board_cache_from_event(self, event: FusedEvent, state: TableState):
+        """Update BoardCache from a board_update event.
+        
+        This allows chat events to populate the board cache and skip vision detection.
+        
+        Args:
+            event: Board update event with cards and street
+            state: Current table state
+        """
+        # Check if board cache is available
+        if not hasattr(self.state_parser, 'board_cache') or not self.state_parser.board_cache:
+            return
+        
+        board_cache = self.state_parser.board_cache
+        street = event.street
+        cards = event.cards
+        
+        if not cards or not street:
+            return
+        
+        # Determine source for logging and metrics
+        has_chat = any(src == EventSource.CHAT_OCR for src in event.sources)
+        has_vision = any(src == EventSource.VISION for src in event.sources)
+        is_multi_source = has_chat and has_vision
+        
+        source_str = "chat" if has_chat else "vision"
+        cards_str = [str(c) for c in cards]
+        
+        # Record metrics
+        if self.vision_metrics:
+            if is_multi_source:
+                # Both sources agree
+                self.vision_metrics.record_board_detection(
+                    source="fusion_agree",
+                    street=street,
+                    confidence=event.confidence,
+                    cards=cards_str
+                )
+            elif has_chat:
+                self.vision_metrics.record_board_detection(
+                    source="chat",
+                    street=street,
+                    confidence=event.confidence,
+                    cards=cards_str
+                )
+            elif has_vision:
+                self.vision_metrics.record_board_detection(
+                    source="vision",
+                    street=street,
+                    confidence=event.confidence,
+                    cards=cards_str
+                )
+        
+        # Update board cache based on street
+        if street == "FLOP" and len(cards) == 3:
+            if not board_cache.has_flop():
+                board_cache.mark_flop(cards)
+                state.board = cards + state.board[3:]  # Update state board
+                logger.info(
+                    f"[BOARD CACHE] Flop marked from {source_str}: "
+                    f"{cards_str} (confidence={event.confidence:.2f})"
+                )
+        
+        elif street == "TURN" and len(cards) == 1:
+            if board_cache.has_flop() and not board_cache.has_turn():
+                board_cache.mark_turn(cards[0])
+                # Ensure flop is in state.board, then add turn
+                if len(state.board) >= 3:
+                    state.board = state.board[:3] + [cards[0]] + state.board[4:]
+                logger.info(
+                    f"[BOARD CACHE] Turn marked from {source_str}: "
+                    f"{str(cards[0])} (confidence={event.confidence:.2f})"
+                )
+        
+        elif street == "RIVER" and len(cards) == 1:
+            if board_cache.has_turn() and not board_cache.has_river():
+                board_cache.mark_river(cards[0])
+                # Ensure flop + turn are in state.board, then add river
+                if len(state.board) >= 4:
+                    state.board = state.board[:4] + [cards[0]]
+                logger.info(
+                    f"[BOARD CACHE] River marked from {source_str}: "
+                    f"{str(cards[0])} (confidence={event.confidence:.2f})"
+                )
     
     def _detect_button_position(
         self,

@@ -152,6 +152,21 @@ class VisionMetrics:
         # Card recognition tracking
         self.card_results: List[CardRecognitionResult] = []
         
+        # Board detection tracking
+        self.board_from_vision_count: int = 0
+        self.board_from_chat_count: int = 0
+        self.board_from_fusion_agree_count: int = 0  # Both sources agree
+        self.board_source_conflict_count: int = 0  # Sources disagree
+        self.board_updates_per_hand: List[int] = []  # Track updates per hand
+        
+        # Board confidence tracking
+        self.vision_board_confidences: List[float] = []
+        self.chat_board_confidences: List[float] = []
+        
+        # Board detection timing
+        self.board_vision_latencies: List[float] = []
+        self.board_chat_latencies: List[float] = []
+        
         # Performance tracking
         self.ocr_latencies: List[float] = []
         self.card_recognition_latencies: List[float] = []
@@ -298,6 +313,48 @@ class VisionMetrics:
         
         # Check for alerts
         self._check_card_alerts()
+    
+    def record_board_detection(
+        self,
+        source: str,  # "vision", "chat", "fusion_agree", "conflict"
+        street: Optional[str] = None,  # "FLOP", "TURN", "RIVER"
+        confidence: Optional[float] = None,
+        latency_ms: Optional[float] = None,
+        cards: Optional[List[str]] = None
+    ):
+        """Record a board detection event.
+        
+        Args:
+            source: Detection source ("vision", "chat", "fusion_agree", "conflict")
+            street: Poker street where board was detected
+            confidence: Confidence score for the detection
+            latency_ms: Time taken for detection (milliseconds)
+            cards: Detected cards (for logging)
+        """
+        # Update counters by source
+        if source == "vision":
+            self.board_from_vision_count += 1
+            if confidence is not None:
+                self.vision_board_confidences.append(confidence)
+            if latency_ms is not None:
+                self.board_vision_latencies.append(latency_ms)
+        
+        elif source == "chat":
+            self.board_from_chat_count += 1
+            if confidence is not None:
+                self.chat_board_confidences.append(confidence)
+            if latency_ms is not None:
+                self.board_chat_latencies.append(latency_ms)
+        
+        elif source == "fusion_agree":
+            self.board_from_fusion_agree_count += 1
+        
+        elif source == "conflict":
+            self.board_source_conflict_count += 1
+            logger.warning(
+                f"[BOARD METRICS] Source conflict detected: "
+                f"street={street}, cards={cards}"
+            )
     
     def record_parse_latency(self, latency_ms: float, is_full_parse: bool = True):
         """Record full state parse latency.
@@ -802,6 +859,18 @@ class VisionMetrics:
                 "mean_latency_ms": float(np.mean(self.card_recognition_latencies)) if self.card_recognition_latencies else None,
                 "confusion_matrix": self.get_card_confusion_matrix(),
             },
+            "board": {
+                "total_detections": self.board_from_vision_count + self.board_from_chat_count,
+                "from_vision": self.board_from_vision_count,
+                "from_chat": self.board_from_chat_count,
+                "fusion_agree": self.board_from_fusion_agree_count,
+                "conflicts": self.board_source_conflict_count,
+                "vision_mean_confidence": float(np.mean(self.vision_board_confidences)) if self.vision_board_confidences else None,
+                "chat_mean_confidence": float(np.mean(self.chat_board_confidences)) if self.chat_board_confidences else None,
+                "vision_mean_latency_ms": float(np.mean(self.board_vision_latencies)) if self.board_vision_latencies else None,
+                "chat_mean_latency_ms": float(np.mean(self.board_chat_latencies)) if self.board_chat_latencies else None,
+                "updates_per_hand_mean": float(np.mean(self.board_updates_per_hand)) if self.board_updates_per_hand else None,
+            },
             "performance": {
                 "mean_parse_latency_ms": float(np.mean(self.parse_latencies)) if self.parse_latencies else None,
                 "p50_parse_latency_ms": self.get_latency_percentile("parse", 50),
@@ -930,6 +999,25 @@ class VisionMetrics:
             lines.append(f"  Mean Confidence: {summary['cards']['mean_confidence']:.2f}")
         if summary['cards']['mean_latency_ms'] is not None:
             lines.append(f"  Mean Latency: {summary['cards']['mean_latency_ms']:.1f}ms")
+        lines.append("")
+        
+        # Board Detection Metrics
+        lines.append("BOARD DETECTION METRICS:")
+        lines.append(f"  Total Detections: {summary['board']['total_detections']}")
+        lines.append(f"  From Vision: {summary['board']['from_vision']}")
+        lines.append(f"  From Chat: {summary['board']['from_chat']}")
+        lines.append(f"  Fusion Agreement: {summary['board']['fusion_agree']}")
+        lines.append(f"  Source Conflicts: {summary['board']['conflicts']}")
+        if summary['board']['vision_mean_confidence'] is not None:
+            lines.append(f"  Vision Mean Confidence: {summary['board']['vision_mean_confidence']:.2f}")
+        if summary['board']['chat_mean_confidence'] is not None:
+            lines.append(f"  Chat Mean Confidence: {summary['board']['chat_mean_confidence']:.2f}")
+        if summary['board']['vision_mean_latency_ms'] is not None:
+            lines.append(f"  Vision Mean Latency: {summary['board']['vision_mean_latency_ms']:.1f}ms")
+        if summary['board']['chat_mean_latency_ms'] is not None:
+            lines.append(f"  Chat Mean Latency: {summary['board']['chat_mean_latency_ms']:.1f}ms")
+        if summary['board']['updates_per_hand_mean'] is not None:
+            lines.append(f"  Updates Per Hand (Avg): {summary['board']['updates_per_hand_mean']:.1f}")
         lines.append("")
         
         # Performance Metrics

@@ -44,10 +44,12 @@ class FusedEvent:
     sources: List[EventSource] = field(default_factory=list)
     source_events: List[GameEvent] = field(default_factory=list)
     timestamp: Optional[datetime] = None
+    has_source_conflict: bool = False  # Flag for board divergence tracking
     
     def is_multi_source(self) -> bool:
         """Check if this event was confirmed by multiple sources."""
         return len(set(self.sources)) > 1
+
 
 
 class EventFuser:
@@ -124,7 +126,22 @@ class EventFuser:
             elif current_state.street == Street.RIVER and len(current_state.board) >= 5:
                 new_cards = [current_state.board[4]]
             
-            event = GameEvent(
+            # Create board_update event (for fusion with chat)
+            if new_cards:
+                board_event = GameEvent(
+                    event_type="board_update",
+                    street=current_state.street.name,
+                    cards=new_cards,
+                    sources=[EventSource.VISION],
+                    confidence=0.7,  # Medium confidence for vision board
+                    timestamp=datetime.now(),
+                    raw_data={'vision': {'prev_street': prev_state.street.name, 
+                                        'curr_street': current_state.street.name}}
+                )
+                events.append(board_event)
+            
+            # Also create street_change event for backward compatibility
+            street_event = GameEvent(
                 event_type="street_change",
                 street=current_state.street.name,
                 cards=new_cards,
@@ -133,7 +150,7 @@ class EventFuser:
                 raw_data={'vision': {'prev_street': prev_state.street.name, 
                                     'curr_street': current_state.street.name}}
             )
-            events.append(event)
+            events.append(street_event)
             
             # Reset bet tracking on street change
             for i, player in enumerate(current_state.players):
@@ -519,6 +536,35 @@ class EventFuser:
             # Must be same street
             return event1.street == event2.street
         
+        elif event1.event_type == "board_update":
+            # Must be same street for board updates
+            if event1.street != event2.street:
+                return False
+            
+            # Check if cards match (for fusion)
+            cards1 = set(str(c) for c in event1.cards if c)
+            cards2 = set(str(c) for c in event2.cards if c)
+            
+            # If both have cards, check for exact match or very high overlap
+            if cards1 and cards2:
+                # For board events, require high overlap to fuse
+                # This prevents fusion when sources have conflicting cards
+                overlap = len(cards1 & cards2)
+                total_unique = len(cards1 | cards2)
+                min_cards = min(len(cards1), len(cards2))
+                
+                # Require at least 80% of cards to match (e.g., 3/3 for flop, or 2/3 + diff source)
+                # This is stricter to avoid fusing conflicting boards
+                if total_unique == min_cards:
+                    # Exact match
+                    return True
+                else:
+                    # Partial overlap - only fuse if > 80% overlap
+                    return overlap / max(total_unique, 1) >= 0.8
+            
+            # If one has cards and other doesn't, still match by street
+            return True
+        
         elif event1.event_type == "pot_update":
             # Must be similar pot amounts (within 5%)
             if event1.pot_amount and event2.pot_amount:
@@ -555,7 +601,7 @@ class EventFuser:
         
         # Merge data from all events
         merged_amount = self._merge_amounts(events)
-        merged_cards = self._merge_cards(events)
+        merged_cards, has_conflict = self._merge_cards(events)
         merged_pot = self._merge_pot_amounts(events)
         
         return FusedEvent(
@@ -569,7 +615,8 @@ class EventFuser:
             confidence=confidence,
             sources=sources,
             source_events=events,
-            timestamp=base.timestamp
+            timestamp=base.timestamp,
+            has_source_conflict=has_conflict
         )
     
     def _calculate_confidence(self, events: List[GameEvent]) -> float:
@@ -590,7 +637,7 @@ class EventFuser:
         elif len(unique_sources) == 2:
             # Two sources is high confidence
             # Check if we have chat + vision, that's best
-            if EventSource.CHAT in unique_sources:
+            if EventSource.CHAT in unique_sources or EventSource.CHAT_OCR in unique_sources:
                 confidence = 0.95
             # Stack + bet region is also good
             elif (EventSource.VISION_STACK in unique_sources and 
@@ -605,7 +652,7 @@ class EventFuser:
         else:
             # Single source - confidence depends on which one
             single_source = list(unique_sources)[0] if unique_sources else EventSource.VISION
-            if single_source == EventSource.CHAT:
+            if single_source == EventSource.CHAT or single_source == EventSource.CHAT_OCR:
                 confidence = 0.85  # Chat is pretty reliable
             elif single_source == EventSource.VISION_BET_REGION:
                 confidence = 0.70  # Bet OCR can be noisy
@@ -646,19 +693,53 @@ class EventFuser:
         # Otherwise use average
         return sum(amounts) / len(amounts)
     
-    def _merge_cards(self, events: List[GameEvent]) -> List[Card]:
-        """Merge card lists from multiple events."""
-        # Prefer chat cards (more reliable), fallback to vision
-        for event in events:
-            if event.cards and EventSource.CHAT in event.sources:
-                return event.cards
+    def _merge_cards(self, events: List[GameEvent]) -> Tuple[List[Card], bool]:
+        """Merge card lists from multiple events.
         
-        # Use vision cards if no chat cards
+        For board events, prefer chat over vision and log divergences.
+        
+        Returns:
+            Tuple of (merged_cards, has_conflict)
+        """
+        # Check if this is a board event
+        is_board_event = any(e.event_type == "board_update" for e in events)
+        
+        # Get chat cards
+        chat_cards = None
+        for event in events:
+            if event.cards and EventSource.CHAT_OCR in event.sources:
+                chat_cards = event.cards
+                break
+        
+        # Get vision cards  
+        vision_cards = None
         for event in events:
             if event.cards and EventSource.VISION in event.sources:
-                return event.cards
+                vision_cards = event.cards
+                break
         
-        return []
+        # For board events, detect and log divergences
+        has_conflict = False
+        if is_board_event and chat_cards and vision_cards:
+            chat_set = set(str(c) for c in chat_cards)
+            vision_set = set(str(c) for c in vision_cards)
+            
+            if chat_set != vision_set:
+                has_conflict = True
+                logger.warning(
+                    f"[BOARD DIVERGENCE] Chat vs Vision board mismatch: "
+                    f"chat={[str(c) for c in chat_cards]}, "
+                    f"vision={[str(c) for c in vision_cards]}"
+                )
+        
+        # Prefer chat cards (more reliable), fallback to vision
+        if chat_cards:
+            return chat_cards, has_conflict
+        
+        if vision_cards:
+            return vision_cards, has_conflict
+        
+        return [], has_conflict
     
     def _merge_pot_amounts(self, events: List[GameEvent]) -> Optional[float]:
         """Merge pot amounts from multiple events."""

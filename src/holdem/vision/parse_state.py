@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import time
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 import re
 from decimal import Decimal
 from dataclasses import dataclass, field
