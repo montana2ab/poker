@@ -15,6 +15,10 @@ Reference:
 
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
+import json
+import hashlib
+from datetime import datetime
+from pathlib import Path
 from holdem.utils.logging import get_logger
 
 logger = get_logger("rl_eval.statistics")
@@ -349,3 +353,323 @@ def format_ci_result(
     )
     
     return formatted
+
+
+class EvaluationStats:
+    """Accumulate and compute evaluation statistics for poker players.
+    
+    This class collects results from multiple hands across multiple players
+    and computes key metrics including winrates in bb/100, standard deviations,
+    and 95% confidence intervals.
+    
+    Attributes:
+        big_blind: Size of the big blind (for bb/100 calculation)
+        confidence_level: Confidence level for intervals (default: 0.95)
+        player_results: Dict mapping player_id to list of payoffs
+        
+    Example:
+        >>> stats = EvaluationStats(big_blind=2.0)
+        >>> stats.add_result(player_id=0, payoff=10.0)
+        >>> stats.add_result(player_id=1, payoff=-10.0)
+        >>> metrics = stats.compute_metrics()
+        >>> print(metrics[0]['bb_per_100'])
+    """
+    
+    def __init__(
+        self,
+        big_blind: float = 2.0,
+        confidence_level: float = 0.95
+    ):
+        """Initialize evaluation statistics collector.
+        
+        Args:
+            big_blind: Size of the big blind for bb/100 calculation
+            confidence_level: Confidence level for CI (default: 0.95)
+        """
+        self.big_blind = big_blind
+        self.confidence_level = confidence_level
+        self.player_results: Dict[int, List[float]] = {}
+        
+        logger.debug(
+            f"EvaluationStats initialized: bb={big_blind}, "
+            f"confidence={confidence_level}"
+        )
+    
+    def add_result(self, player_id: int, payoff: float) -> None:
+        """Add a single hand result for a player.
+        
+        Args:
+            player_id: Player identifier (seat number or player index)
+            payoff: Payoff for this hand (in chips)
+        """
+        if player_id not in self.player_results:
+            self.player_results[player_id] = []
+        self.player_results[player_id].append(payoff)
+    
+    def add_results_batch(
+        self,
+        player_id: int,
+        payoffs: List[float]
+    ) -> None:
+        """Add multiple hand results for a player at once.
+        
+        Args:
+            player_id: Player identifier
+            payoffs: List of payoffs (in chips)
+        """
+        if player_id not in self.player_results:
+            self.player_results[player_id] = []
+        self.player_results[player_id].extend(payoffs)
+    
+    def compute_metrics(
+        self,
+        player_id: Optional[int] = None,
+        method: str = "analytical"
+    ) -> Dict[int, Dict[str, Any]]:
+        """Compute evaluation metrics for players.
+        
+        Args:
+            player_id: Specific player to compute for (None = all players)
+            method: CI method - "analytical" (t-distribution) or "bootstrap"
+            
+        Returns:
+            Dict mapping player_id to metrics dict containing:
+                - n_hands: Number of hands played
+                - mean_payoff: Mean payoff per hand (in chips)
+                - bb_per_100: Winrate in big blinds per 100 hands
+                - std: Standard deviation of payoffs
+                - ci_lower: Lower bound of 95% CI for mean payoff
+                - ci_upper: Upper bound of 95% CI for mean payoff
+                - ci_lower_bb100: Lower bound of 95% CI in bb/100
+                - ci_upper_bb100: Upper bound of 95% CI in bb/100
+                - margin: Margin of error (±)
+                - margin_bb100: Margin of error in bb/100
+                
+        Example:
+            >>> stats.add_result(0, 5.0)
+            >>> stats.add_result(0, -3.0)
+            >>> metrics = stats.compute_metrics(player_id=0)
+            >>> print(f"BB/100: {metrics[0]['bb_per_100']:.2f}")
+        """
+        if player_id is not None:
+            players_to_compute = [player_id]
+        else:
+            players_to_compute = list(self.player_results.keys())
+        
+        results = {}
+        
+        for pid in players_to_compute:
+            if pid not in self.player_results:
+                logger.warning(f"No results for player {pid}")
+                continue
+            
+            payoffs = self.player_results[pid]
+            n_hands = len(payoffs)
+            
+            if n_hands == 0:
+                logger.warning(f"Player {pid} has no hands")
+                continue
+            
+            # Compute basic statistics
+            mean_payoff = float(np.mean(payoffs))
+            std_payoff = float(np.std(payoffs, ddof=1))
+            
+            # Convert to bb/100
+            bb_per_100 = (mean_payoff / self.big_blind) * 100
+            
+            # Compute confidence interval
+            if n_hands > 1:
+                ci_info = compute_confidence_interval(
+                    payoffs,
+                    confidence=self.confidence_level,
+                    method=method
+                )
+                
+                ci_lower = ci_info['ci_lower']
+                ci_upper = ci_info['ci_upper']
+                margin = ci_info['margin']
+                stderr = ci_info['stderr']
+                
+                # Convert CI to bb/100
+                ci_lower_bb100 = (ci_lower / self.big_blind) * 100
+                ci_upper_bb100 = (ci_upper / self.big_blind) * 100
+                margin_bb100 = (margin / self.big_blind) * 100
+            else:
+                # Single hand - no meaningful CI
+                ci_lower = mean_payoff
+                ci_upper = mean_payoff
+                margin = 0.0
+                stderr = 0.0
+                ci_lower_bb100 = bb_per_100
+                ci_upper_bb100 = bb_per_100
+                margin_bb100 = 0.0
+            
+            results[pid] = {
+                'n_hands': n_hands,
+                'mean_payoff': mean_payoff,
+                'bb_per_100': bb_per_100,
+                'std': std_payoff,
+                'stderr': stderr,
+                'ci_lower': ci_lower,
+                'ci_upper': ci_upper,
+                'ci_lower_bb100': ci_lower_bb100,
+                'ci_upper_bb100': ci_upper_bb100,
+                'margin': margin,
+                'margin_bb100': margin_bb100,
+                'confidence_level': self.confidence_level
+            }
+            
+            logger.debug(
+                f"Player {pid}: {n_hands} hands, "
+                f"bb/100={bb_per_100:.2f} ± {margin_bb100:.2f}"
+            )
+        
+        return results
+    
+    def to_dict(
+        self,
+        include_raw_results: bool = False,
+        method: str = "analytical"
+    ) -> Dict[str, Any]:
+        """Serialize evaluation statistics to dictionary.
+        
+        Args:
+            include_raw_results: Whether to include raw payoff lists
+            method: CI computation method
+            
+        Returns:
+            Dictionary with all statistics, JSON-serializable
+        """
+        metrics = self.compute_metrics(method=method)
+        
+        result = {
+            'big_blind': self.big_blind,
+            'confidence_level': self.confidence_level,
+            'players': metrics
+        }
+        
+        if include_raw_results:
+            result['raw_results'] = {
+                str(pid): payoffs
+                for pid, payoffs in self.player_results.items()
+            }
+        
+        return result
+    
+    def format_summary(self, player_id: Optional[int] = None) -> str:
+        """Format a human-readable summary of statistics.
+        
+        Args:
+            player_id: Specific player to summarize (None = all players)
+            
+        Returns:
+            Formatted string with statistics
+        """
+        metrics = self.compute_metrics(player_id=player_id)
+        
+        lines = []
+        lines.append("=" * 70)
+        lines.append("EVALUATION STATISTICS SUMMARY")
+        lines.append("=" * 70)
+        
+        for pid in sorted(metrics.keys()):
+            m = metrics[pid]
+            lines.append(f"\nPlayer {pid}:")
+            lines.append(f"  Hands played: {m['n_hands']}")
+            lines.append(
+                f"  Mean payoff: {m['mean_payoff']:.2f} ± {m['margin']:.2f} chips"
+            )
+            lines.append(
+                f"  Winrate: {m['bb_per_100']:.2f} ± {m['margin_bb100']:.2f} bb/100"
+            )
+            lines.append(
+                f"  {int(self.confidence_level*100)}% CI: "
+                f"[{m['ci_lower_bb100']:.2f}, {m['ci_upper_bb100']:.2f}] bb/100"
+            )
+            lines.append(f"  Std deviation: {m['std']:.2f} chips")
+        
+        lines.append("=" * 70)
+        return "\n".join(lines)
+    
+    def get_player_ids(self) -> List[int]:
+        """Get list of all player IDs with results.
+        
+        Returns:
+            List of player IDs
+        """
+        return list(self.player_results.keys())
+    
+    def clear(self) -> None:
+        """Clear all accumulated results."""
+        self.player_results.clear()
+        logger.debug("EvaluationStats cleared")
+
+
+def export_evaluation_results(
+    stats: EvaluationStats,
+    output_dir: str = "eval_runs",
+    config: Optional[Dict[str, Any]] = None,
+    prefix: str = "EVAL_RESULTS",
+    include_raw: bool = False
+) -> str:
+    """Export evaluation results to JSON file.
+    
+    Creates a timestamped JSON file with evaluation statistics and configuration.
+    The file is saved in the specified output directory with a name like:
+    EVAL_RESULTS_2024-01-15_14-30-45_config_hash.json
+    
+    Args:
+        stats: EvaluationStats object with results
+        output_dir: Directory to save results (created if doesn't exist)
+        config: Optional dict with evaluation configuration (num_hands, seed, etc.)
+        prefix: Prefix for output filename
+        include_raw: Whether to include raw payoff data
+        
+    Returns:
+        Path to the created JSON file
+        
+    Example:
+        >>> stats = EvaluationStats(big_blind=2.0)
+        >>> # ... accumulate results ...
+        >>> config = {'num_hands': 10000, 'seed': 42, 'method': 'blueprint'}
+        >>> path = export_evaluation_results(stats, config=config)
+        >>> print(f"Results saved to {path}")
+    """
+    # Create output directory if needed
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
+    # Compute config hash for traceability
+    config_hash = "default"
+    if config:
+        config_str = json.dumps(config, sort_keys=True)
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
+    
+    # Build filename
+    filename = f"{prefix}_{timestamp}_{config_hash}.json"
+    filepath = output_path / filename
+    
+    # Prepare output data
+    output_data = {
+        'metadata': {
+            'timestamp': timestamp,
+            'config_hash': config_hash,
+            'version': '1.0'
+        },
+        'config': config or {},
+        'statistics': stats.to_dict(
+            include_raw_results=include_raw,
+            method="analytical"
+        )
+    }
+    
+    # Write to file
+    with open(filepath, 'w') as f:
+        json.dump(output_data, f, indent=2)
+    
+    logger.info(f"Evaluation results exported to {filepath}")
+    
+    return str(filepath)
