@@ -595,3 +595,4 @@ class ControlConfig:
     min_action_delay_ms: int = 500
     i_understand_the_tos: bool = False
     enable_hotkeys: bool = True
+    safe_click_enabled: bool = True  # Enable safe click verification for action buttons
