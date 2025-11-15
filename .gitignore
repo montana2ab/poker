@@ -76,8 +76,5 @@ data/abstractions/
 
 # Evaluation results
 eval_runs/
-
-# Evaluation results
-eval_runs/
 EVAL_RESULTS*.json
 EVAL_RESULTS*.md
