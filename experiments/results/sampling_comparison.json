@@ -1,0 +1,44 @@
+{
+  "experiment_type": "public_card_sampling_comparison",
+  "timestamp": "2025-11-15 11:39:44",
+  "time_budget_ms": 50,
+  "min_iterations": 20,
+  "results": [
+    {
+      "config_name": "sampling_OFF",
+      "enable_sampling": false,
+      "num_samples": 1,
+      "num_hands": 20,
+      "avg_solve_time_ms": 2.7259111404418945,
+      "min_solve_time_ms": 2.3071765899658203,
+      "max_solve_time_ms": 9.704828262329102,
+      "std_solve_time_ms": 1.6018379965251612,
+      "total_time_s": 0.05525541305541992,
+      "hands_per_second": 361.9554880521924
+    },
+    {
+      "config_name": "sampling_ON_samples_5",
+      "enable_sampling": true,
+      "num_samples": 5,
+      "num_hands": 20,
+      "avg_solve_time_ms": 14.784753322601318,
+      "min_solve_time_ms": 14.648914337158203,
+      "max_solve_time_ms": 15.228509902954102,
+      "std_solve_time_ms": 0.11300079577962131,
+      "total_time_s": 0.2964651584625244,
+      "hands_per_second": 67.46155299907919
+    },
+    {
+      "config_name": "sampling_ON_samples_10",
+      "enable_sampling": true,
+      "num_samples": 10,
+      "num_hands": 20,
+      "avg_solve_time_ms": 27.260422706604004,
+      "min_solve_time_ms": 27.07695960998535,
+      "max_solve_time_ms": 27.477502822875977,
+      "std_solve_time_ms": 0.11711766385545504,
+      "total_time_s": 0.5460312366485596,
+      "hands_per_second": 36.62794114629112
+    }
+  ]
+}
