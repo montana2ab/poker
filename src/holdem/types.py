@@ -477,6 +477,9 @@ class MCCFRConfig:
     chunk_size_minutes: Optional[float] = None  # Time duration per chunk in minutes (e.g., 60.0 for 1 hour)
     chunk_restart_delay_seconds: float = 5.0  # Delay between chunk restarts to allow RAM to clear (default: 5 seconds)
     
+    # Infoset encoding parameters (Pluribus parity)
+    include_action_history_in_infoset: bool = True  # Include street-based action history in infoset encoding
+    
 
 @dataclass
 class SearchConfig:
