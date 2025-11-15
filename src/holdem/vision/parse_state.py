@@ -322,8 +322,8 @@ class StateParser:
                 board = [None] * 5
                 logger.debug("[PREFLOP OPTIMIZATION] Skipping board card recognition (no board in preflop)")
             else:
-                # Parse board for FLOP/TURN/RIVER
-                board = self._parse_board(screenshot, is_full_parse=is_full_parse)
+                # Parse board for FLOP/TURN/RIVER, passing initial_street hint for optimization
+                board = self._parse_board(screenshot, is_full_parse=is_full_parse, current_street=initial_street)
             
             # Determine street based on board cards
             num_board_cards = len([c for c in board if c is not None])
@@ -341,13 +341,17 @@ class StateParser:
             # Extract pot
             pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
             
-            # Detect new hand and reset hero cache if needed
-            is_new_hand = (street == Street.PREFLOP and num_board_cards == 0)
-            if is_new_hand and self.hero_cache:
-                # Additional check: pot should be close to blind levels for true new hand
-                # This prevents false resets mid-hand
-                if pot <= 10.0:  # Arbitrary threshold - adjust based on typical blind levels
-                    logger.info("[NEW HAND] Detected new hand, resetting hero cache")
+            # Detect new hand and reset caches if needed
+            # New hand signals:
+            # 1. PREFLOP with empty board
+            # 2. Pot reset to blind levels (or small value)
+            is_new_hand = self._detect_new_hand(street, num_board_cards, pot)
+            
+            if is_new_hand:
+                logger.info("[NEW HAND] Detected new hand, resetting board and hero caches")
+                if self.board_cache:
+                    self.board_cache.reset_for_new_hand()
+                if self.hero_cache:
                     self.hero_cache.reset()
                     self.hero_cards_tracker.reset()
             
@@ -461,8 +465,160 @@ class StateParser:
             logger.error(f"Error parsing state: {e}")
             return None
     
-    def _parse_board(self, img: np.ndarray, is_full_parse: bool = True) -> list:
-        """Parse community cards from image with caching support.
+    def _parse_board(self, img: np.ndarray, is_full_parse: bool = True, current_street: Optional[Street] = None) -> list:
+        """Parse community cards from image with caching and zone-based detection.
+        
+        Args:
+            img: Screenshot image
+            is_full_parse: Whether to perform full recognition or use cache
+            current_street: Current street (PREFLOP/FLOP/TURN/RIVER) for optimization
+            
+        Returns:
+            List of 5 cards (some may be None)
+        """
+        # PREFLOP: Skip board detection entirely
+        if current_street == Street.PREFLOP:
+            logger.debug("[BOARD] Skipping board detection in PREFLOP")
+            if self.board_cache:
+                # Return existing cards if any (should be empty)
+                return self.board_cache.cards
+            return [None] * 5
+        
+        # Check if board_cache is available
+        if not self.board_cache:
+            # Fall back to old behavior if cache not enabled
+            return self._parse_board_legacy(img, is_full_parse)
+        
+        # Use zone-based detection if board_regions is configured
+        if self.profile.has_board_regions():
+            return self._parse_board_zones(img, is_full_parse, current_street)
+        else:
+            # Fall back to legacy single-region detection
+            return self._parse_board_legacy(img, is_full_parse)
+    
+    def _parse_board_zones(self, img: np.ndarray, is_full_parse: bool, current_street: Optional[Street]) -> list:
+        """Parse board cards using zone-based detection (flop/turn/river).
+        
+        Args:
+            img: Screenshot image
+            is_full_parse: Whether to perform full recognition or use cache
+            current_street: Current street hint (may be None)
+            
+        Returns:
+            List of 5 cards (some may be None)
+        """
+        # If all zones are detected, return cached cards
+        if self.board_cache.has_river():
+            logger.debug("[BOARD ZONES] River complete, using cached cards")
+            return self.board_cache.cards
+        
+        # Scan flop zone if not yet detected
+        if self.board_cache.should_scan_flop():
+            flop_region = self.profile.get_flop_region()
+            if flop_region:
+                flop_cards = self._scan_board_zone(img, flop_region, 3, "flop")
+                if flop_cards and len([c for c in flop_cards if c is not None]) == 3:
+                    # Check stability before locking
+                    self.board_cache.flop_stability_frames += 1
+                    if self.board_cache.flop_stability_frames >= self.board_cache.stability_threshold:
+                        self.board_cache.mark_flop(flop_cards)
+                    else:
+                        logger.debug(f"[BOARD ZONES] Flop stability: {self.board_cache.flop_stability_frames}/{self.board_cache.stability_threshold}")
+                else:
+                    self.board_cache.flop_stability_frames = 0
+        
+        # Scan turn zone if flop is detected and turn is not
+        if self.board_cache.should_scan_turn():
+            turn_region = self.profile.get_turn_region()
+            if turn_region:
+                turn_card = self._scan_board_zone(img, turn_region, 1, "turn")
+                if turn_card and turn_card[0] is not None:
+                    # Check stability before locking
+                    self.board_cache.turn_stability_frames += 1
+                    if self.board_cache.turn_stability_frames >= self.board_cache.stability_threshold:
+                        self.board_cache.mark_turn(turn_card[0])
+                    else:
+                        logger.debug(f"[BOARD ZONES] Turn stability: {self.board_cache.turn_stability_frames}/{self.board_cache.stability_threshold}")
+                else:
+                    self.board_cache.turn_stability_frames = 0
+        
+        # Scan river zone if turn is detected and river is not
+        if self.board_cache.should_scan_river():
+            river_region = self.profile.get_river_region()
+            if river_region:
+                river_card = self._scan_board_zone(img, river_region, 1, "river")
+                if river_card and river_card[0] is not None:
+                    # Check stability before locking
+                    self.board_cache.river_stability_frames += 1
+                    if self.board_cache.river_stability_frames >= self.board_cache.stability_threshold:
+                        self.board_cache.mark_river(river_card[0])
+                    else:
+                        logger.debug(f"[BOARD ZONES] River stability: {self.board_cache.river_stability_frames}/{self.board_cache.stability_threshold}")
+                else:
+                    self.board_cache.river_stability_frames = 0
+        
+        return self.board_cache.cards
+    
+    def _scan_board_zone(self, img: np.ndarray, region: Dict[str, int], num_cards: int, zone_name: str) -> List[Optional[Card]]:
+        """Scan a specific board zone for cards.
+        
+        Args:
+            img: Screenshot image
+            region: Region dict with x, y, width, height
+            num_cards: Expected number of cards in zone
+            zone_name: Name of zone for logging (flop/turn/river)
+            
+        Returns:
+            List of recognized cards (or None)
+        """
+        x, y, w, h = region['x'], region['y'], region['width'], region['height']
+        
+        if y + h > img.shape[0] or x + w > img.shape[1]:
+            logger.error(f"[BOARD ZONES] {zone_name} region ({x},{y},{w},{h}) out of bounds for image shape {img.shape}")
+            return [None] * num_cards
+        
+        card_region = img[y:y+h, x:x+w]
+        
+        logger.debug(f"[BOARD ZONES] Scanning {zone_name} region ({x},{y},{w},{h})")
+        
+        # Save debug image if debug mode is enabled
+        if self.debug_dir:
+            debug_path = self.debug_dir / f"board_{zone_name}_{self._debug_counter:04d}.png"
+            try:
+                success = cv2.imwrite(str(debug_path), card_region)
+                if success:
+                    logger.debug(f"Saved {zone_name} region to {debug_path}")
+            except Exception as e:
+                logger.warning(f"Error saving debug image: {e}")
+        
+        cards = self.card_recognizer.recognize_cards(
+            card_region,
+            num_cards=num_cards,
+            card_spacing=getattr(self.profile, 'card_spacing', 0)
+        )
+        
+        # Track card recognition metrics if enabled
+        if self.vision_metrics and cards:
+            confidences = self.card_recognizer.last_confidence_scores
+            for i, card in enumerate(cards):
+                if card is not None:
+                    confidence = confidences[i] if i < len(confidences) else 0.0
+                    self.vision_metrics.record_card_recognition(
+                        detected_card=str(card),
+                        expected_card=None,
+                        confidence=confidence
+                    )
+        
+        # Log the result
+        if cards:
+            cards_str = ", ".join(str(c) for c in cards if c is not None)
+            if cards_str:
+                logger.info(f"[BOARD ZONES] Detected {zone_name}: {cards_str}")
+        
+        return cards
+    
+    def _parse_board_legacy(self, img: np.ndarray, is_full_parse: bool = True) -> list:
+        """Parse community cards using legacy single-region detection.
         
         Args:
             img: Screenshot image
@@ -483,10 +639,6 @@ class StateParser:
             return [None] * 5
         
         card_region = img[y:y+h, x:x+w]
-        
-        # Determine street first (needed for cache)
-        # We'll do a quick recognition if cache is not available
-        cards = None
         
         # Try to use board cache if enabled
         if self.board_cache and not is_full_parse:
@@ -1232,6 +1384,37 @@ class StateParser:
         # 2. If we're wrong, next frame will correct it
         # 3. PREFLOP board is always empty anyway
         return Street.PREFLOP
+    
+    def _detect_new_hand(self, street: Street, num_board_cards: int, pot: float) -> bool:
+        """Detect if a new hand has started.
+        
+        Args:
+            street: Current street
+            num_board_cards: Number of board cards detected
+            pot: Current pot value
+            
+        Returns:
+            True if new hand detected, False otherwise
+        """
+        # Signal 1: PREFLOP with empty board
+        if street != Street.PREFLOP or num_board_cards != 0:
+            return False
+        
+        # Signal 2: Pot reset to blind levels
+        # Compare with last pot - if pot decreased significantly, it's a new hand
+        if self._last_pot > 0:
+            # If pot dropped from a high value to blind level, new hand
+            if self._last_pot > 50.0 and pot <= 10.0:
+                logger.debug(f"[NEW HAND] Pot reset detected: {self._last_pot:.2f} -> {pot:.2f}")
+                return True
+        
+        # Signal 3: Board was full (river) and now empty
+        if self.board_cache:
+            if self.board_cache.has_river() and num_board_cards == 0:
+                logger.debug("[NEW HAND] Board reset from river to empty")
+                return True
+        
+        return False
     
     def _check_parse_health(self, pot: float, players: list):
         """Check parse health when homography is disabled.
