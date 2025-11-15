@@ -79,6 +79,8 @@ class ChatParser:
         'l': '1',  # l -> 1 (but 1 is not a valid rank, will fail validation)
         'L': 'A',  # L -> A (Ace)
         '1': 'T',  # 1 -> T (Ten)
+        'Z': '7',  # Z -> 7 (common OCR error)
+        'S': '8',  # S -> 8 (when s appears in rank position due to OCR error, converted to uppercase)
     }
     
     # Suit correction table - only for second character (suit position)
