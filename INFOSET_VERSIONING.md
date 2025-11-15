@@ -45,7 +45,49 @@ Example: `v2:FLOP:12:C-B75-C`
 | Bet 200% pot (2x) | B200 | `B200` |
 | All-in | A | `A` |
 
+### Street-Based Action History (Pluribus-style)
+
+For enhanced Pluribus parity, actions can be encoded with explicit street separators:
+
+Format: `v2:STREET:bucket:PREFLOP:actions|FLOP:actions|TURN:actions|RIVER:actions`
+
+Example: `v2:TURN:42:PREFLOP:C-B50-C|FLOP:C-B75-C|TURN:B100`
+
+This format provides:
+- **Street clarity**: Actions are explicitly tagged by street
+- **Better infoset differentiation**: Same action sequence on different streets produces different keys
+- **Pluribus alignment**: Matches the action encoding style described in Pluribus paper
+
 ## API Reference
+
+### StateEncoder.encode_action_history_by_street()
+
+**NEW**: Converts a dictionary mapping streets to action lists into a compact, street-separated format.
+
+```python
+from holdem.abstraction.state_encode import StateEncoder
+from holdem.types import Street
+
+encoder = StateEncoder(bucketing)
+actions = {
+    Street.PREFLOP: ["check_call", "bet_0.5p", "call"],
+    Street.FLOP: ["check", "bet_0.75p", "call"],
+    Street.TURN: ["bet_1.0p"]
+}
+encoded = encoder.encode_action_history_by_street(actions)
+# Result: "PREFLOP:C-B50-C|FLOP:C-B75-C|TURN:B100"
+```
+
+**Parameters:**
+- `actions_by_street` (Dict[Street, List[str]]): Dictionary mapping Street enum to action lists
+
+**Returns:**
+- str: Street-separated action sequence with format "STREET1:actions|STREET2:actions|..."
+
+**Notes:**
+- Streets are always encoded in order: PREFLOP, FLOP, TURN, RIVER
+- Empty street action lists are skipped
+- Returns empty string if no actions provided
 
 ### StateEncoder.encode_action_history()
 
@@ -225,30 +267,70 @@ infoset = encoder.encode_infoset(
 2. **Continue with legacy format**: Set `use_versioning=False` everywhere
 3. **Accept incompatibility**: Load warning, but regrets/strategies may mismatch
 
+### Using Street-Based Encoding
+
+To use the new street-based encoding in your MCCFR training:
+
+```python
+from holdem.types import MCCFRConfig, Street
+from holdem.abstraction.state_encode import StateEncoder
+
+# Enable in config (default: True)
+config = MCCFRConfig(include_action_history_in_infoset=True)
+
+# When encoding actions, use street-based format
+actions_by_street = {
+    Street.PREFLOP: ["check_call", "bet_0.5p", "call"],
+    Street.FLOP: ["check", "bet_0.75p", "call"]
+}
+
+# Encode with street separation
+history = encoder.encode_action_history_by_street(actions_by_street)
+# Result: "PREFLOP:C-B50-C|FLOP:C-B75-C"
+
+# Use in infoset encoding
+infoset, _ = encoder.encode_infoset(
+    hole_cards=hole_cards,
+    board=board,
+    street=current_street,
+    betting_history=history
+)
+```
+
+**Benefits:**
+- More accurate game state representation
+- Better alignment with Pluribus paper
+- Improved infoset differentiation
+- Clearer debugging and analysis
+
 ## Implementation Details
 
 ### Modified Files
 
-1. **src/holdem/abstraction/state_encode.py**
+1. **src/holdem/types.py**
+   - Added `include_action_history_in_infoset` to MCCFRConfig
+
+2. **src/holdem/abstraction/state_encode.py**
    - Added `INFOSET_VERSION` constant
    - Added `encode_action_history()` method
+   - **NEW**: Added `encode_action_history_by_street()` method for street-separated encoding
    - Updated `encode_infoset()` with versioning support
    - Updated `parse_infoset_key()` for backward compatibility
    - Added `get_infoset_version()` helper
 
-2. **src/holdem/mccfr/solver.py**
+3. **src/holdem/mccfr/solver.py**
    - Added `infoset_version` to checkpoint metadata
    - Added version validation in `load_checkpoint()`
 
-3. **src/holdem/mccfr/mccfr_os.py**
+4. **src/holdem/mccfr/mccfr_os.py**
    - Updated to use `encode_action_history()`
    - Explicitly uses versioned format
 
-4. **src/holdem/mccfr/external_sampling.py**
+5. **src/holdem/mccfr/external_sampling.py**
    - Updated to use `encode_action_history()`
    - Explicitly uses versioned format
 
-5. **src/holdem/realtime/search_controller.py**
+6. **src/holdem/realtime/search_controller.py**
    - Updated to use `encode_action_history()`
    - Explicitly uses versioned format
 
@@ -261,9 +343,19 @@ Comprehensive test suite in `tests/test_infoset_versioning.py`:
 - Version detection
 - Edge cases
 
+**NEW**: Street-based encoding tests in `tests/test_street_based_action_encoding.py`:
+- Street-separated action encoding
+- Multiple street sequences
+- Deterministic encoding
+- Different sequences produce different keys
+- Long sequences handling
+- Backward compatibility
+- Configuration option validation
+
 Run tests:
 ```bash
 python tests/test_infoset_versioning.py
+python tests/test_street_based_action_encoding.py
 ```
 
 ### Demo
@@ -277,6 +369,8 @@ python demo_infoset_versioning.py
 
 1. **Compactness**: "C-B75-C" vs "check_call.bet_0.75p.check_call"
 2. **Versioning**: Track format evolution, validate checkpoints
+3. **Street Separation** (NEW): "PREFLOP:C-B50-C|FLOP:C-B75-C" provides explicit street boundaries
+4. **Pluribus Alignment**: Street-based encoding matches Pluribus paper description
 3. **Clarity**: Standardized abbreviations
 4. **Safety**: Prevents loading incompatible checkpoints
 5. **Flexibility**: Backward compatible, supports both formats
