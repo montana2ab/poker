@@ -338,6 +338,9 @@ class StateParser:
             else:
                 street = Street.PREFLOP
             
+            # Extract pot
+            pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
+            
             # Detect new hand and reset hero cache if needed
             is_new_hand = (street == Street.PREFLOP and num_board_cards == 0)
             if is_new_hand and self.hero_cache:
@@ -347,9 +350,6 @@ class StateParser:
                     logger.info("[NEW HAND] Detected new hand, resetting hero cache")
                     self.hero_cache.reset()
                     self.hero_cards_tracker.reset()
-            
-            # Extract pot
-            pot = self._parse_pot(screenshot, is_full_parse=is_full_parse)
             
             # Parse button position (dealer button)
             button_position = self._parse_button_position(screenshot)

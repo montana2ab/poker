@@ -22,13 +22,13 @@ class TestBoardCache:
         cache = BoardCache()
         
         # Set up stable flop
-        flop_cards = [Card("Ah"), Card("Kh"), Card("Qh"), None, None]
+        flop_cards = [Card.from_string("Ah"), Card.from_string("Kh"), Card.from_string("Qh"), None, None]
         cache.update(Street.FLOP, flop_cards)
         cache.update(Street.FLOP, flop_cards)
         assert cache.stable
         
         # Change to turn - cache should be invalidated
-        turn_cards = [Card("Ah"), Card("Kh"), Card("Qh"), Card("Jh"), None]
+        turn_cards = [Card.from_string("Ah"), Card.from_string("Kh"), Card.from_string("Qh"), Card.from_string("Jh"), None]
         result = cache.update(Street.TURN, turn_cards)
         assert not cache.stable
         assert cache.street == Street.TURN
@@ -38,7 +38,7 @@ class TestBoardCache:
         """Test cache requires multiple frames to stabilize."""
         cache = BoardCache(stability_threshold=3)
         
-        cards = [Card("Ah"), Card("Kh"), Card("Qh"), None, None]
+        cards = [Card.from_string("Ah"), Card.from_string("Kh"), Card.from_string("Qh"), None, None]
         
         # First frame
         cache.update(Street.FLOP, cards)
@@ -56,7 +56,7 @@ class TestBoardCache:
         """Test cached cards are returned when stable."""
         cache = BoardCache(stability_threshold=2)
         
-        cards = [Card("Ah"), Card("Kh"), Card("Qh"), None, None]
+        cards = [Card.from_string("Ah"), Card.from_string("Kh"), Card.from_string("Qh"), None, None]
         
         # Stabilize cache
         cache.update(Street.FLOP, cards)
@@ -76,13 +76,13 @@ class TestBoardCache:
         cache = BoardCache(stability_threshold=2)
         
         # Stabilize with first set of cards
-        cards1 = [Card("Ah"), Card("Kh"), Card("Qh"), None, None]
+        cards1 = [Card.from_string("Ah"), Card.from_string("Kh"), Card.from_string("Qh"), None, None]
         cache.update(Street.FLOP, cards1)
         cache.update(Street.FLOP, cards1)
         assert cache.stable
         
         # Change cards - should reset
-        cards2 = [Card("2h"), Card("3h"), Card("4h"), None, None]
+        cards2 = [Card.from_string("2h"), Card.from_string("3h"), Card.from_string("4h"), None, None]
         cache.update(Street.FLOP, cards2)
         assert not cache.stable
         assert cache.stability_frames == 1
@@ -103,13 +103,13 @@ class TestHeroCache:
         cache = HeroCache()
         
         # Set up stable hand
-        cards = [Card("Ah"), Card("Kh")]
+        cards = [Card.from_string("Ah"), Card.from_string("Kh")]
         cache.update(hand_id=1, new_cards=cards)
         cache.update(hand_id=1, new_cards=cards)
         assert cache.stable
         
         # Change hand - cache should be invalidated
-        new_cards = [Card("2h"), Card("3h")]
+        new_cards = [Card.from_string("2h"), Card.from_string("3h")]
         result = cache.update(hand_id=2, new_cards=new_cards)
         assert not cache.stable
         assert result is False  # Need recognition
@@ -119,13 +119,13 @@ class TestHeroCache:
         cache = HeroCache(stability_threshold=2)
         
         # Try with 1 card - should not stabilize
-        cards1 = [Card("Ah")]
+        cards1 = [Card.from_string("Ah")]
         cache.update(hand_id=1, new_cards=cards1)
         cache.update(hand_id=1, new_cards=cards1)
         assert not cache.stable
         
         # With 2 cards - should stabilize
-        cards2 = [Card("Ah"), Card("Kh")]
+        cards2 = [Card.from_string("Ah"), Card.from_string("Kh")]
         cache.update(hand_id=1, new_cards=cards2)
         cache.update(hand_id=1, new_cards=cards2)
         assert cache.stable
@@ -134,7 +134,7 @@ class TestHeroCache:
         """Test cached cards are returned when stable."""
         cache = HeroCache(stability_threshold=2)
         
-        cards = [Card("Ah"), Card("Kh")]
+        cards = [Card.from_string("Ah"), Card.from_string("Kh")]
         
         # Stabilize cache
         cache.update(hand_id=1, new_cards=cards)
