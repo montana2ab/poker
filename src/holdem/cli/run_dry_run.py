@@ -2,6 +2,7 @@
 
 import argparse
 import time
+import numpy as np
 from pathlib import Path
 from holdem.types import SearchConfig, VisionConfig, ControlConfig
 from holdem.vision.screen import ScreenCapture
@@ -103,14 +104,25 @@ def _run_chat_ocr_focus_mode(args, profile, ocr_engine, screen_capture, table_de
             
             # 4. Pre-process chat image for better OCR
             preprocess_start = time.time()
-            # Convert to grayscale if not already
-            if len(chat_img.shape) == 3:
-                chat_img_gray = cv2.cvtColor(chat_img, cv2.COLOR_BGR2GRAY)
-            else:
-                chat_img_gray = chat_img
             
-            # Apply slight contrast enhancement
-            chat_img_processed = cv2.convertScaleAbs(chat_img_gray, alpha=1.2, beta=10)
+            # Resize with fx=1.5, fy=1.5 for better OCR quality
+            chat_img_resized = cv2.resize(chat_img, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
+            
+            # Convert to grayscale if not already
+            if len(chat_img_resized.shape) == 3:
+                chat_img_gray = cv2.cvtColor(chat_img_resized, cv2.COLOR_BGR2GRAY)
+            else:
+                chat_img_gray = chat_img_resized
+            
+            # Apply sharpening filter (kernel [[0,-1,0],[-1,5,-1],[0,-1,0]])
+            sharpening_kernel = np.array([[0, -1, 0],
+                                          [-1, 5, -1],
+                                          [0, -1, 0]], dtype=np.float32)
+            chat_img_sharp = cv2.filter2D(chat_img_gray, -1, sharpening_kernel)
+            
+            # Apply Otsu binarization
+            _, chat_img_processed = cv2.threshold(chat_img_sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
             preprocess_latency = (time.time() - preprocess_start) * 1000
             
             # 5. Run OCR on chat region

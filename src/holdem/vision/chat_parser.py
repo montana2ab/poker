@@ -64,6 +64,15 @@ class GameEvent:
 class ChatParser:
     """Parse poker table chat and extract game events."""
     
+    # Character corrections for OCR errors in card notation
+    CHAR_FIXES = {
+        '&': '8',  # Common OCR misread of 8
+        'B': '8',  # Sometimes 8 looks like B
+        'O': '0',  # O can be confused with 0
+        'l': '1',  # lowercase L can be 1
+        'I': '1',  # uppercase I can be 1
+    }
+    
     # Regex patterns for common poker chat messages
     PATTERNS = {
         # Actions: "Player folds", "Player calls $10", "Player raises to $50"
@@ -542,10 +551,10 @@ class ChatParser:
     def _parse_cards(self, cards_str: str) -> List[Card]:
         """Parse cards from string like 'Ah Kd' or 'Ah, Kd, Qs'.
         
-        Includes OCR error correction for common misreads:
-        - '0' -> 'T' (Ten)
-        - 'l' or 'I' -> '1' or 'T' based on context
-        - 'o' or 'O' -> '0' or 'Q' based on context
+        Includes OCR error correction for common misreads using CHAR_FIXES:
+        - '&' -> '8', 'B' -> '8' (Eight)
+        - 'O' -> '0' (for ranks/suits that need 0)
+        - 'l' or 'I' -> '1' (for potential future use)
         """
         cards = []
         
@@ -561,17 +570,32 @@ class ChatParser:
                     rank = token[0].upper()
                     suit = token[1].lower()
                     
-                    # OCR error correction for rank
+                    # Apply CHAR_FIXES corrections to rank
+                    if rank in self.CHAR_FIXES:
+                        original_rank = rank
+                        rank = self.CHAR_FIXES[rank]
+                        logger.debug(f"[CHAT CARD FIX] Corrected rank '{original_rank}' -> '{rank}' in token '{token}'")
+                    
+                    # Apply CHAR_FIXES corrections to suit (convert to lowercase for suit check)
+                    suit_upper = suit.upper()
+                    if suit_upper in self.CHAR_FIXES:
+                        original_suit = suit
+                        suit = self.CHAR_FIXES[suit_upper].lower()
+                        logger.debug(f"[CHAT CARD FIX] Corrected suit '{original_suit}' -> '{suit}' in token '{token}'")
+                    
+                    # Additional OCR error correction for rank (from existing logic)
                     rank = self._correct_rank_ocr(rank)
                     
-                    # OCR error correction for suit
+                    # Additional OCR error correction for suit (from existing logic)
                     suit = self._correct_suit_ocr(suit)
                     
                     # Validate rank and suit
-                    if rank in '23456789TJQKA' and suit in 'hdcs':
+                    if rank in 'A23456789TJQK' and suit in 'shdc':
                         cards.append(Card(rank=rank, suit=suit))
+                        if token[0].upper() != rank or token[1].lower() != suit:
+                            logger.info(f"[CHAT CARD FIX] Accepted corrected card '{rank}{suit}' (original: '{token}')")
                     else:
-                        logger.warning(f"Invalid card after correction: '{rank}{suit}' (original: '{token}')")
+                        logger.warning(f"[CHAT CARD FIX] Invalid card after correction: '{rank}{suit}' (original: '{token}')")
                 except Exception as e:
                     logger.warning(f"Failed to parse card '{token}': {e}")
         
@@ -579,6 +603,9 @@ class ChatParser:
     
     def _correct_rank_ocr(self, rank: str) -> str:
         """Correct common OCR errors in card rank.
+        
+        Note: Primary corrections now happen via CHAR_FIXES dict.
+        This method provides additional fallback corrections.
         
         Args:
             rank: Original rank character
@@ -589,12 +616,15 @@ class ChatParser:
         # Common OCR errors for rank
         corrections = {
             '0': 'T',  # Zero -> Ten
-            'O': 'Q',  # O -> Queen (more likely than zero in poker)
-            'I': 'T',  # I -> Ten (common misread)
+            'O': 'Q',  # O -> Queen (more likely than zero in poker, but CHAR_FIXES may handle differently)
+            'I': 'T',  # I -> Ten (common misread, but CHAR_FIXES handles I->1)
             'L': 'A',  # L -> Ace (sometimes)
-            '1': 'T',  # 1 -> Ten (sometimes)
+            '1': 'T',  # 1 -> Ten (sometimes, but CHAR_FIXES may have already converted)
         }
-        return corrections.get(rank, rank)
+        # Only apply if not already a valid rank
+        if rank not in 'A23456789TJQK':
+            return corrections.get(rank, rank)
+        return rank
     
     def _correct_suit_ocr(self, suit: str) -> str:
         """Correct common OCR errors in card suit.
