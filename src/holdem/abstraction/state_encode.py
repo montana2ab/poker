@@ -65,6 +65,46 @@ class StateEncoder:
         
         return "-".join(encoded)
     
+    def encode_action_history_by_street(
+        self, 
+        actions_by_street: Dict[Street, List[str]]
+    ) -> str:
+        """Encode action history separated by street (Pluribus-style).
+        
+        Converts a dictionary mapping streets to action lists into a compact format.
+        
+        Args:
+            actions_by_street: Dict mapping Street enum to list of action strings
+                              Example: {
+                                  Street.PREFLOP: ["check_call", "bet_0.5p", "call"],
+                                  Street.FLOP: ["check", "bet_0.75p", "fold"]
+                              }
+        
+        Returns:
+            Street-separated action sequence (e.g., "PREFLOP:C-B50-C|FLOP:C-B75-F")
+            Returns empty string if no actions
+        
+        Example:
+            >>> encoder.encode_action_history_by_street({
+            ...     Street.PREFLOP: ["check_call", "bet_0.5p", "call"],
+            ...     Street.FLOP: ["check", "bet_0.75p", "fold"]
+            ... })
+            "PREFLOP:C-B50-C|FLOP:C-B75-F"
+        """
+        if not actions_by_street:
+            return ""
+        
+        street_sequences = []
+        # Process streets in order: PREFLOP, FLOP, TURN, RIVER
+        for street in [Street.PREFLOP, Street.FLOP, Street.TURN, Street.RIVER]:
+            if street in actions_by_street and actions_by_street[street]:
+                # Encode actions for this street
+                encoded_actions = self.encode_action_history(actions_by_street[street])
+                if encoded_actions:  # Only add if there are actions
+                    street_sequences.append(f"{street.name}:{encoded_actions}")
+        
+        return "|".join(street_sequences)
+    
     def encode_infoset(
         self,
         hole_cards: List[Card],
