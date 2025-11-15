@@ -7,12 +7,191 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from PIL import Image
 
 from holdem.types import Card, ActionType
 from holdem.vision.ocr import OCREngine
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.chat_parser")
+
+
+def preprocess_chat_image(chat_img: Image.Image) -> Image.Image:
+    """Preprocess chat image to improve OCR quality (resize + binarize) with minimal latency.
+    
+    This function applies lightweight preprocessing to improve EasyOCR accuracy:
+    1. Convert to grayscale
+    2. Upscale 1.5x with bilinear interpolation
+    3. Binarize with Otsu threshold
+    
+    Target latency: <5-10ms
+    
+    Args:
+        chat_img: PIL Image of chat region
+        
+    Returns:
+        Preprocessed PIL Image ready for OCR
+    """
+    # Convert PIL Image to numpy array (OpenCV format)
+    if isinstance(chat_img, Image.Image):
+        img_array = np.array(chat_img)
+    else:
+        img_array = chat_img
+    
+    # Convert to grayscale
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img_array
+    
+    # Upscale 1.5x with bilinear interpolation (fast and effective)
+    scale = 1.5
+    new_width = int(gray.shape[1] * scale)
+    new_height = int(gray.shape[0] * scale)
+    upscaled = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    
+    # Binarization with Otsu threshold (automatically finds optimal threshold)
+    _, binary = cv2.threshold(upscaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Convert back to PIL Image
+    return Image.fromarray(binary)
+
+
+def normalize_dealer_line(raw_line: str) -> str:
+    """Corrects errors in 'Dealer:' prefix and cleans up text noise.
+    
+    Common OCR errors on "Dealer:":
+    - ealer: -> Dealer:
+    - caler: -> Dealer:
+    - ezler: -> Dealer:
+    - zealer: -> Dealer:
+    - Dzaler: -> Dealer:
+    
+    Also cleans:
+    - Multiple spaces -> single space
+    - Non-printable characters
+    
+    Args:
+        raw_line: Raw text line from OCR
+        
+    Returns:
+        Normalized line with corrected dealer prefix
+    """
+    if not raw_line:
+        return raw_line
+    
+    # Normalize whitespace first
+    line = ' '.join(raw_line.split())
+    
+    # Common "Dealer:" OCR errors - case insensitive match at start of line
+    dealer_variants = [
+        r'^ealer\s*:',      # ealer:
+        r'^caler\s*:',      # caler:
+        r'^ezler\s*:',      # ezler:
+        r'^zealer\s*:',     # zealer:
+        r'^Dzaler\s*:',     # Dzaler:
+        r'^Deaer\s*:',      # Deaer:
+        r'^Deale\s*:',      # Deale: (missing 'r')
+        r'^Dealr\s*:',      # Dealr: (missing 'e')
+    ]
+    
+    for pattern in dealer_variants:
+        match = re.match(pattern, line, re.IGNORECASE)
+        if match:
+            # Replace with "Dealer:"
+            corrected = "Dealer:" + line[match.end():]
+            if corrected != raw_line:
+                logger.debug(f"[CHAT DEALER FIX] Corrected prefix '{match.group()}' -> 'Dealer:'")
+            return corrected
+    
+    return line
+
+
+def correct_action_word(word: str) -> Optional[str]:
+    """Correct OCR errors in action words (checks, calls, bets, raises, folds).
+    
+    Common OCR errors:
+    - checks: chtcks, chccks, chekcs
+    - calls: cals, calll
+    - bets: bets (with noise)
+    - raises: rauses, raies, raisss
+    - folds: fodls, fods
+    
+    Args:
+        word: Action word to correct (lowercase)
+        
+    Returns:
+        Corrected action word or None if no match found
+    """
+    if not word:
+        return None
+    
+    word_lower = word.lower().strip()
+    
+    # Direct mapping for common errors
+    action_corrections = {
+        # checks variations
+        'chtcks': 'checks',
+        'chccks': 'checks',
+        'chekcs': 'checks',
+        'cheks': 'checks',
+        'chechs': 'checks',
+        'cheks': 'checks',
+        
+        # calls variations
+        'cals': 'calls',
+        'calll': 'calls',
+        'cal1s': 'calls',
+        'ca1ls': 'calls',
+        
+        # bets variations
+        'bets': 'bets',  # Keep for completeness
+        'bet5': 'bets',
+        'bsts': 'bets',
+        
+        # raises variations
+        'rauses': 'raises',
+        'raies': 'raises',
+        'raisss': 'raises',
+        'raiss': 'raises',
+        'rases': 'raises',
+        
+        # folds variations
+        'fodls': 'folds',
+        'fods': 'folds',
+        'fo1ds': 'folds',
+    }
+    
+    # Check direct mapping first
+    if word_lower in action_corrections:
+        corrected = action_corrections[word_lower]
+        if corrected != word_lower:
+            logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> '{corrected}'")
+        return corrected
+    
+    # Check if word is already a valid action (no correction needed)
+    valid_actions = ['checks', 'calls', 'bets', 'raises', 'folds', 'check', 'call', 'bet', 'raise', 'fold']
+    if word_lower in valid_actions:
+        return word_lower
+    
+    # Light similarity check using startswith for performance
+    if word_lower.startswith('che') and len(word_lower) >= 4:
+        logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> 'checks' (prefix match)")
+        return 'checks'
+    elif word_lower.startswith('cal') and len(word_lower) >= 3:
+        logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> 'calls' (prefix match)")
+        return 'calls'
+    elif word_lower.startswith('bet') and len(word_lower) >= 3:
+        logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> 'bets' (prefix match)")
+        return 'bets'
+    elif word_lower.startswith('rai') and len(word_lower) >= 3:
+        logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> 'raises' (prefix match)")
+        return 'raises'
+    elif word_lower.startswith('fol') and len(word_lower) >= 3:
+        logger.debug(f"[CHAT ACTION FIX] Corrected '{word}' -> 'folds' (prefix match)")
+        return 'folds'
+    
+    return None
 
 
 class EventSource(Enum):
@@ -225,16 +404,44 @@ class ChatParser:
         'wins': re.compile(r'^(.+?)\s+wins?\s+\$?([\d,\.]+)', re.IGNORECASE),
     }
     
-    def __init__(self, ocr_engine: OCREngine):
+    def __init__(self, ocr_engine: OCREngine, enable_preprocessing: bool = True):
         self.ocr_engine = ocr_engine
         self._chat_history: List[ChatLine] = []
+        self.enable_preprocessing = enable_preprocessing
     
-    def extract_chat_lines(self, chat_region: np.ndarray) -> List[ChatLine]:
-        """Extract chat lines from a chat region image using OCR."""
+    def extract_chat_lines(self, chat_region: np.ndarray, log_preprocess_time: bool = False) -> List[ChatLine]:
+        """Extract chat lines from a chat region image using OCR.
+        
+        Args:
+            chat_region: Chat region image (numpy array)
+            log_preprocess_time: Whether to log preprocessing time (for --chat-ocr-focus mode)
+            
+        Returns:
+            List of ChatLine objects
+        """
         try:
+            # Apply preprocessing if enabled
+            processed_region = chat_region
+            if self.enable_preprocessing:
+                import time
+                preprocess_start = time.perf_counter()
+                
+                # Convert numpy array to PIL Image for preprocessing
+                pil_img = Image.fromarray(chat_region)
+                preprocessed_pil = preprocess_chat_image(pil_img)
+                # Convert back to numpy array
+                processed_region = np.array(preprocessed_pil)
+                
+                preprocess_ms = (time.perf_counter() - preprocess_start) * 1000
+                
+                if log_preprocess_time:
+                    logger.info(f"[CHAT OCR FOCUS] Preprocess latency: {preprocess_ms:.2f} ms")
+                else:
+                    logger.debug(f"[CHAT OCR] Preprocess latency: {preprocess_ms:.2f} ms")
+            
             # Use OCR to extract text
             logger.debug("[CHAT OCR] Running OCR on chat region")
-            text = self.ocr_engine.read_text(chat_region)
+            text = self.ocr_engine.read_text(processed_region)
             if not text:
                 logger.debug("[CHAT OCR] No text extracted from chat region")
                 return []
@@ -247,13 +454,16 @@ class ChatParser:
             for line_text in text.split('\n'):
                 line_text = line_text.strip()
                 if line_text:
+                    # Apply dealer line normalization
+                    normalized_text = normalize_dealer_line(line_text)
+                    
                     chat_line = ChatLine(
-                        text=line_text,
-                        raw_text=line_text,
+                        text=normalized_text,
+                        raw_text=line_text,  # Keep original for debugging
                         timestamp=datetime.now()
                     )
                     lines.append(chat_line)
-                    logger.debug(f"[CHAT OCR] Line: {line_text}")
+                    logger.debug(f"[CHAT OCR] Line: {normalized_text}")
             
             logger.info(f"[CHAT OCR] Extracted {len(lines)} chat lines")
             return lines
