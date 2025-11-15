@@ -531,8 +531,13 @@ class ChatEnabledStateParser:
             )
             return None
     
-    def _extract_chat_events(self, screenshot: np.ndarray) -> List[GameEvent]:
-        """Extract events from chat region with image hash caching to avoid redundant OCR."""
+    def _extract_chat_events(self, screenshot: np.ndarray, timing_recorder=None) -> List[GameEvent]:
+        """Extract events from chat region with image hash caching to avoid redundant OCR.
+        
+        Args:
+            screenshot: Screenshot image
+            timing_recorder: Optional timing recorder for profiling
+        """
         if not self.chat_parser or not self.profile.chat_region:
             if not self.profile.chat_region:
                 logger.debug("[CHAT OCR] No chat_region configured in profile")
