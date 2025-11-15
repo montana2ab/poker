@@ -21,7 +21,8 @@ class EventSource(Enum):
     VISION_STACK = "vision_stack"  # Stack delta tracking
     VISION_BET_REGION = "vision_bet_region"  # OCR from bet region
     VISION_POT = "vision_pot"  # Pot changes
-    CHAT = "chat"
+    CHAT = "chat"  # Legacy - same as CHAT_OCR
+    CHAT_OCR = "chat_ocr"  # Chat extracted via OCR
     FUSED = "fused"
 
 
@@ -108,9 +109,14 @@ class ChatParser:
         """Extract chat lines from a chat region image using OCR."""
         try:
             # Use OCR to extract text
+            logger.debug("[CHAT OCR] Running OCR on chat region")
             text = self.ocr_engine.read_text(chat_region)
             if not text:
+                logger.debug("[CHAT OCR] No text extracted from chat region")
                 return []
+            
+            # Log raw OCR output
+            logger.debug(f"[CHAT OCR] Raw text: {repr(text[:200])}")  # First 200 chars
             
             # Split into lines and create ChatLine objects
             lines = []
@@ -123,12 +129,13 @@ class ChatParser:
                         timestamp=datetime.now()
                     )
                     lines.append(chat_line)
+                    logger.debug(f"[CHAT OCR] Line: {line_text}")
             
-            logger.debug(f"Extracted {len(lines)} chat lines")
+            logger.info(f"[CHAT OCR] Extracted {len(lines)} chat lines")
             return lines
             
         except Exception as e:
-            logger.error(f"Error extracting chat lines: {e}")
+            logger.error(f"[CHAT OCR] Error extracting chat lines: {e}")
             return []
     
     def parse_chat_line(self, chat_line: ChatLine) -> Optional[GameEvent]:
@@ -291,7 +298,7 @@ class ChatParser:
                     event_type="action",
                     player=match.group(1).strip(),
                     action=ActionType.FOLD,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -301,7 +308,7 @@ class ChatParser:
                     event_type="action",
                     player=match.group(1).strip(),
                     action=ActionType.CHECK,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -313,7 +320,7 @@ class ChatParser:
                     player=match.group(1).strip(),
                     action=ActionType.CALL,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -325,7 +332,7 @@ class ChatParser:
                     player=match.group(1).strip(),
                     action=ActionType.BET,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -337,7 +344,7 @@ class ChatParser:
                     player=match.group(1).strip(),
                     action=ActionType.RAISE,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -347,7 +354,7 @@ class ChatParser:
                     event_type="action",
                     player=match.group(1).strip(),
                     action=ActionType.ALLIN,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -357,7 +364,7 @@ class ChatParser:
                     event_type="action",
                     player=match.group(1).strip(),
                     action=ActionType.FOLD,  # Treat leave as fold for action tracking
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text, 'original_action': 'leave'}
                 )
@@ -370,7 +377,7 @@ class ChatParser:
                     event_type="post_small_blind",
                     player=player,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     confidence=0.95,
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
@@ -383,7 +390,7 @@ class ChatParser:
                     event_type="post_big_blind",
                     player=player,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     confidence=0.95,
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
@@ -396,7 +403,7 @@ class ChatParser:
                     event_type="post_ante",
                     player=player,
                     amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     confidence=0.95,
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
@@ -410,7 +417,7 @@ class ChatParser:
                     event_type="street_change",
                     street=pattern_name.upper(),
                     cards=cards,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -424,7 +431,7 @@ class ChatParser:
                     event_type="card_deal",
                     player=player,
                     cards=cards,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -438,7 +445,7 @@ class ChatParser:
                     event_type="showdown",
                     player=player,
                     cards=cards,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -449,7 +456,7 @@ class ChatParser:
                 return GameEvent(
                     event_type="pot_update",
                     pot_amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -461,7 +468,7 @@ class ChatParser:
                     event_type="pot_win",
                     player=player,
                     pot_amount=amount,
-                    sources=[EventSource.CHAT],
+                    sources=[EventSource.CHAT_OCR],
                     timestamp=chat_line.timestamp,
                     raw_data={'chat': chat_line.text}
                 )
@@ -529,7 +536,17 @@ class ChatParser:
             if line_events:
                 events.extend(line_events)
                 for event in line_events:
-                    logger.debug(f"Parsed event: {event.event_type} from '{line.text}'")
+                    # Log each event with details
+                    logger.info(
+                        f"[CHAT OCR] Event created: type={event.event_type}, "
+                        f"player={event.player}, action={event.action}, "
+                        f"amount={event.amount}, source=chat_ocr"
+                    )
+        
+        if events:
+            logger.info(f"[CHAT OCR] Total events extracted: {len(events)}")
+        else:
+            logger.debug("[CHAT OCR] No events extracted from chat")
         
         # Update chat history
         self._chat_history.extend(chat_lines)

@@ -470,6 +470,70 @@ while playing:
             log_reliable_event(event)
 ```
 
+## Logging and Debugging
+
+### Chat OCR Logging
+
+The system now includes comprehensive logging for chat OCR operations:
+
+```
+[CHAT OCR] Running OCR on chat region
+[CHAT OCR] Raw text: 'Dealer: Player1 folds Dealer: Player2 calls 100'
+[CHAT OCR] Line: Dealer: Player1 folds Dealer: Player2 calls 100
+[CHAT OCR] Event created: type=action, player=Player1, action=FOLD, amount=None, source=chat_ocr
+[CHAT OCR] Event created: type=action, player=Player2, action=CALL, amount=100.0, source=chat_ocr
+[CHAT OCR] Total events extracted: 2
+[CHAT OCR] Extracted 2 events from chat
+```
+
+### Event Source Tracking
+
+All events now clearly indicate their source with the `chat_ocr` label:
+
+```python
+# Event sources in logs
+Event: action - Player: Hero - Action: RAISE - Amount: 50.0 - Confidence: 0.95 - Sources: vision_bet_region, chat_ocr [CONFIRMED]
+```
+
+### Performance Monitoring
+
+Chat OCR includes image hash caching to avoid redundant processing:
+
+```
+[CHAT OCR] Chat region changed (new hash), running OCR on 300x200 region
+[CHAT OCR] Chat region unchanged (hash match), reusing cached events
+```
+
+This ensures minimal performance impact from chat parsing.
+
+### Enabling Debug Logging
+
+To see detailed chat OCR logs:
+
+```python
+import logging
+logging.getLogger("vision.chat_parser").setLevel(logging.DEBUG)
+logging.getLogger("vision.chat_enabled_parser").setLevel(logging.DEBUG)
+```
+
+### Troubleshooting
+
+**No chat events appearing in logs?**
+1. Verify `chat_region` is configured in your table profile
+2. Check that `enable_chat_parsing=True` when creating ChatEnabledStateParser
+3. Look for `[CHAT OCR] No chat_region configured` in logs
+4. Ensure the chat region coordinates are correct and within screenshot bounds
+
+**Chat OCR is slow?**
+1. Chat region image hashing is enabled by default (no OCR if unchanged)
+2. Adjust `chat_parse_interval` in `vision_performance.yaml` to skip frames
+3. Set smaller chat_region dimensions if possible
+
+**Events not being fused correctly?**
+1. Check event timestamps are within the time window (default: 5 seconds)
+2. Verify player names match between vision and chat
+3. Look for `[CONFIRMED]` or `[MULTI-SOURCE]` tags in event logs
+
 ## References
 
 - [Chat Parser Implementation](../src/holdem/vision/chat_parser.py)

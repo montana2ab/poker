@@ -72,6 +72,10 @@ class ChatEnabledStateParser:
         # Visual button detection state tracking for stability
         self._visual_button_history: List[Optional[int]] = []  # Last N button positions from visual detection
         self._visual_button_stable_position: Optional[int] = None
+        
+        # Chat region caching to avoid redundant OCR
+        self._chat_region_hash: Optional[int] = None
+        self._cached_chat_events: List['GameEvent'] = []
     
     def parse(self, screenshot: np.ndarray, frame_index: int = 0) -> Optional[TableState]:
         """Parse table state from screenshot (without events).
@@ -118,6 +122,9 @@ class ChatEnabledStateParser:
             )
             if vision_events:
                 logger.debug(f"Extracted {len(vision_events)} events from vision")
+                for event in vision_events:
+                    sources_str = ", ".join(s.value for s in event.sources)
+                    logger.debug(f"  Vision event: {event.event_type}, sources: {sources_str}")
         
         # Extract chat events if enabled and on appropriate frame
         chat_events = []
@@ -130,7 +137,10 @@ class ChatEnabledStateParser:
         if should_parse_chat:
             chat_events = self._extract_chat_events(screenshot)
             if chat_events:
-                logger.info(f"Extracted {len(chat_events)} events from chat")
+                logger.info(f"[CHAT OCR] Extracted {len(chat_events)} events from chat")
+                for event in chat_events:
+                    sources_str = ", ".join(s.value for s in event.sources)
+                    logger.info(f"  Chat event: {event.event_type}, sources: {sources_str}")
         elif self.enable_chat_parsing and frame_index > 0:
             logger.debug(f"[LIGHT PARSE] Skipping chat parsing on frame {frame_index}")
         
@@ -379,8 +389,10 @@ class ChatEnabledStateParser:
             return None
     
     def _extract_chat_events(self, screenshot: np.ndarray) -> List[GameEvent]:
-        """Extract events from chat region."""
+        """Extract events from chat region with image hash caching to avoid redundant OCR."""
         if not self.chat_parser or not self.profile.chat_region:
+            if not self.profile.chat_region:
+                logger.debug("[CHAT OCR] No chat_region configured in profile")
             return []
         
         # Extract chat region
@@ -388,12 +400,28 @@ class ChatEnabledStateParser:
         x, y, w, h = region['x'], region['y'], region['width'], region['height']
         
         if y + h > screenshot.shape[0] or x + w > screenshot.shape[1]:
-            logger.warning(f"Chat region ({x},{y},{w},{h}) out of bounds")
+            logger.warning(f"[CHAT OCR] Chat region ({x},{y},{w},{h}) out of bounds")
             return []
         
         chat_region = screenshot[y:y+h, x:x+w]
         
-        # Parse chat for events
+        # Use image hash to avoid redundant OCR if chat hasn't changed
+        # This is the same caching strategy used for other vision regions
+        import hashlib
+        chat_hash = hashlib.md5(chat_region.tobytes()).hexdigest()
+        current_hash = hash(chat_hash)
+        
+        if self._chat_region_hash == current_hash:
+            # Chat region unchanged, reuse cached events
+            logger.debug("[CHAT OCR] Chat region unchanged (hash match), reusing cached events")
+            return self._cached_chat_events
+        
+        # Chat region changed, run OCR
+        logger.debug(f"[CHAT OCR] Chat region changed (new hash), running OCR on {w}x{h} region")
         events = self.chat_parser.parse_chat_region(chat_region)
+        
+        # Update cache
+        self._chat_region_hash = current_hash
+        self._cached_chat_events = events
         
         return events
