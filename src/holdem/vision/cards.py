@@ -56,7 +56,7 @@ class CardRecognizer:
         self.hero_color_prefilter_top_k = 12
 
         # Matching thresholds (overridable)
-        self.board_match_threshold = 0.70
+        self.board_match_threshold = 0.65
         self.hero_match_threshold = 0.65
         
         # Track last confidence scores for metrics
