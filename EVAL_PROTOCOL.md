@@ -7,15 +7,16 @@ Protocole d'évaluation : métriques, AIVAT/variance reduction, batteries de tes
 ## TABLE DES MATIÈRES
 
 1. [Vue d'ensemble](#1-vue-densemble)
-2. [Métriques d'évaluation](#2-métriques-dévaluation)
-3. [AIVAT et réduction de variance](#3-aivat-et-réduction-de-variance)
-4. [Adversaires de référence](#4-adversaires-de-référence)
-5. [Configuration seeds et reproductibilité](#5-configuration-seeds-et-reproductibilité)
-6. [Intervalles de confiance et significativité](#6-intervalles-de-confiance-et-significativité)
-7. [Batteries de tests](#7-batteries-de-tests)
-8. [Seuils de régression](#8-seuils-de-régression)
-9. [Protocole d'exécution](#9-protocole-dexécution)
-10. [Rapports et documentation](#10-rapports-et-documentation)
+2. [Protocole standard type Pluribus](#2-protocole-standard-type-pluribus)
+3. [Métriques d'évaluation](#3-métriques-dévaluation)
+4. [AIVAT et réduction de variance](#4-aivat-et-réduction-de-variance)
+5. [Adversaires de référence](#5-adversaires-de-référence)
+6. [Configuration seeds et reproductibilité](#6-configuration-seeds-et-reproductibilité)
+7. [Intervalles de confiance et significativité](#7-intervalles-de-confiance-et-significativité)
+8. [Batteries de tests](#8-batteries-de-tests)
+9. [Seuils de régression](#9-seuils-de-régression)
+10. [Protocole d'exécution](#10-protocole-dexécution)
+11. [Rapports et documentation](#11-rapports-et-documentation)
 
 ---
 
@@ -39,7 +40,209 @@ L'évaluation du poker AI vise à :
 
 ---
 
-## 2. MÉTRIQUES D'ÉVALUATION
+## 2. PROTOCOLE STANDARD TYPE PLURIBUS
+
+### 2.1 Vue d'ensemble du protocole
+
+Ce protocole définit une méthode d'évaluation standardisée, reproductible et statistiquement rigoureuse pour évaluer les agents poker, inspirée des méthodes utilisées dans Pluribus et d'autres systèmes de pointe.
+
+### 2.2 Format de jeu
+
+**Configuration standard:**
+- **Variante:** Texas Hold'em No-Limit
+- **Table:** 6-max (6 joueurs maximum)
+- **Blinds:** SB = 1, BB = 2 (ou configuration équivalente)
+- **Stack initial:** 200 BB (par défaut)
+- **Avant:** Aucun (No Ante)
+
+**Rationale:**
+- 6-max est le format standard pour l'évaluation multiplayer
+- Permet une évaluation équilibrée entre complexité et vitesse
+- Compatible avec les benchmarks académiques et industriels
+
+### 2.3 Nombre de mains recommandé
+
+**Objectifs par type d'évaluation:**
+
+| Type d'évaluation | Mains minimales | Mains recommandées | Durée estimée | Objectif |
+|-------------------|-----------------|---------------------|---------------|----------|
+| Quick test (sanity check) | 500 | 1,000 | 5-10 min | Vérifier pas de crash |
+| Développement (itératif) | 5,000 | 10,000 | 30-60 min | Tests rapides pendant dev |
+| Évaluation standard | 50,000 | 100,000 | 2-4 heures | CI ±1-2 bb/100 |
+| Évaluation rigoureuse | 100,000 | 200,000 | 4-8 heures | CI ±0.5-1 bb/100 |
+| Publication scientifique | 200,000 | 500,000+ | 8-20+ heures | Haute précision statistique |
+
+**Notes:**
+- Avec AIVAT (78% réduction variance), diviser par ~4-5x pour même précision
+- Plus de mains = intervalles de confiance plus serrés
+- Ajuster selon la variance de l'agent (agents serrés = moins de variance)
+
+### 2.4 Types de matchs
+
+#### 2.4.1 Blueprint vs Baselines
+
+**Objectif:** Mesurer la force absolue de l'agent blueprint contre des adversaires connus
+
+**Configuration:**
+- 1 agent blueprint (héros) vs 5 baseline agents
+- Baselines: Mix de RandomAgent, TightAgent, LooseAggressiveAgent, CallingStation
+- Position héros: Rotation équitable (chaque position 1/6 du temps)
+- Seeds: Fixe pour reproductibilité
+
+**Commande exemple:**
+```bash
+bin/run_eval_blueprint_vs_baselines.py \
+  --policy runs/blueprint/avg_policy.json \
+  --num-hands 50000 \
+  --seed 42 \
+  --out eval_runs/blueprint_vs_baselines.json
+```
+
+**Métriques attendues:**
+- vs RandomAgent: +40 à +60 bb/100
+- vs TightAgent: +15 à +25 bb/100
+- vs LooseAggressiveAgent: +5 à +15 bb/100
+- vs CallingStation: +10 à +20 bb/100
+
+#### 2.4.2 Blueprint + Re-solve vs Baselines
+
+**Objectif:** Mesurer l'amélioration apportée par le re-solving en temps réel
+
+**Configuration:**
+- 1 agent (blueprint + real-time search) vs 5 baseline agents
+- Baselines identiques au test précédent
+- Budget temps RT: 80ms par décision (configurable)
+- Public card sampling: 1-64 samples (typiquement 16)
+
+**Commande exemple:**
+```bash
+bin/run_eval_resolve_vs_blueprint.py \
+  --policy runs/blueprint/avg_policy.json \
+  --num-hands 50000 \
+  --time-budget 80 \
+  --samples-per-solve 16 \
+  --seed 42 \
+  --out eval_runs/resolve_vs_baselines.json
+```
+
+**Amélioration attendue:**
+- EVΔ (resolve - blueprint): +2 à +8 bb/100 selon la qualité du blueprint
+- Latence p95 < 150ms, p99 < 200ms
+
+#### 2.4.3 Agent Re-solve vs Agent Blueprint
+
+**Objectif:** Évaluation directe de l'amélioration du re-solving
+
+**Configuration:**
+- Heads-up: Agent avec RT search vs Agent blueprint seul
+- Duplicate deals avec swap de position
+- Permet isolation exacte de l'effet du re-solving
+
+**Commande exemple:**
+```bash
+tools/eval_rt_vs_blueprint.py \
+  --policy runs/blueprint/avg_policy.json \
+  --hands 10000 \
+  --samples-per-solve 16 \
+  --output eval_runs/rt_vs_blueprint.json
+```
+
+**Interprétation:**
+- EVΔ > 0: Re-solving améliore la stratégie
+- EVΔ ≈ 0: Blueprint déjà near-optimal
+- EVΔ < 0: Re-solving dégrade (sur-fitting, bruit)
+
+### 2.5 Métriques à reporter
+
+**Pour chaque évaluation, documenter:**
+
+1. **Performance:**
+   - bb/100 par joueur/agent
+   - Intervalle de confiance 95% (CI 95%)
+   - Nombre de mains (N)
+   - p-value pour significativité statistique
+
+2. **Configuration:**
+   - Policy utilisée (path + commit hash)
+   - Buckets configuration (si applicable)
+   - Seed(s) utilisé(s)
+   - Format de jeu (6-max, HU, etc.)
+   - Baselines (agents adverses)
+
+3. **Performance système (si RT search):**
+   - Latence moyenne, p50, p95, p99
+   - Nombre de samples per solve
+   - Budget temps par décision
+   - Taux de fallback au blueprint
+
+4. **Variance (si AIVAT activé):**
+   - Variance vanilla
+   - Variance AIVAT
+   - % réduction de variance
+   - Efficiency gain (ratio)
+
+### 2.6 Interprétation des résultats
+
+**Comment déterminer qu'un agent est "meilleur":**
+
+#### Critère 1: Significativité statistique
+
+L'agent A est statistiquement meilleur que B si:
+- L'intervalle de confiance 95% de (A - B) ne contient pas 0
+- p-value < 0.05 (test bilatéral)
+
+**Exemple:**
+```
+Agent A: +10.5 ± 1.2 bb/100 (CI: [9.3, 11.7])
+Agent B: +8.2 ± 1.3 bb/100 (CI: [6.9, 9.5])
+Différence: +2.3 bb/100
+CI de la différence: [0.5, 4.1]  ✅ Ne contient pas 0 → SIGNIFICATIF
+```
+
+#### Critère 2: Taille de l'effet (Effect Size)
+
+Utiliser Cohen's d pour quantifier l'ampleur de la différence:
+- d < 0.2: Effet négligeable
+- 0.2 ≤ d < 0.5: Petit effet
+- 0.5 ≤ d < 0.8: Effet moyen
+- d ≥ 0.8: Grand effet
+
+#### Critère 3: Pertinence pratique
+
+Au-delà de la significativité statistique, considérer:
+- **bb/100 > 2:** Amélioration pratiquement pertinente
+- **bb/100 < 1:** Amélioration marginale (peut ne pas valoir le coût en latence/complexité)
+- **Trade-offs:** Latence vs performance, mémoire vs précision
+
+**Règle de décision:**
+1. Si statistiquement significatif ET effect size > 0.2 ET bb/100 > 1: **ADOPTION**
+2. Si statistiquement significatif mais effet petit: **À CONSIDÉRER** (dépend du contexte)
+3. Si non significatif: **PAS D'ADOPTION** (besoin de plus de données)
+
+### 2.7 Scripts d'évaluation
+
+**Scripts disponibles:**
+
+1. **bin/run_eval_blueprint_vs_baselines.py**
+   - Évaluation blueprint contre baselines
+   - Support mode quick-test (--quick-test)
+   - Sortie JSON + résumé console
+
+2. **bin/run_eval_resolve_vs_blueprint.py**
+   - Évaluation agent avec RT search
+   - Comparaison avec baseline blueprint
+   - Métriques de latence incluses
+
+3. **tools/eval_rt_vs_blueprint.py**
+   - Évaluation heads-up directe RT vs blueprint
+   - Duplicate deals + position swap
+   - EVΔ avec bootstrap CI
+
+**Voir les sections suivantes pour plus de détails sur les métriques et l'utilisation.**
+
+---
+
+## 3. MÉTRIQUES D'ÉVALUATION
 
 ### 2.1 Métriques principales
 
@@ -420,9 +623,9 @@ diff results_run1.json results_run2.json
 
 ---
 
-## 6. INTERVALLES DE CONFIANCE ET SIGNIFICATIVITÉ
+## 7. INTERVALLES DE CONFIANCE ET SIGNIFICATIVITÉ
 
-### 6.1 Calcul intervalles de confiance 95%
+### 7.1 Calcul intervalles de confiance 95%
 
 **STATUS : ✅ IMPLÉMENTÉ**
 
@@ -470,7 +673,7 @@ ci_info = compute_confidence_interval(
 - Calcul de l'erreur standard (stderr)
 - Logging détaillé pour debugging
 
-### 6.2 Taille d'échantillon requise
+### 7.2 Taille d'échantillon requise
 
 **STATUS : ✅ IMPLÉMENTÉ**
 
@@ -528,7 +731,7 @@ print(f"Variance reduction: {reduction['reduction_pct']:.1f}%")
 print(f"Efficiency gain: {reduction['efficiency_gain']:.1f}x")
 ```
 
-### 6.3 Vérification d'adéquation de la marge
+### 7.3 Vérification d'adéquation de la marge
 
 **STATUS : ✅ IMPLÉMENTÉ**
 
@@ -551,7 +754,7 @@ if not adequacy['is_adequate']:
     #          Recommend 485 additional samples (total: 1485)"
 ```
 
-### 6.4 Intégration avec l'évaluateur
+### 7.4 Intégration avec l'évaluateur
 
 **STATUS : ✅ IMPLÉMENTÉ**
 
@@ -597,7 +800,7 @@ Chaque baseline result contient maintenant:
 - `margin_adequacy`: Dict avec is_adequate et recommendation (si target_margin spécifié)
 - `aivat_confidence_interval`: CI pour les avantages AIVAT (si AIVAT activé)
 
-### 6.5 Formatage des résultats
+### 7.5 Formatage des résultats
 
 **STATUS : ✅ IMPLÉMENTÉ**
 
@@ -615,7 +818,7 @@ print(formatted)
 # Output: "5.23 ± 0.45 bb/100 (95% CI: [4.78, 5.68])"
 ```
 
-### 6.6 Tests de significativité
+### 7.6 Tests de significativité
 
 **Test t de Student (comparaison 2 policies):**
 
@@ -942,9 +1145,9 @@ echo "Evaluation complete. See EVAL_REPORT.md for results."
 
 ---
 
-## 10. RAPPORTS ET DOCUMENTATION
+## 11. RAPPORTS ET DOCUMENTATION
 
-### 10.1 Format rapport standard
+### 11.1 Format rapport standard
 
 **Template:** `EVAL_REPORT_TEMPLATE.md`
 
@@ -993,7 +1196,7 @@ echo "Evaluation complete. See EVAL_REPORT.md for results."
 Slight regression against Tight and LAG agents. Investigate...
 ```
 
-### 10.2 Artifacts à conserver
+### 11.2 Artifacts à conserver
 
 **Pour chaque évaluation, sauvegarder:**
 
