@@ -12,12 +12,26 @@ logger = get_logger("vision.cache")
 
 @dataclass
 class BoardCache:
-    """Cache for board cards to skip re-recognition when stable."""
+    """Cache for board cards to skip re-recognition when stable.
+    
+    This class now includes state machine functionality to track which
+    board zones (flop/turn/river) have been detected and locked.
+    """
     street: Optional[Street] = None
     cards: List[Optional[Card]] = field(default_factory=lambda: [None] * 5)
     stable: bool = False
     stability_frames: int = 0
     stability_threshold: int = 2
+    
+    # State machine for zone-based detection
+    flop_detected: bool = False
+    turn_detected: bool = False
+    river_detected: bool = False
+    
+    # Track stability for each zone separately
+    flop_stability_frames: int = 0
+    turn_stability_frames: int = 0
+    river_stability_frames: int = 0
     
     def update(self, new_street: Street, new_cards: List[Optional[Card]], threshold: Optional[int] = None) -> bool:
         """Update cache and determine if recognition is needed.
@@ -90,6 +104,110 @@ class BoardCache:
         self.cards = [None] * 5
         self.stable = False
         self.stability_frames = 0
+        self.flop_detected = False
+        self.turn_detected = False
+        self.river_detected = False
+        self.flop_stability_frames = 0
+        self.turn_stability_frames = 0
+        self.river_stability_frames = 0
+    
+    def reset_for_new_hand(self):
+        """Reset board state for new hand (alias for reset)."""
+        logger.info("[BOARD STATE] Resetting board state for new hand")
+        self.reset()
+    
+    def mark_flop(self, cards: List[Card]):
+        """Mark flop as detected with the given 3 cards.
+        
+        Args:
+            cards: List of 3 flop cards
+        """
+        if len(cards) != 3:
+            logger.warning(f"[BOARD STATE] mark_flop called with {len(cards)} cards, expected 3")
+            return
+        
+        self.flop_detected = True
+        self.cards[0:3] = cards
+        self.street = Street.FLOP
+        logger.info(f"[BOARD STATE] Flop detected and locked: {self._cards_str_range(0, 3)}")
+    
+    def mark_turn(self, card: Card):
+        """Mark turn as detected with the given card.
+        
+        Args:
+            card: The turn card
+        """
+        if not self.flop_detected:
+            logger.warning("[BOARD STATE] mark_turn called but flop not detected yet")
+            return
+        
+        self.turn_detected = True
+        self.cards[3] = card
+        self.street = Street.TURN
+        logger.info(f"[BOARD STATE] Turn detected and locked: {card}")
+    
+    def mark_river(self, card: Card):
+        """Mark river as detected with the given card.
+        
+        Args:
+            card: The river card
+        """
+        if not self.turn_detected:
+            logger.warning("[BOARD STATE] mark_river called but turn not detected yet")
+            return
+        
+        self.river_detected = True
+        self.cards[4] = card
+        self.street = Street.RIVER
+        logger.info(f"[BOARD STATE] River detected and locked: {card}")
+    
+    def has_flop(self) -> bool:
+        """Check if flop has been detected.
+        
+        Returns:
+            True if flop is detected, False otherwise
+        """
+        return self.flop_detected
+    
+    def has_turn(self) -> bool:
+        """Check if turn has been detected.
+        
+        Returns:
+            True if turn is detected, False otherwise
+        """
+        return self.turn_detected
+    
+    def has_river(self) -> bool:
+        """Check if river has been detected.
+        
+        Returns:
+            True if river is detected, False otherwise
+        """
+        return self.river_detected
+    
+    def should_scan_flop(self) -> bool:
+        """Check if flop zone should be scanned.
+        
+        Returns:
+            True if flop should be scanned, False if already detected
+        """
+        return not self.flop_detected
+    
+    def should_scan_turn(self) -> bool:
+        """Check if turn zone should be scanned.
+        
+        Returns:
+            True if turn should be scanned, False if not ready or already detected
+        """
+        return self.flop_detected and not self.turn_detected
+    
+    def should_scan_river(self) -> bool:
+        """Check if river zone should be scanned.
+        
+        Returns:
+            True if river should be scanned, False if not ready or already detected
+        """
+        return self.turn_detected and not self.river_detected
     
     def _cards_match(self, new_cards: List[Optional[Card]]) -> bool:
         """Check if new cards match cached cards."""
@@ -121,6 +239,21 @@ class BoardCache:
         if not valid_cards:
             return "None"
         return ", ".join(str(c) for c in valid_cards)
+    
+    def _cards_str_range(self, start: int, end: int) -> str:
+        """Convert cards in range to string for logging.
+        
+        Args:
+            start: Start index (inclusive)
+            end: End index (exclusive)
+            
+        Returns:
+            String representation of cards
+        """
+        cards_in_range = [c for c in self.cards[start:end] if c is not None]
+        if not cards_in_range:
+            return "None"
+        return ", ".join(str(c) for c in cards_in_range)
 
 
 @dataclass

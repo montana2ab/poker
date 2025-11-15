@@ -1,0 +1,82 @@
+{
+  "name": "Example Table Profile with Board Regions",
+  "window_title": "PokerStars",
+  "owner_name": "PokerStars",
+  "screen_region": [100, 100, 1000, 700],
+  
+  "comment": "Optimized board card detection using separate zones",
+  "board_regions": {
+    "comment": "Divide board into 3 zones for optimized card detection",
+    "flop": {
+      "comment": "Zone containing the first 3 community cards",
+      "x": 350,
+      "y": 270,
+      "width": 150,
+      "height": 60
+    },
+    "turn": {
+      "comment": "Zone containing the 4th community card",
+      "x": 500,
+      "y": 270,
+      "width": 50,
+      "height": 60
+    },
+    "river": {
+      "comment": "Zone containing the 5th community card",
+      "x": 550,
+      "y": 270,
+      "width": 50,
+      "height": 60
+    }
+  },
+  
+  "comment_board_regions_setup": [
+    "To configure board_regions for optimal performance:",
+    "1. Take a screenshot with all 5 board cards visible (on the river)",
+    "2. Open in an image editor and measure each zone:",
+    "   - flop: tight box around first 3 cards",
+    "   - turn: tight box around 4th card only",
+    "   - river: tight box around 5th card only",
+    "3. Each zone should be as small as possible while fully containing the cards",
+    "4. Avoid overlapping zones",
+    "5. Leave a few pixels margin to account for slight variations",
+    "6. If board_regions is not configured, the system falls back to card_regions[0]"
+  ],
+  
+  "comment_legacy_support": "Keep card_regions for backward compatibility",
+  "card_regions": [
+    {
+      "name": "board",
+      "x": 350,
+      "y": 270,
+      "width": 250,
+      "height": 60
+    }
+  ],
+  
+  "pot_region": {
+    "x": 400,
+    "y": 300,
+    "width": 100,
+    "height": 30
+  },
+  
+  "player_regions": [
+    {
+      "position": 0,
+      "name_roi": [450, 450, 100, 20],
+      "stack_roi": [450, 470, 100, 20],
+      "bet_roi": [450, 420, 100, 20],
+      "cards_roi": [420, 380, 160, 40]
+    }
+  ],
+  
+  "button_regions": {
+    "fold": {"x": 600, "y": 600, "width": 80, "height": 30},
+    "call": {"x": 700, "y": 600, "width": 80, "height": 30},
+    "raise": {"x": 800, "y": 600, "width": 80, "height": 30}
+  },
+  
+  "hero_position": 0,
+  "card_spacing": -5
+}

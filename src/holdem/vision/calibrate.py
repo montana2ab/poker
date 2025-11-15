@@ -25,6 +25,7 @@ class TableProfile:
         self.dealer_button_region: Optional[Dict[str, int]] = None  # Single region (legacy)
         self.dealer_button_regions: List[Dict[str, int]] = []  # One region per player position
         self.chat_region: Optional[Dict[str, int]] = None  # Chat/history region for event parsing
+        self.board_regions: Optional[Dict[str, Dict[str, int]]] = None  # Optional flop/turn/river zones
         self.reference_image: Optional[np.ndarray] = None
         self.keypoints: List = []
         self.descriptors: Optional[np.ndarray] = None
@@ -47,6 +48,7 @@ class TableProfile:
             "dealer_button_region": self.dealer_button_region,
             "dealer_button_regions": self.dealer_button_regions,
             "chat_region": self.chat_region,
+            "board_regions": self.board_regions,
             "hero_position": self.hero_position,
             "hero_templates_dir": self.hero_templates_dir,
             "card_spacing": self.card_spacing,
@@ -82,6 +84,7 @@ class TableProfile:
         profile.dealer_button_region = data.get("dealer_button_region")
         profile.dealer_button_regions = data.get("dealer_button_regions", [])
         profile.chat_region = data.get("chat_region")
+        profile.board_regions = data.get("board_regions")  # Optional board zones
         profile.hero_position = data.get("hero_position")
         profile.hero_templates_dir = data.get("hero_templates_dir")
         profile.card_spacing = data.get("card_spacing", 0)
@@ -122,6 +125,46 @@ class TableProfile:
         
         logger.info(f"Loaded table profile from {path}")
         return profile
+    
+    def has_board_regions(self) -> bool:
+        """Check if board_regions is configured.
+        
+        Returns:
+            True if board_regions with flop/turn/river zones is configured
+        """
+        if not self.board_regions:
+            return False
+        return all(zone in self.board_regions for zone in ["flop", "turn", "river"])
+    
+    def get_flop_region(self) -> Optional[Dict[str, int]]:
+        """Get flop region if configured.
+        
+        Returns:
+            Flop region dict with x, y, width, height or None
+        """
+        if self.board_regions and "flop" in self.board_regions:
+            return self.board_regions["flop"]
+        return None
+    
+    def get_turn_region(self) -> Optional[Dict[str, int]]:
+        """Get turn region if configured.
+        
+        Returns:
+            Turn region dict with x, y, width, height or None
+        """
+        if self.board_regions and "turn" in self.board_regions:
+            return self.board_regions["turn"]
+        return None
+    
+    def get_river_region(self) -> Optional[Dict[str, int]]:
+        """Get river region if configured.
+        
+        Returns:
+            River region dict with x, y, width, height or None
+        """
+        if self.board_regions and "river" in self.board_regions:
+            return self.board_regions["river"]
+        return None
 
 
 def calibrate_interactive(screenshot: np.ndarray, window_title: str, seats: int = 9) -> TableProfile:
