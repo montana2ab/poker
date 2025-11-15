@@ -49,9 +49,13 @@ class TestCardCorrectionLogic:
         assert cards[0].suit == 'd'
     
     def test_char_fixes_O_to_0(self, chat_parser):
-        """Test that 'O' is corrected to '0' (then potentially to other chars)."""
-        assert 'O' in chat_parser.CHAR_FIXES
-        assert chat_parser.CHAR_FIXES['O'] == '0'
+        """Test that 'O' correction is handled by _correct_rank_ocr (O -> Q)."""
+        # Note: 'O' is not in CHAR_FIXES because it's handled by _correct_rank_ocr
+        # The existing logic correctly maps O -> Q for poker context
+        assert 'O' not in chat_parser.CHAR_FIXES
+        
+        # Verify the existing _correct_rank_ocr handles O correctly
+        assert chat_parser._correct_rank_ocr('O') == 'Q'
     
     def test_char_fixes_lowercase_l_to_1(self, chat_parser):
         """Test that 'l' is corrected to '1' in card rank."""

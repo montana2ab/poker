@@ -65,10 +65,11 @@ class ChatParser:
     """Parse poker table chat and extract game events."""
     
     # Character corrections for OCR errors in card notation
+    # These are applied before the rank/suit correction functions
     CHAR_FIXES = {
         '&': '8',  # Common OCR misread of 8
         'B': '8',  # Sometimes 8 looks like B
-        'O': '0',  # O can be confused with 0
+        # Note: 'O' is handled by _correct_rank_ocr (O -> Q)
         'l': '1',  # lowercase L can be 1
         'I': '1',  # uppercase I can be 1
     }
