@@ -348,3 +348,202 @@ class TestIntegrationScenarios:
             
             # Should have clicked only once (second attempt)
             assert mock_pyautogui.click.call_count == 1
+
+
+class TestRetryMechanism:
+    """Tests for the retry mechanism in safe click."""
+    
+    def test_success_on_first_attempt(self, mock_screen_capture):
+        """Test that no retries are needed when button is immediately valid."""
+        mock_instance = mock_screen_capture.return_value
+        mock_instance.capture_region.return_value = create_light_button_image()
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40, 
+                    label="Call", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is True
+                # Should capture only once (no retries needed)
+                assert mock_instance.capture_region.call_count == 1
+                # Should not sleep for retry (only the click_delay sleep)
+                assert mock_sleep.call_count == 1  # Only click_delay
+                mock_pyautogui.click.assert_called_once()
+    
+    def test_success_on_second_attempt(self, mock_screen_capture):
+        """Test that retry succeeds on second attempt."""
+        mock_instance = mock_screen_capture.return_value
+        # First attempt: checkbox visible
+        # Second attempt: button ready
+        mock_instance.capture_region.side_effect = [
+            create_checkbox_image(),
+            create_light_button_image()
+        ]
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Call", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is True
+                # Should have captured twice (first failed, second succeeded)
+                assert mock_instance.capture_region.call_count == 2
+                # Should have slept for retry + click delay
+                assert mock_sleep.call_count == 2  # retry_delay + click_delay
+                # First sleep should be retry_delay
+                assert mock_sleep.call_args_list[0][0][0] == 0.05
+                mock_pyautogui.click.assert_called_once()
+    
+    def test_success_on_third_attempt(self, mock_screen_capture):
+        """Test that retry succeeds on third (final) attempt."""
+        mock_instance = mock_screen_capture.return_value
+        # First attempt: checkbox
+        # Second attempt: dark background
+        # Third attempt: button ready
+        mock_instance.capture_region.side_effect = [
+            create_checkbox_image(),
+            create_dark_background_image(),
+            create_light_button_image()
+        ]
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Fold", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is True
+                # Should have captured three times
+                assert mock_instance.capture_region.call_count == 3
+                # Should have slept twice for retries + once for click delay
+                assert mock_sleep.call_count == 3  # 2 retry_delays + click_delay
+                mock_pyautogui.click.assert_called_once()
+    
+    def test_failure_after_all_retries(self, mock_screen_capture):
+        """Test that function returns False after exhausting all retries."""
+        mock_instance = mock_screen_capture.return_value
+        # All attempts return checkbox image
+        mock_instance.capture_region.return_value = create_checkbox_image()
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Call", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is False
+                # Should have captured three times (1 initial + 2 retries)
+                assert mock_instance.capture_region.call_count == 3
+                # Should have slept twice for retries (no click delay since no click)
+                assert mock_sleep.call_count == 2  # Only retry_delays
+                mock_pyautogui.click.assert_not_called()
+    
+    def test_capture_failure_with_retries(self, mock_screen_capture):
+        """Test retry behavior when screen capture fails initially."""
+        mock_instance = mock_screen_capture.return_value
+        # First two attempts fail, third succeeds
+        mock_instance.capture_region.side_effect = [
+            None,
+            None,
+            create_light_button_image()
+        ]
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Bet", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is True
+                assert mock_instance.capture_region.call_count == 3
+                mock_pyautogui.click.assert_called_once()
+    
+    def test_exception_with_retries(self, mock_screen_capture):
+        """Test that exceptions are retried appropriately."""
+        mock_instance = mock_screen_capture.return_value
+        # First attempt raises exception, second succeeds
+        mock_instance.capture_region.side_effect = [
+            Exception("Temporary error"),
+            create_light_button_image()
+        ]
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Raise", max_retries=2, retry_delay=0.05
+                )
+                
+                assert result is True
+                assert mock_instance.capture_region.call_count == 2
+                mock_pyautogui.click.assert_called_once()
+    
+    def test_custom_retry_parameters(self, mock_screen_capture):
+        """Test that custom retry parameters are respected."""
+        mock_instance = mock_screen_capture.return_value
+        # First attempt fails, second succeeds
+        mock_instance.capture_region.side_effect = [
+            create_checkbox_image(),
+            create_light_button_image()
+        ]
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="Check", max_retries=1, retry_delay=0.10
+                )
+                
+                assert result is True
+                # Should use custom retry_delay
+                assert mock_sleep.call_args_list[0][0][0] == 0.10
+    
+    def test_zero_retries(self, mock_screen_capture):
+        """Test behavior with max_retries=0 (no retries)."""
+        mock_instance = mock_screen_capture.return_value
+        mock_instance.capture_region.return_value = create_checkbox_image()
+        
+        with patch('holdem.control.safe_click._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
+            with patch('holdem.control.safe_click.time.sleep') as mock_sleep:
+                result = safe_click_action_button(
+                    x=300, y=400, width=80, height=40,
+                    label="AllIn", max_retries=0, retry_delay=0.05
+                )
+                
+                assert result is False
+                # Should only attempt once (no retries)
+                assert mock_instance.capture_region.call_count == 1
+                # Should not sleep for retries
+                mock_sleep.assert_not_called()
+                mock_pyautogui.click.assert_not_called()
