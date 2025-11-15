@@ -552,6 +552,15 @@ class EventFuser:
                 overlap = len(cards1 & cards2)
                 total_unique = len(cards1 | cards2)
                 min_cards = min(len(cards1), len(cards2))
+                max_cards = max(len(cards1), len(cards2))
+                
+                # Special handling: chat often sends all cards, vision sends only new cards
+                # For TURN: vision=[7c], chat=[Ah Kd Qs 7c] → overlap=1, min=1 → should match!
+                # For RIVER: vision=[2d], chat=[Ah Kd Qs 7c 2d] → overlap=1, min=1 → should match!
+                # Strategy: if smaller set is fully contained in larger set, fuse them
+                if overlap == min_cards:
+                    # All cards from smaller set are in larger set → compatible
+                    return True
                 
                 # Require at least 80% of cards to match (e.g., 3/3 for flop, or 2/3 + diff source)
                 # This is stricter to avoid fusing conflicting boards
@@ -724,7 +733,25 @@ class EventFuser:
             chat_set = set(str(c) for c in chat_cards)
             vision_set = set(str(c) for c in vision_cards)
             
-            if chat_set != vision_set:
+            # Check if smaller set is subset of larger (compatible fusion)
+            overlap = len(chat_set & vision_set)
+            min_size = min(len(chat_set), len(vision_set))
+            
+            if chat_set == vision_set:
+                # Exact match - perfect agreement
+                logger.info(
+                    f"[BOARD FUSION] Chat and Vision agree exactly: "
+                    f"{[str(c) for c in chat_cards]}"
+                )
+            elif overlap == min_size:
+                # Smaller set is subset of larger - compatible
+                logger.info(
+                    f"[BOARD FUSION] Chat and Vision compatible (subset match): "
+                    f"chat={[str(c) for c in chat_cards]}, "
+                    f"vision={[str(c) for c in vision_cards]}"
+                )
+            else:
+                # Conflicting cards
                 has_conflict = True
                 logger.warning(
                     f"[BOARD DIVERGENCE] Chat vs Vision board mismatch: "

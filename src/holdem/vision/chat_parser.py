@@ -427,6 +427,10 @@ class ChatParser:
             elif pattern_name in ['flop', 'turn', 'river']:
                 cards_str = match.group(1).strip()
                 cards = self._parse_cards(cards_str)
+                logger.info(
+                    f"[CHAT BOARD] Detected {pattern_name.upper()} from chat: "
+                    f"{[str(c) for c in cards]} (confidence=0.90)"
+                )
                 return GameEvent(
                     event_type="board_update",
                     street=pattern_name.upper(),
@@ -442,6 +446,10 @@ class ChatParser:
                 cards_str = match.group(1).strip()
                 cards = self._parse_cards(cards_str)
                 street_name = pattern_name.replace('dealing_', '').upper()
+                logger.info(
+                    f"[CHAT BOARD] Detected {street_name} from chat: "
+                    f"{[str(c) for c in cards]} (confidence=0.90)"
+                )
                 return GameEvent(
                     event_type="board_update",
                     street=street_name,
