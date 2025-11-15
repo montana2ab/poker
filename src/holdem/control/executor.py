@@ -2,16 +2,22 @@
 
 import time
 import platform
-import pyautogui
 from typing import Optional
 from holdem.types import ControlConfig, Action, ActionType, Street, TableState
 from holdem.vision.calibrate import TableProfile
 from holdem.abstraction.actions import AbstractAction
 from holdem.abstraction.backmapping import ActionBackmapper
 from holdem.control.actions import ClickAction, WaitAction
+from holdem.control.safe_click import safe_click_action_button
 from holdem.utils.logging import get_logger
 
 logger = get_logger("control.executor")
+
+
+def _get_pyautogui():
+    """Lazy import of pyautogui to avoid import issues in tests."""
+    import pyautogui
+    return pyautogui
 
 
 def _is_apple_silicon() -> bool:
@@ -24,6 +30,15 @@ def _is_macos() -> bool:
     return platform.system() == "Darwin"
 
 
+def _configure_pyautogui_once(executor):
+    """Configure pyautogui settings once, on first use."""
+    if not executor._pyautogui_configured:
+        pyautogui = _get_pyautogui()
+        pyautogui.PAUSE = executor._pyautogui_pause
+        pyautogui.FAILSAFE = True  # Move mouse to corner to abort
+        executor._pyautogui_configured = True
+
+
 class ActionExecutor:
     """Executes actions on the poker table with comprehensive backmapping support."""
     
@@ -32,6 +47,14 @@ class ActionExecutor:
         self.profile = profile
         self.paused = False
         self.stopped = False
+        
+        # Safe click configuration (enabled by default)
+        # Can be disabled via config for testing or debugging
+        self.safe_click_enabled = getattr(config, 'safe_click_enabled', True)
+        if self.safe_click_enabled:
+            logger.info("Safe click enabled for action buttons")
+        else:
+            logger.warning("Safe click disabled - action buttons will be clicked without verification")
         
         # Initialize backmapper for action validation and adjustment
         # Enable quick bet buttons if the button regions are configured in the profile
@@ -74,9 +97,9 @@ class ActionExecutor:
             self.input_delay = 0.1
             self.type_interval = 0.05
         
-        # Configure pyautogui
-        pyautogui.PAUSE = config.min_action_delay_ms / 1000.0
-        pyautogui.FAILSAFE = True  # Move mouse to corner to abort
+        # Configure pyautogui (lazy init - only when needed)
+        self._pyautogui_configured = False
+        self._pyautogui_pause = config.min_action_delay_ms / 1000.0
     
     def execute(self, action: AbstractAction, state: Optional[TableState] = None) -> bool:
         """Execute an action with state-aware backmapping.
@@ -280,7 +303,7 @@ class ActionExecutor:
         return self.profile.button_regions.get(button_name)
     
     def _click_button(self, button_region: dict, action: Action) -> bool:
-        """Click a button region.
+        """Click a button region with safe click verification.
         
         Args:
             button_region: Region dict with x, y, width, height
@@ -291,12 +314,34 @@ class ActionExecutor:
         """
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
+        width = button_region['width']
+        height = button_region['height']
         
-        logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
-        
-        pyautogui.click(x, y)
-        time.sleep(self.click_delay)
-        return True
+        # Use safe click if enabled
+        if self.safe_click_enabled:
+            logger.info(f"[AUTO-PLAY] Safe clicking {action.action_type.value} at screen position ({x}, {y})")
+            
+            success = safe_click_action_button(
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                label=action.action_type.value,
+                click_delay=self.click_delay
+            )
+            
+            if not success:
+                logger.info(f"[AUTOPLAY] Skip action click, UI not ready or checkbox detected (action={action.action_type.value})")
+            
+            return success
+        else:
+            # Legacy mode: direct click without verification
+            logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
+            _configure_pyautogui_once(self)
+            pyautogui = _get_pyautogui()
+            pyautogui.click(x, y)
+            time.sleep(self.click_delay)
+            return True
     
     def _execute_bet_or_raise(
         self, 
@@ -326,6 +371,9 @@ class ActionExecutor:
         if bet_input_box and action.amount:
             # Use input box to enter precise amount
             try:
+                _configure_pyautogui_once(self)
+                pyautogui = _get_pyautogui()
+                
                 # Click in the bet input box
                 input_x = bet_input_box['x'] + bet_input_box['width'] // 2
                 input_y = bet_input_box['y'] + bet_input_box['height'] // 2
@@ -368,6 +416,8 @@ class ActionExecutor:
         y = button_region['y'] + button_region['height'] // 2
         
         logger.info(f"[AUTO-PLAY] Clicking {action.action_type.value} at screen position ({x}, {y})")
+        _configure_pyautogui_once(self)
+        pyautogui = _get_pyautogui()
         pyautogui.click(x, y)
         time.sleep(self.config.min_action_delay_ms / 1000.0)
         
@@ -430,21 +480,55 @@ class ActionExecutor:
         logger.info(f"[AUTOPLAY] Executing {action_desc} via {sizing_button_name} then bet_confirm_button_region")
         
         try:
-            # Step 1: Click the sizing button (½ POT or POT)
+            # Step 1: Click the sizing button (½ POT or POT) with safe click
             sizing_x = sizing_button['x'] + sizing_button['width'] // 2
             sizing_y = sizing_button['y'] + sizing_button['height'] // 2
             
-            logger.info(f"[AUTOPLAY] Clicking {sizing_button_name} at ({sizing_x}, {sizing_y})")
-            pyautogui.click(sizing_x, sizing_y)
-            time.sleep(self.input_delay)
+            if self.safe_click_enabled:
+                logger.info(f"[AUTOPLAY] Safe clicking {sizing_button_name} at ({sizing_x}, {sizing_y})")
+                success = safe_click_action_button(
+                    x=sizing_x,
+                    y=sizing_y,
+                    width=sizing_button['width'],
+                    height=sizing_button['height'],
+                    label=sizing_button_name,
+                    click_delay=self.input_delay
+                )
+                
+                if not success:
+                    logger.info(f"[AUTOPLAY] Skip sizing button click, UI not ready (action={action_desc})")
+                    return False
+            else:
+                logger.info(f"[AUTOPLAY] Clicking {sizing_button_name} at ({sizing_x}, {sizing_y})")
+                _configure_pyautogui_once(self)
+                pyautogui = _get_pyautogui()
+                pyautogui.click(sizing_x, sizing_y)
+                time.sleep(self.input_delay)
             
-            # Step 2: Click the bet confirmation button
+            # Step 2: Click the bet confirmation button with safe click
             confirm_x = confirm_button['x'] + confirm_button['width'] // 2
             confirm_y = confirm_button['y'] + confirm_button['height'] // 2
             
-            logger.info(f"[AUTOPLAY] Clicking bet_confirm_button_region at ({confirm_x}, {confirm_y})")
-            pyautogui.click(confirm_x, confirm_y)
-            time.sleep(self.config.min_action_delay_ms / 1000.0)
+            if self.safe_click_enabled:
+                logger.info(f"[AUTOPLAY] Safe clicking bet_confirm_button_region at ({confirm_x}, {confirm_y})")
+                success = safe_click_action_button(
+                    x=confirm_x,
+                    y=confirm_y,
+                    width=confirm_button['width'],
+                    height=confirm_button['height'],
+                    label="bet_confirm",
+                    click_delay=self.config.min_action_delay_ms / 1000.0
+                )
+                
+                if not success:
+                    logger.info(f"[AUTOPLAY] Skip confirm button click, UI not ready (action={action_desc})")
+                    return False
+            else:
+                logger.info(f"[AUTOPLAY] Clicking bet_confirm_button_region at ({confirm_x}, {confirm_y})")
+                _configure_pyautogui_once(self)
+                pyautogui = _get_pyautogui()
+                pyautogui.click(confirm_x, confirm_y)
+                time.sleep(self.config.min_action_delay_ms / 1000.0)
             
             logger.info(f"[AUTOPLAY] Successfully executed {action_desc}")
             return True
@@ -488,16 +572,35 @@ class ActionExecutor:
             # Auto-play mode: no confirmation needed
             logger.info(f"[AUTO-PLAY] Auto-confirming action: {action.value}")
         
-        # Click the button
+        # Click the button with safe click
         x = button_region['x'] + button_region['width'] // 2
         y = button_region['y'] + button_region['height'] // 2
-        
-        logger.info(f"[AUTO-PLAY] Clicking {action.value} at screen position ({x}, {y})")
+        width = button_region['width']
+        height = button_region['height']
         
         try:
-            pyautogui.click(x, y)
-            time.sleep(self.click_delay)
-            return True
+            if self.safe_click_enabled:
+                logger.info(f"[AUTO-PLAY] Safe clicking {action.value} at screen position ({x}, {y})")
+                success = safe_click_action_button(
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    label=action.value,
+                    click_delay=self.click_delay
+                )
+                
+                if not success:
+                    logger.info(f"[AUTOPLAY] Skip action click, UI not ready or checkbox detected (action={action.value})")
+                
+                return success
+            else:
+                logger.info(f"[AUTO-PLAY] Clicking {action.value} at screen position ({x}, {y})")
+                _configure_pyautogui_once(self)
+                pyautogui = _get_pyautogui()
+                pyautogui.click(x, y)
+                time.sleep(self.click_delay)
+                return True
         except Exception as e:
             logger.error(f"Failed to execute action: {e}")
             return False
