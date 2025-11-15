@@ -73,7 +73,8 @@ class MCCFRSolver:
             use_linear_weighting=config.use_linear_weighting,
             enable_pruning=config.enable_pruning,
             pruning_threshold=config.pruning_threshold,
-            pruning_probability=config.pruning_probability
+            pruning_probability=config.pruning_probability,
+            storage_mode=config.regret_storage_mode
         )
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None

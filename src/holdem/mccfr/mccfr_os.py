@@ -25,13 +25,14 @@ class OutcomeSampler:
         enable_pruning: bool = True,
         pruning_threshold: float = -300_000_000.0,
         pruning_probability: float = 0.95,
-        min_unpruned_ratio: float = 0.05
+        min_unpruned_ratio: float = 0.05,
+        storage_mode: str = "dense"
     ):
         self.bucketing = bucketing
         self.num_players = num_players
         self.epsilon = epsilon  # Exploration probability
         self.encoder = StateEncoder(bucketing)
-        self.regret_tracker = RegretTracker()
+        self.regret_tracker = RegretTracker(storage_mode=storage_mode)
         self.rng = get_rng()
         
         # Linear MCCFR parameters

@@ -480,6 +480,11 @@ class MCCFRConfig:
     # Infoset encoding parameters (Pluribus parity)
     include_action_history_in_infoset: bool = True  # Include street-based action history in infoset encoding
     
+    # Storage mode for regrets and strategies
+    # - "dense": Use Python dicts with float64 (default, current behavior)
+    # - "compact": Use numpy arrays with int32/float32 for ~50% memory reduction
+    regret_storage_mode: str = "dense"  # Storage backend: "dense" or "compact"
+    
 
 @dataclass
 class SearchConfig:

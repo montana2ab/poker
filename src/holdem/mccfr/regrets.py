@@ -1,19 +1,35 @@
 """Regret tracking for CFR."""
 
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Optional
 from holdem.abstraction.actions import AbstractAction
+from holdem.mccfr.compact_storage import StorageBackend, DenseStorage, CompactStorage
 
 
 class RegretTracker:
-    """Tracks cumulative regrets for CFR."""
+    """Tracks cumulative regrets for CFR.
     
-    def __init__(self):
-        # infoset -> action -> cumulative regret
-        self.regrets: Dict[str, Dict[AbstractAction, float]] = {}
+    Supports pluggable storage backends:
+    - DenseStorage: Python dicts with float64 (default, current behavior)
+    - CompactStorage: Numpy arrays with int32/float32 for memory savings
+    """
+    
+    def __init__(self, storage_mode: str = "dense"):
+        """Initialize RegretTracker with specified storage backend.
         
-        # infoset -> action -> cumulative strategy
-        self.strategy_sum: Dict[str, Dict[AbstractAction, float]] = {}
+        Args:
+            storage_mode: "dense" for dict-based storage (default), 
+                         "compact" for numpy-based compact storage
+        """
+        # Select storage backend
+        if storage_mode == "compact":
+            self._storage: StorageBackend = CompactStorage()
+        elif storage_mode == "dense":
+            self._storage: StorageBackend = DenseStorage()
+        else:
+            raise ValueError(f"Unknown storage mode: {storage_mode}. Use 'dense' or 'compact'")
+        
+        self._storage_mode = storage_mode
         
         # Lazy discount tracking to avoid iterating over all infosets
         # Track cumulative discount factors that haven't been applied yet
@@ -25,9 +41,26 @@ class RegretTracker:
         self._regret_discount_applied: Dict[str, float] = {}
         self._strategy_discount_applied: Dict[str, float] = {}
     
+    # Backward compatibility: expose storage as dict-like attributes
+    @property
+    def regrets(self) -> Dict[str, Dict[AbstractAction, float]]:
+        """Get regrets as dict (for backward compatibility)."""
+        result = {}
+        for infoset in self._storage.get_all_infosets_regrets():
+            result[infoset] = self._storage.get_all_regrets(infoset)
+        return result
+    
+    @property
+    def strategy_sum(self) -> Dict[str, Dict[AbstractAction, float]]:
+        """Get strategy_sum as dict (for backward compatibility)."""
+        result = {}
+        for infoset in self._storage.get_all_infosets_strategy():
+            result[infoset] = self._storage.get_all_strategy_sums(infoset)
+        return result
+    
     def _apply_pending_regret_discount(self, infoset: str):
         """Apply any pending discount factors to an infoset's regrets."""
-        if infoset not in self.regrets:
+        if not self._storage.has_infoset_regrets(infoset):
             return
         
         # Check if this infoset needs discount applied
@@ -36,16 +69,15 @@ class RegretTracker:
             # Calculate the discount factor to apply
             discount_to_apply = self._cumulative_regret_discount / last_applied
             
-            # Apply discount to all actions in this infoset
-            for action in self.regrets[infoset]:
-                self.regrets[infoset][action] *= discount_to_apply
+            # Apply discount through storage backend
+            self._storage.apply_discount_to_infoset_regrets(infoset, discount_to_apply)
             
             # Mark as up to date
             self._regret_discount_applied[infoset] = self._cumulative_regret_discount
     
     def _apply_pending_strategy_discount(self, infoset: str):
         """Apply any pending discount factors to an infoset's strategy."""
-        if infoset not in self.strategy_sum:
+        if not self._storage.has_infoset_strategy(infoset):
             return
         
         # Check if this infoset needs discount applied
@@ -54,22 +86,18 @@ class RegretTracker:
             # Calculate the discount factor to apply
             discount_to_apply = self._cumulative_strategy_discount / last_applied
             
-            # Apply discount to all actions in this infoset
-            for action in self.strategy_sum[infoset]:
-                self.strategy_sum[infoset][action] *= discount_to_apply
+            # Apply discount through storage backend
+            self._storage.apply_discount_to_infoset_strategy(infoset, discount_to_apply)
             
             # Mark as up to date
             self._strategy_discount_applied[infoset] = self._cumulative_strategy_discount
     
     def get_regret(self, infoset: str, action: AbstractAction) -> float:
         """Get cumulative regret for action at infoset."""
-        if infoset not in self.regrets:
-            return 0.0
-        
         # Apply pending discounts before reading
         self._apply_pending_regret_discount(infoset)
         
-        return self.regrets[infoset].get(action, 0.0)
+        return self._storage.get_regret(infoset, action)
     
     def update_regret(self, infoset: str, action: AbstractAction, regret: float, weight: float = 1.0):
         """Update cumulative regret.
@@ -81,15 +109,13 @@ class RegretTracker:
             weight: Linear weight (typically iteration number for Linear MCCFR)
         """
         # Apply pending discounts before updating
-        if infoset in self.regrets:
+        if self._storage.has_infoset_regrets(infoset):
             self._apply_pending_regret_discount(infoset)
         else:
-            self.regrets[infoset] = {}
             # Mark as up to date with current cumulative discount
             self._regret_discount_applied[infoset] = self._cumulative_regret_discount
         
-        current = self.regrets[infoset].get(action, 0.0)
-        self.regrets[infoset][action] = current + weight * regret
+        self._storage.update_regret(infoset, action, regret, weight)
     
     def get_strategy(self, infoset: str, actions: List[AbstractAction]) -> Dict[AbstractAction, float]:
         """Get current strategy using regret matching."""
@@ -127,20 +153,18 @@ class RegretTracker:
                    weighted by reach probability)
         """
         # Apply pending discounts before updating
-        if infoset in self.strategy_sum:
+        if self._storage.has_infoset_strategy(infoset):
             self._apply_pending_strategy_discount(infoset)
         else:
-            self.strategy_sum[infoset] = {}
             # Mark as up to date with current cumulative discount
             self._strategy_discount_applied[infoset] = self._cumulative_strategy_discount
         
         for action, prob in strategy.items():
-            current = self.strategy_sum[infoset].get(action, 0.0)
-            self.strategy_sum[infoset][action] = current + prob * weight
+            self._storage.add_strategy(infoset, action, prob, weight)
     
     def get_average_strategy(self, infoset: str, actions: List[AbstractAction]) -> Dict[AbstractAction, float]:
         """Get average strategy over all iterations."""
-        if infoset not in self.strategy_sum:
+        if not self._storage.has_infoset_strategy(infoset):
             # Return uniform if never visited
             uniform_prob = 1.0 / len(actions) if actions else 0.0
             return {action: uniform_prob for action in actions}
@@ -148,11 +172,11 @@ class RegretTracker:
         # Apply pending discounts before reading
         self._apply_pending_strategy_discount(infoset)
         
-        strategy_sum = self.strategy_sum[infoset]
-        total = sum(strategy_sum.values())
+        strategy_sum_dict = self._storage.get_all_strategy_sums(infoset)
+        total = sum(strategy_sum_dict.values())
         
         if total > 0:
-            return {action: strategy_sum.get(action, 0.0) / total for action in actions}
+            return {action: strategy_sum_dict.get(action, 0.0) / total for action in actions}
         else:
             uniform_prob = 1.0 / len(actions) if actions else 0.0
             return {action: uniform_prob for action in actions}
@@ -160,11 +184,9 @@ class RegretTracker:
     def reset_regrets(self):
         """Reset cumulative regrets (for CFR+)."""
         # Apply all pending discounts first before resetting negatives
-        for infoset in list(self.regrets.keys()):
+        for infoset in self._storage.get_all_infosets_regrets():
             self._apply_pending_regret_discount(infoset)
-            for action in self.regrets[infoset]:
-                if self.regrets[infoset][action] < 0:
-                    self.regrets[infoset][action] = 0.0
+            self._storage.reset_negative_regrets(infoset)
     
     def discount(self, regret_factor: float = 1.0, strategy_factor: float = 1.0):
         """Discount regrets and strategy (for CFR+ and Linear MCCFR).
@@ -189,9 +211,9 @@ class RegretTracker:
         In normal operation, discounts are applied lazily for performance.
         """
         # Apply pending discounts to all infosets
-        for infoset in list(self.regrets.keys()):
+        for infoset in self._storage.get_all_infosets_regrets():
             self._apply_pending_regret_discount(infoset)
-        for infoset in list(self.strategy_sum.keys()):
+        for infoset in self._storage.get_all_infosets_strategy():
             self._apply_pending_strategy_discount(infoset)
     
     def should_prune(self, infoset: str, actions: List[AbstractAction], threshold: float) -> bool:
@@ -205,14 +227,15 @@ class RegretTracker:
         Returns:
             True if all actions have regret below threshold
         """
-        if infoset not in self.regrets:
+        if not self._storage.has_infoset_regrets(infoset):
             return False  # No regrets yet, don't prune
         
         # Apply pending discounts before checking
         self._apply_pending_regret_discount(infoset)
         
+        regrets_dict = self._storage.get_all_regrets(infoset)
         for action in actions:
-            regret = self.regrets[infoset].get(action, 0.0)
+            regret = regrets_dict.get(action, 0.0)
             if regret >= threshold:
                 return False  # At least one action above threshold
         
@@ -228,30 +251,19 @@ class RegretTracker:
             Dictionary containing regrets and strategy_sum with serializable keys
         """
         # Apply all pending discounts before saving
-        for infoset in list(self.regrets.keys()):
+        for infoset in self._storage.get_all_infosets_regrets():
             self._apply_pending_regret_discount(infoset)
-        for infoset in list(self.strategy_sum.keys()):
+        for infoset in self._storage.get_all_infosets_strategy():
             self._apply_pending_strategy_discount(infoset)
         
-        # Convert AbstractAction keys to string values for serialization
-        regrets_serializable = {}
-        for infoset, action_dict in self.regrets.items():
-            regrets_serializable[infoset] = {
-                action.value: regret for action, regret in action_dict.items()
-            }
+        # Get state from storage backend
+        state = self._storage.get_state()
         
-        strategy_sum_serializable = {}
-        for infoset, action_dict in self.strategy_sum.items():
-            strategy_sum_serializable[infoset] = {
-                action.value: prob for action, prob in action_dict.items()
-            }
+        # Add lazy discount tracking state
+        state['cumulative_regret_discount'] = self._cumulative_regret_discount
+        state['cumulative_strategy_discount'] = self._cumulative_strategy_discount
         
-        return {
-            'regrets': regrets_serializable,
-            'strategy_sum': strategy_sum_serializable,
-            'cumulative_regret_discount': self._cumulative_regret_discount,
-            'cumulative_strategy_discount': self._cumulative_strategy_discount
-        }
+        return state
     
     def set_state(self, state: Dict):
         """Restore regret tracker state from checkpoint.
@@ -259,25 +271,19 @@ class RegretTracker:
         Args:
             state: Dictionary containing regrets and strategy_sum
         """
-        # Convert string keys back to AbstractAction
-        self.regrets = {}
-        for infoset, action_dict in state['regrets'].items():
-            self.regrets[infoset] = {
-                AbstractAction(action_str): regret 
-                for action_str, regret in action_dict.items()
-            }
-        
-        self.strategy_sum = {}
-        for infoset, action_dict in state['strategy_sum'].items():
-            self.strategy_sum[infoset] = {
-                AbstractAction(action_str): prob 
-                for action_str, prob in action_dict.items()
-            }
+        # Restore storage backend state
+        self._storage.set_state(state)
         
         # Restore lazy discount tracking state (with backward compatibility)
         self._cumulative_regret_discount = state.get('cumulative_regret_discount', 1.0)
         self._cumulative_strategy_discount = state.get('cumulative_strategy_discount', 1.0)
         
         # Reset tracking dictionaries - all infosets are now up-to-date
-        self._regret_discount_applied = {infoset: self._cumulative_regret_discount for infoset in self.regrets}
-        self._strategy_discount_applied = {infoset: self._cumulative_strategy_discount for infoset in self.strategy_sum}
+        self._regret_discount_applied = {
+            infoset: self._cumulative_regret_discount 
+            for infoset in self._storage.get_all_infosets_regrets()
+        }
+        self._strategy_discount_applied = {
+            infoset: self._cumulative_strategy_discount 
+            for infoset in self._storage.get_all_infosets_strategy()
+        }
