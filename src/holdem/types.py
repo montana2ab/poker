@@ -511,7 +511,12 @@ class SearchConfig:
     target_kl_river: float = 0.25
     
     # Public card sampling (board sampling) - Pluribus technique
-    samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
+    # This reduces variance in real-time subgame solving by sampling multiple future boards
+    enable_public_card_sampling: bool = False  # Enable/disable public card sampling (for ablation tests)
+    num_future_boards_samples: int = 1  # Number of future board samples (1 = disabled, 10-50 recommended)
+    samples_per_solve: int = 1  # DEPRECATED: Use num_future_boards_samples instead (kept for backward compatibility)
+    sampling_mode: str = "uniform"  # Sampling mode: "uniform" (uniform sampling, current implementation) or "weighted" (future: equity-weighted)
+    max_samples_warning_threshold: int = 100  # Warn if num_future_boards_samples exceeds this (performance concern)
     
     # Leaf continuation strategies (k=4 policies at leaves)
     use_leaf_policies: bool = False  # Enable multiple leaf policies (blueprint/fold-biased/call-biased/raise-biased)
@@ -551,6 +556,27 @@ class SearchConfig:
     def kl_divergence_weight(self) -> float:
         """Alias for kl_weight (backward compatibility)."""
         return self.kl_weight
+    
+    def get_effective_num_samples(self) -> int:
+        """Get effective number of board samples to use.
+        
+        Priority:
+        1. If enable_public_card_sampling is False, return 1 (disabled)
+        2. Otherwise, use num_future_boards_samples if > 1
+        3. Fall back to samples_per_solve for backward compatibility
+        
+        Returns:
+            Effective number of board samples (1 = disabled, >1 = enabled)
+        """
+        if not self.enable_public_card_sampling:
+            return 1
+        
+        # Use num_future_boards_samples if explicitly set
+        if self.num_future_boards_samples > 1:
+            return self.num_future_boards_samples
+        
+        # Fall back to samples_per_solve for backward compatibility
+        return max(1, self.samples_per_solve)
 
 
 @dataclass
@@ -580,7 +606,12 @@ class RTResolverConfig:
     track_metrics: bool = True  # Track solve time, iterations, EV delta
     
     # Public card sampling (board sampling) - Pluribus technique
-    samples_per_solve: int = 1  # Number of board samples per solve (1 = no sampling, 10-50 recommended)
+    # This reduces variance in real-time subgame solving by sampling multiple future boards
+    enable_public_card_sampling: bool = False  # Enable/disable public card sampling (for ablation tests)
+    num_future_boards_samples: int = 1  # Number of future board samples (1 = disabled, 10-50 recommended)
+    samples_per_solve: int = 1  # DEPRECATED: Use num_future_boards_samples instead (kept for backward compatibility)
+    sampling_mode: str = "uniform"  # Sampling mode: "uniform" (current) or "weighted" (future)
+    max_samples_warning_threshold: int = 100  # Warn if num_future_boards_samples exceeds this
     
     # Leaf continuation strategies (k=4 policies at leaves)
     use_leaf_policies: bool = False  # Enable multiple leaf policies at leaves
@@ -588,6 +619,27 @@ class RTResolverConfig:
     
     # Unsafe search from round start
     resolve_from_round_start: bool = False  # Start re-solve at beginning of current round
+    
+    def get_effective_num_samples(self) -> int:
+        """Get effective number of board samples to use.
+        
+        Priority:
+        1. If enable_public_card_sampling is False, return 1 (disabled)
+        2. Otherwise, use num_future_boards_samples if > 1
+        3. Fall back to samples_per_solve for backward compatibility
+        
+        Returns:
+            Effective number of board samples (1 = disabled, >1 = enabled)
+        """
+        if not self.enable_public_card_sampling:
+            return 1
+        
+        # Use num_future_boards_samples if explicitly set
+        if self.num_future_boards_samples > 1:
+            return self.num_future_boards_samples
+        
+        # Fall back to samples_per_solve for backward compatibility
+        return max(1, self.samples_per_solve)
 
 
 @dataclass

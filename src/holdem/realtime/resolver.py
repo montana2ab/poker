@@ -202,10 +202,24 @@ class SubgameResolver:
         Returns:
             Averaged strategy (probability distribution over actions)
         """
-        num_samples = self.config.samples_per_solve
+        import time as time_module
+        start_time = time_module.time()
         
-        # If samples_per_solve is 1, use standard solve (no sampling)
+        # Get effective number of samples from config
+        num_samples = self.config.get_effective_num_samples()
+        
+        # Log warning if num_samples is excessive
+        if num_samples > self.config.max_samples_warning_threshold:
+            logger.warning(
+                f"Public card sampling: num_future_boards_samples={num_samples} exceeds "
+                f"recommended threshold of {self.config.max_samples_warning_threshold}. "
+                f"This may cause significant performance degradation. "
+                f"Consider reducing to 10-50 samples for real-time play."
+            )
+        
+        # If sampling is disabled, use standard solve (no sampling)
         if num_samples <= 1:
+            logger.debug("Public card sampling disabled (num_samples=1)")
             return self.solve(subgame, infoset, time_budget_ms, street, is_oop)
         
         # Determine street from subgame if not provided
@@ -231,7 +245,15 @@ class SubgameResolver:
         # Get known cards (board + our hole cards)
         known_cards = current_board + our_cards
         
+        # Log sampling configuration
+        logger.info(
+            f"Public card sampling enabled: sampling {num_samples} future boards | "
+            f"street={street.name} | mode={self.config.sampling_mode} | "
+            f"current_board_cards={len(current_board)} → target={target_cards}"
+        )
+        
         # Sample future boards
+        sampling_start = time_module.time()
         try:
             sampled_boards = sample_public_cards(
                 num_samples=num_samples,
@@ -243,6 +265,9 @@ class SubgameResolver:
         except ValueError as e:
             logger.warning(f"Public card sampling failed: {e}. Falling back to single solve.")
             return self.solve(subgame, infoset, time_budget_ms, street, is_oop)
+        
+        sampling_time_ms = (time_module.time() - sampling_start) * 1000
+        logger.debug(f"Board sampling completed in {sampling_time_ms:.2f}ms")
         
         # Divide time budget across samples
         time_per_sample = time_budget_ms // num_samples if time_budget_ms else None
@@ -274,13 +299,26 @@ class SubgameResolver:
         # Average strategies across all samples
         averaged_strategy = self._average_strategies(strategies)
         
-        # Log sampling statistics
+        # Calculate total time spent
+        total_time_ms = (time_module.time() - start_time) * 1000
+        solve_time_ms = total_time_ms - sampling_time_ms
+        avg_solve_time_per_sample = solve_time_ms / num_samples if num_samples > 0 else 0
+        
+        # Log comprehensive sampling statistics
         if variances:
             avg_variance = np.mean(variances)
             max_variance = np.max(variances)
+            min_variance = np.min(variances)
             logger.info(
-                f"Public card sampling: {num_samples} boards | "
-                f"variance - avg: {avg_variance:.4f}, max: {max_variance:.4f}"
+                f"Public card sampling complete: {num_samples} boards sampled | "
+                f"total_time={total_time_ms:.1f}ms (sampling={sampling_time_ms:.1f}ms, "
+                f"solving={solve_time_ms:.1f}ms, avg_per_sample={avg_solve_time_per_sample:.1f}ms) | "
+                f"variance: avg={avg_variance:.4f}, min={min_variance:.4f}, max={max_variance:.4f}"
+            )
+        else:
+            logger.info(
+                f"Public card sampling complete: {num_samples} boards sampled | "
+                f"total_time={total_time_ms:.1f}ms"
             )
         
         return averaged_strategy

@@ -16,25 +16,79 @@ Public card sampling provides a middle ground: solve the subgame on K sampled fu
 
 ### 1. Configuration Parameters
 
-Two new parameters were added to control sampling:
+The following parameters control public card sampling behavior:
 
-**SearchConfig.samples_per_solve** (default: 1)
+#### SearchConfig Parameters
+
 ```python
 config = SearchConfig(
-    samples_per_solve=10,  # Number of board samples per solve
-    time_budget_ms=500     # Total time budget (divided across samples)
+    # Primary control flag - enables/disables sampling for ablation tests
+    enable_public_card_sampling=False,  # Set to True to enable
+    
+    # Number of future board samples (primary parameter)
+    num_future_boards_samples=10,  # 1 = disabled, 10-50 recommended
+    
+    # Legacy parameter (kept for backward compatibility)
+    samples_per_solve=1,  # Use num_future_boards_samples instead
+    
+    # Sampling mode (for future extensions)
+    sampling_mode="uniform",  # "uniform" or "weighted" (future)
+    
+    # Performance warning threshold
+    max_samples_warning_threshold=100,  # Warn if num_samples exceeds this
+    
+    # Time budget (divided across samples if sampling enabled)
+    time_budget_ms=500
 )
 ```
 
-**RTResolverConfig.samples_per_solve** (default: 1)
+#### RTResolverConfig Parameters
+
 ```python
 config = RTResolverConfig(
-    samples_per_solve=10,
+    enable_public_card_sampling=False,
+    num_future_boards_samples=10,
+    samples_per_solve=1,  # Legacy
+    sampling_mode="uniform",
+    max_samples_warning_threshold=100,
     time_ms=500
 )
 ```
 
-Setting `samples_per_solve=1` disables sampling (default behavior preserved).
+#### Parameter Details
+
+- **enable_public_card_sampling**: Master switch for enabling/disabling sampling. When False, always uses single solve regardless of other parameters. This enables clean ablation tests (ON vs OFF).
+
+- **num_future_boards_samples**: Number of future boards to sample. 
+  - `1` = disabled (no sampling, baseline behavior)
+  - `5-10` = fast real-time play with variance reduction
+  - `10-20` = balanced performance vs quality
+  - `20-50` = high quality for analysis/study
+  - `>100` = triggers performance warning
+
+- **sampling_mode**: Sampling strategy (extensibility for future enhancements)
+  - `"uniform"`: Uniform sampling from remaining deck (current implementation)
+  - `"weighted"`: Future support for equity-weighted sampling
+
+- **max_samples_warning_threshold**: Threshold for logging performance warnings. Sampling >100 boards significantly impacts real-time performance.
+
+#### Getting Effective Sample Count
+
+Both configs provide a helper method:
+
+```python
+config = SearchConfig(
+    enable_public_card_sampling=True,
+    num_future_boards_samples=20
+)
+
+# Get effective number of samples (respects enable flag)
+num_samples = config.get_effective_num_samples()  # Returns 20
+
+# If disabled, always returns 1
+config.enable_public_card_sampling = False
+num_samples = config.get_effective_num_samples()  # Returns 1
+```
 
 ### 2. Card Deck Utilities
 
@@ -207,14 +261,44 @@ config = SearchConfig(
 **Disabled (testing/debugging):**
 ```python
 config = SearchConfig(
-    samples_per_solve=1,     # No sampling
+    enable_public_card_sampling=False,  # Explicitly disabled
     time_budget_ms=100,
     min_iterations=100
 )
-# Expected: ~100ms (baseline)
+# Expected: ~100ms (baseline, no sampling)
 ```
 
-### Example 3: Different Streets
+### Example 3: Ablation Tests (Sampling ON vs OFF)
+
+Compare performance and quality with and without sampling:
+
+```python
+# Configuration without sampling (baseline)
+config_off = SearchConfig(
+    enable_public_card_sampling=False,
+    time_budget_ms=200,
+    min_iterations=100
+)
+
+# Configuration with sampling
+config_on = SearchConfig(
+    enable_public_card_sampling=True,
+    num_future_boards_samples=10,
+    time_budget_ms=200,
+    min_iterations=100
+)
+
+# Solve same position with both configs
+resolver_off = SubgameResolver(config_off, blueprint)
+strategy_off = resolver_off.solve_with_sampling(...)
+
+resolver_on = SubgameResolver(config_on, blueprint)
+strategy_on = resolver_on.solve_with_sampling(...)
+
+# Compare strategies, solve times, variance, etc.
+```
+
+### Example 4: Different Streets
 
 **Flop → Turn:**
 ```python
@@ -250,9 +334,79 @@ strategy = resolver.solve_with_sampling(...)
 # Uses standard solve() - no sampling needed
 ```
 
+## Experimentation
+
+### Running Experiments
+
+Use the provided experiment script to compare different sampling configurations:
+
+```bash
+# Quick test with default settings (100 hands, samples: 1,5,10,20)
+python experiments/compare_public_card_sampling.py
+
+# Custom configuration
+python experiments/compare_public_card_sampling.py \
+    --num-hands 500 \
+    --sample-counts 1,5,10,20,50 \
+    --time-budget 200 \
+    --min-iterations 100 \
+    --street flop \
+    --output experiments/results/my_test.json
+
+# Test on different streets
+python experiments/compare_public_card_sampling.py \
+    --street turn \
+    --num-hands 200 \
+    --sample-counts 1,10,20
+```
+
+### Experiment Script Features
+
+The `compare_public_card_sampling.py` script:
+- Compares multiple sampling configurations (OFF vs various sample counts)
+- Measures solve times (avg, min, max, std)
+- Calculates throughput (hands/second)
+- Shows overhead vs baseline (sampling OFF)
+- Saves results to JSON for further analysis
+- Supports different streets (preflop, flop, turn, river)
+
+### Example Output
+
+```
+====================================================================================================
+EXPERIMENT RESULTS - Public Card Sampling Comparison
+====================================================================================================
+
+Configuration                  Avg Time (ms)   Min (ms)     Max (ms)     Std (ms)     Hands/s   
+----------------------------------------------------------------------------------------------------
+sampling_OFF                   2.73            2.31         9.70         1.60         361.96    
+sampling_ON_samples_5          14.78           14.65        15.23        0.11         67.46     
+sampling_ON_samples_10         27.26           27.08        27.48        0.12         36.63     
+
+----------------------------------------------------------------------------------------------------
+Comparison vs Baseline (sampling OFF):
+----------------------------------------------------------------------------------------------------
+sampling_ON_samples_5          Time overhead: +442.4% | Throughput: 0.19x baseline
+sampling_ON_samples_10         Time overhead: +900.0% | Throughput: 0.10x baseline
+====================================================================================================
+```
+
+### Analyzing Results
+
+The experiment JSON output contains:
+- Configuration parameters (time_budget_ms, min_iterations)
+- Per-configuration results (solve times, throughput)
+- Timestamp for tracking experiments
+
+Use this data to:
+1. **Tune sample counts**: Find optimal balance between quality and performance
+2. **Compare streets**: Understand sampling impact on different streets
+3. **Profile performance**: Identify bottlenecks and optimization opportunities
+4. **Validate implementation**: Ensure no crashes/NaN with sampling enabled/disabled
+
 ## Testing
 
-Three test suites verify the implementation:
+Test suites verify the implementation:
 
 1. **test_public_card_sampling.py**: Card sampling utilities
    - Full deck creation
@@ -261,22 +415,60 @@ Three test suites verify the implementation:
    - Variance in samples
    - Configuration parameters
 
-2. **test_resolver_sampling.py**: Resolver integration
-   - Solve with/without sampling
-   - Automatic fallbacks
-   - Strategy averaging
-   - Variance calculation
+2. **test_public_card_sampling_config.py**: Configuration and ablation
+   - Enable/disable functionality
+   - Configuration parameter validation
+   - Backward compatibility with samples_per_solve
+   - Warning system for excessive samples
+   - Ablation tests (ON vs OFF)
+   - Logging and statistics
 
-3. **test_sampling_performance.py**: Performance benchmarks
-   - Compute overhead measurement
-   - Variance reduction validation
-   - Scaling tests
+3. **test_public_card_sampling_extended.py**: Extended tests
+   - Higher sample counts (16, 32, 64)
+   - Variance reduction measurement
+   - Latency scaling validation
 
 Run tests:
 ```bash
-pytest tests/test_public_card_sampling.py -v
-pytest tests/test_resolver_sampling.py -v
-python tests/test_sampling_performance.py
+# Run all sampling tests
+pytest tests/test_public_card_sampling*.py -v
+
+# Run specific test file
+pytest tests/test_public_card_sampling_config.py -v
+
+# Run with logging output
+pytest tests/test_public_card_sampling_config.py -v -s --log-cli-level=INFO
+```
+
+## Logging
+
+Public card sampling includes comprehensive logging:
+
+### INFO Level Logs
+
+```
+INFO     Public card sampling enabled: sampling 10 future boards | 
+         street=FLOP | mode=uniform | current_board_cards=3 → target=4
+
+INFO     Public card sampling complete: 10 boards sampled | 
+         total_time=27.3ms (sampling=0.3ms, solving=27.0ms, avg_per_sample=2.7ms) | 
+         variance: avg=0.0245, min=0.0000, max=0.0412
+```
+
+### WARNING Level Logs
+
+```
+WARNING  Public card sampling: num_future_boards_samples=150 exceeds 
+         recommended threshold of 100. This may cause significant performance 
+         degradation. Consider reducing to 10-50 samples for real-time play.
+```
+
+### DEBUG Level Logs
+
+```
+DEBUG    Public card sampling disabled (num_samples=1)
+DEBUG    River street - no public card sampling needed
+DEBUG    Board sampling completed in 0.28ms
 ```
 
 ## API Reference
@@ -286,7 +478,23 @@ python tests/test_sampling_performance.py
 ```python
 @dataclass
 class SearchConfig:
-    samples_per_solve: int = 1  # Number of board samples (1 = disabled)
+    # Master switch for enabling/disabling sampling
+    enable_public_card_sampling: bool = False
+    
+    # Number of future board samples (primary parameter)
+    num_future_boards_samples: int = 1  # 1 = disabled, 10-50 recommended
+    
+    # Legacy parameter (backward compatibility)
+    samples_per_solve: int = 1  # Use num_future_boards_samples instead
+    
+    # Sampling mode ("uniform" or "weighted")
+    sampling_mode: str = "uniform"
+    
+    # Performance warning threshold
+    max_samples_warning_threshold: int = 100
+    
+    def get_effective_num_samples(self) -> int:
+        """Get effective number of samples (respects enable flag)."""
 ```
 
 ### RTResolverConfig
@@ -294,7 +502,15 @@ class SearchConfig:
 ```python
 @dataclass
 class RTResolverConfig:
-    samples_per_solve: int = 1  # Number of board samples (1 = disabled)
+    # Same parameters as SearchConfig
+    enable_public_card_sampling: bool = False
+    num_future_boards_samples: int = 1
+    samples_per_solve: int = 1
+    sampling_mode: str = "uniform"
+    max_samples_warning_threshold: int = 100
+    
+    def get_effective_num_samples(self) -> int:
+        """Get effective number of samples (respects enable flag)."""
 ```
 
 ### SubgameResolver Methods
