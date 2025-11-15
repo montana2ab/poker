@@ -151,6 +151,16 @@ def main():
         bucketing = HandBucketing(BucketConfig())
         bucketing.fitted = True
     
+    # Load vision performance config
+    from holdem.vision.vision_performance_config import VisionPerformanceConfig
+    perf_config_path = Path("configs/vision_performance.yaml")
+    if perf_config_path.exists():
+        perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
+        logger.info("Loaded vision performance config from configs/vision_performance.yaml")
+    else:
+        perf_config = VisionPerformanceConfig.default()
+        logger.info("Using default vision performance config (all optimizations enabled)")
+    
     # Setup components
     screen_capture = ScreenCapture()
     
@@ -182,16 +192,6 @@ def main():
         logger.info("Using OCR backend: paddleocr (default)")
     
     ocr_engine = OCREngine(backend=ocr_backend)
-    
-    # Load vision performance config
-    from holdem.vision.vision_performance_config import VisionPerformanceConfig
-    perf_config_path = Path("configs/vision_performance.yaml")
-    if perf_config_path.exists():
-        perf_config = VisionPerformanceConfig.from_yaml(perf_config_path)
-        logger.info("Loaded vision performance config from configs/vision_performance.yaml")
-    else:
-        perf_config = VisionPerformanceConfig.default()
-        logger.info("Using default vision performance config (all optimizations enabled)")
     
     # Create chat-enabled state parser
     enable_chat = not args.disable_chat_parsing
