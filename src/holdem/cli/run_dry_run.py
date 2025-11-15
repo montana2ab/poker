@@ -115,6 +115,15 @@ def main():
     logger.info(f"Loading table profile from {args.profile}")
     profile = TableProfile.load(args.profile)
     
+    # Log hero position info
+    if args.hero_position is not None:
+        logger.info(f"Using fixed hero position: {args.hero_position} (from CLI)")
+    elif hasattr(profile, 'hero_position') and profile.hero_position is not None:
+        logger.info(f"Using hero position from profile: {profile.hero_position}")
+    else:
+        logger.info("Hero position not specified - will use auto-detection")
+        logger.info("TIP: Specify --hero-position for better performance (e.g., --hero-position 2)")
+    
     # Load policy
     logger.info(f"Loading policy from {args.policy}")
     if args.policy.suffix == '.json':
@@ -136,7 +145,10 @@ def main():
     
     # Setup components
     screen_capture = ScreenCapture()
-    table_detector = TableDetector(profile)
+    
+    # Create table detector with homography setting from perf config
+    enable_homography = perf_config.detect_table.enable_homography if perf_config else True
+    table_detector = TableDetector(profile, enable_homography=enable_homography)
     
     # Setup card recognizer with hero templates if configured
     hero_templates_dir = None

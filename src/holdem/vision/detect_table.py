@@ -98,7 +98,8 @@ def _load_refs_from_paths(profile: TableProfile, profile_path: Optional[Path] = 
 class TableDetector:
     """Detects and warps poker table using feature matching."""
     
-    def __init__(self, profile: TableProfile, method: str = "orb", profile_path: Optional[Path] = None):
+    def __init__(self, profile: TableProfile, method: str = "orb", profile_path: Optional[Path] = None, 
+                 enable_homography: bool = True):
         """
         Initialize table detector.
         
@@ -106,9 +107,20 @@ class TableDetector:
             profile: TableProfile with reference image and descriptors
             method: Feature detection method ("orb" or "akaze")
             profile_path: Optional path to profile JSON (for resolving relative paths in references)
+            enable_homography: If False, skip homography completely and use raw screenshot
         """
         self.profile = profile
         self.method = method.lower()
+        self.enable_homography = enable_homography
+        self._homography_disabled_logged = False  # Log once at startup
+        
+        # Skip all homography initialization if disabled
+        if not self.enable_homography:
+            self.detector = None
+            if not self._homography_disabled_logged:
+                logger.info("Homography disabled by config, using raw screenshot coordinates.")
+                self._homography_disabled_logged = True
+            return
         
         # Load references from paths if they are strings
         _load_refs_from_paths(profile, profile_path)
@@ -132,7 +144,14 @@ class TableDetector:
             logger.info("Computed keypoints from reference image (descriptors loaded from file)")
     
     def detect(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
-        """Detect table and return warped image."""
+        """Detect table and return warped image.
+        
+        If homography is disabled, returns the original screenshot unchanged.
+        """
+        # If homography disabled, return screenshot as-is
+        if not self.enable_homography:
+            return screenshot
+        
         if self.profile.reference_image is None or self.profile.descriptors is None:
             logger.warning("No reference image/descriptors in profile")
             return screenshot  # Return unwarped
@@ -281,7 +300,14 @@ class TableDetector:
         return True
     
     def get_transform(self, screenshot: np.ndarray) -> Optional[np.ndarray]:
-        """Get homography transformation matrix."""
+        """Get homography transformation matrix.
+        
+        Returns None if homography is disabled.
+        """
+        # If homography disabled, return None
+        if not self.enable_homography:
+            return None
+        
         if self.profile.reference_image is None or self.profile.descriptors is None:
             return None
         

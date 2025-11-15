@@ -39,6 +39,17 @@ vision_performance:
   # Chat parsing frequency (0 = disable, 1 = every frame, N = every Nth frame)
   chat_parse_interval: 3
   
+  # Table detection / homography settings
+  detect_table:
+    # Enable/disable homography transformation
+    # When disabled, uses raw screenshot coordinates directly (faster but requires fixed table position)
+    # When enabled, applies perspective correction (slower but adapts to table movements)
+    enable_homography: true
+    
+    # Number of recent parses to check for valid data when homography is disabled
+    # If no valid stacks/pot detected in this window, logs a warning
+    health_check_window: 20
+  
   # Visual button detection configuration
   # Detects dealer button position using color-based detection on button_region patches
   vision_button_detection:

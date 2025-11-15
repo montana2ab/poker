@@ -37,9 +37,9 @@ class BoardCache:
         if self.street != new_street:
             logger.debug(f"[BOARD CACHE] Street changed from {self.street} to {new_street}, invalidating cache")
             self.street = new_street
-            self.cards = [None] * 5
+            self.cards = new_cards if new_cards else [None] * 5
             self.stable = False
-            self.stability_frames = 0
+            self.stability_frames = 1  # Start counting from 1 if we have cards
             return False
         
         # No new cards provided - check if cache is stable
