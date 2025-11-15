@@ -88,6 +88,8 @@ def main():
                        help="File to save metrics report (optional, default: console only)")
     parser.add_argument("--metrics-format", type=str, choices=["text", "json"], default="text",
                        help="Metrics report format (text or json, default: text)")
+    parser.add_argument("--hero-position", type=int, default=None,
+                       help="Fixed hero position (0-5 for 6-max). Overrides config value. If not provided, uses config or auto-detection.")
     
     args = parser.parse_args()
     
@@ -188,7 +190,8 @@ def main():
         enable_chat_parsing=enable_chat,
         debug_dir=args.debug_images,
         vision_metrics=vision_metrics,
-        perf_config=perf_config
+        perf_config=perf_config,
+        hero_position=args.hero_position
     )
     
     # Create leaf evaluator based on arguments

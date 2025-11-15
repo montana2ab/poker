@@ -245,7 +245,8 @@ class StateParser:
         ocr_engine: OCREngine,
         debug_dir: Optional[Path] = None,
         vision_metrics: Optional['VisionMetrics'] = None,
-        perf_config: Optional[VisionPerformanceConfig] = None
+        perf_config: Optional[VisionPerformanceConfig] = None,
+        hero_position: Optional[int] = None
     ):
         self.profile = profile
         self.card_recognizer = card_recognizer
@@ -255,6 +256,9 @@ class StateParser:
         self._debug_counter = 0
         self.hero_cards_tracker = HeroCardsTracker()  # Track stable hero cards
         self._last_pot = 0.0  # Track pot for regression detection
+        
+        # Store fixed hero position if provided (takes precedence over profile.hero_position)
+        self.fixed_hero_position = hero_position
         
         # Performance optimization config
         self.perf_config = perf_config or VisionPerformanceConfig.default()
@@ -347,8 +351,11 @@ class StateParser:
             # Calculate current_bet (highest bet this round)
             current_bet = max([p.bet_this_round for p in players], default=0.0)
             
-            # Get hero position from profile
-            hero_position = self.profile.hero_position
+            # Get hero position - use fixed position if provided, otherwise use profile
+            if self.fixed_hero_position is not None:
+                hero_position = self.fixed_hero_position
+            else:
+                hero_position = self.profile.hero_position
             
             # Calculate hero-specific values if hero is known
             is_in_position = False
@@ -615,7 +622,13 @@ class StateParser:
         players = []
         has_showdown_label = False  # Track if any showdown label detected
         parse_opp = getattr(self.profile, "parse_opponent_cards", False)
-        hero_pos = getattr(self.profile, "hero_position", None)
+        
+        # Use fixed hero position if provided, otherwise fallback to profile
+        if self.fixed_hero_position is not None:
+            hero_pos = self.fixed_hero_position
+        else:
+            hero_pos = getattr(self.profile, "hero_position", None)
+        
         for i, player_region in enumerate(self.profile.player_regions):
             table_position = player_region.get('position', i)
             # Extract stack
