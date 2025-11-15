@@ -1,0 +1,61 @@
+{
+  "name": "Example Table Profile with Chat Region",
+  "window_title": "PokerStars",
+  "owner_name": "PokerStars",
+  "screen_region": [100, 100, 1000, 700],
+  
+  "comment": "Chat region configuration for event parsing",
+  "chat_region": {
+    "comment": "Location of the chat/history box on the poker table",
+    "x": 10,
+    "y": 550,
+    "width": 350,
+    "height": 140
+  },
+  
+  "comment_chat_setup": [
+    "To find your chat region coordinates:",
+    "1. Take a screenshot of your poker table",
+    "2. Open in image editor and measure the chat box location",
+    "3. x, y = top-left corner coordinates",
+    "4. width, height = size of the chat box",
+    "5. Make sure to capture multiple lines of chat text",
+    "6. Avoid including borders, buttons, or avatars"
+  ],
+  
+  "pot_region": {
+    "x": 400,
+    "y": 300,
+    "width": 100,
+    "height": 30
+  },
+  
+  "card_regions": [
+    {
+      "name": "board",
+      "x": 350,
+      "y": 270,
+      "width": 250,
+      "height": 60
+    }
+  ],
+  
+  "player_regions": [
+    {
+      "position": 0,
+      "name_roi": [450, 450, 100, 20],
+      "stack_roi": [450, 470, 100, 20],
+      "bet_roi": [450, 420, 100, 20],
+      "cards_roi": [420, 380, 160, 40]
+    }
+  ],
+  
+  "button_regions": {
+    "fold": {"x": 600, "y": 600, "width": 80, "height": 30},
+    "call": {"x": 700, "y": 600, "width": 80, "height": 30},
+    "raise": {"x": 800, "y": 600, "width": 80, "height": 30}
+  },
+  
+  "hero_position": 0,
+  "card_spacing": -5
+}
