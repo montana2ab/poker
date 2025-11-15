@@ -8,12 +8,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import numpy as np
 import pytest
+import json
+import tempfile
+from pathlib import Path
 from holdem.rl_eval.statistics import (
     compute_confidence_interval,
     required_sample_size,
     check_margin_adequacy,
     format_ci_result,
-    estimate_variance_reduction
+    estimate_variance_reduction,
+    EvaluationStats,
+    export_evaluation_results
 )
 
 
@@ -359,6 +364,274 @@ class TestIntegrationScenarios:
         
         # AIVAT should require significantly fewer samples
         assert n_aivat < n_vanilla * 0.3  # Should need <30% of samples
+
+
+class TestEvaluationStats:
+    """Tests for EvaluationStats class."""
+    
+    def test_init(self):
+        """Test EvaluationStats initialization."""
+        stats = EvaluationStats(big_blind=2.0, confidence_level=0.95)
+        
+        assert stats.big_blind == 2.0
+        assert stats.confidence_level == 0.95
+        assert len(stats.player_results) == 0
+    
+    def test_add_result_single(self):
+        """Test adding single results."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_result(0, 10.0)
+        stats.add_result(0, -5.0)
+        stats.add_result(1, 20.0)
+        
+        assert len(stats.player_results[0]) == 2
+        assert len(stats.player_results[1]) == 1
+        assert stats.player_results[0] == [10.0, -5.0]
+        assert stats.player_results[1] == [20.0]
+    
+    def test_add_results_batch(self):
+        """Test adding batch results."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_results_batch(0, [1.0, 2.0, 3.0])
+        stats.add_results_batch(0, [4.0, 5.0])
+        
+        assert len(stats.player_results[0]) == 5
+        assert stats.player_results[0] == [1.0, 2.0, 3.0, 4.0, 5.0]
+    
+    def test_compute_metrics_basic(self):
+        """Test basic metrics computation."""
+        np.random.seed(42)
+        stats = EvaluationStats(big_blind=2.0)
+        
+        # Add 100 hands for player 0 with mean payoff of 4.0
+        payoffs = np.random.normal(4.0, 10.0, 100).tolist()
+        stats.add_results_batch(0, payoffs)
+        
+        metrics = stats.compute_metrics(player_id=0)
+        
+        assert 0 in metrics
+        m = metrics[0]
+        
+        # Check all required fields
+        assert 'n_hands' in m
+        assert 'mean_payoff' in m
+        assert 'bb_per_100' in m
+        assert 'std' in m
+        assert 'ci_lower' in m
+        assert 'ci_upper' in m
+        assert 'ci_lower_bb100' in m
+        assert 'ci_upper_bb100' in m
+        assert 'margin' in m
+        assert 'margin_bb100' in m
+        
+        assert m['n_hands'] == 100
+        
+        # Mean should be close to 4.0
+        assert abs(m['mean_payoff'] - 4.0) < 2.0
+        
+        # bb/100 should be mean_payoff / 2.0 * 100
+        expected_bb100 = (m['mean_payoff'] / 2.0) * 100
+        assert abs(m['bb_per_100'] - expected_bb100) < 0.01
+        
+        # CI bounds should contain the mean
+        assert m['ci_lower'] <= m['mean_payoff'] <= m['ci_upper']
+        assert m['ci_lower_bb100'] <= m['bb_per_100'] <= m['ci_upper_bb100']
+    
+    def test_compute_metrics_multiple_players(self):
+        """Test metrics computation for multiple players."""
+        np.random.seed(42)
+        stats = EvaluationStats(big_blind=2.0)
+        
+        # Player 0: winning player
+        stats.add_results_batch(0, np.random.normal(5.0, 10.0, 100).tolist())
+        
+        # Player 1: losing player
+        stats.add_results_batch(1, np.random.normal(-5.0, 10.0, 100).tolist())
+        
+        metrics = stats.compute_metrics()
+        
+        assert len(metrics) == 2
+        assert 0 in metrics
+        assert 1 in metrics
+        
+        # Player 0 should have positive bb/100
+        assert metrics[0]['bb_per_100'] > 0
+        
+        # Player 1 should have negative bb/100
+        assert metrics[1]['bb_per_100'] < 0
+    
+    def test_bb100_calculation(self):
+        """Test bb/100 calculation with known values."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        # If player wins 4 chips per hand on average, that's 2 BB per hand
+        # Which is 200 BB/100
+        stats.add_results_batch(0, [4.0] * 100)
+        
+        metrics = stats.compute_metrics(player_id=0)
+        m = metrics[0]
+        
+        assert m['mean_payoff'] == 4.0
+        assert m['bb_per_100'] == 200.0
+    
+    def test_to_dict(self):
+        """Test serialization to dictionary."""
+        np.random.seed(42)
+        stats = EvaluationStats(big_blind=2.0, confidence_level=0.95)
+        
+        stats.add_results_batch(0, [1.0, 2.0, 3.0])
+        
+        result = stats.to_dict(include_raw_results=False)
+        
+        assert 'big_blind' in result
+        assert 'confidence_level' in result
+        assert 'players' in result
+        assert result['big_blind'] == 2.0
+        assert result['confidence_level'] == 0.95
+        assert 0 in result['players']
+        
+        # Should not include raw results
+        assert 'raw_results' not in result
+    
+    def test_to_dict_with_raw(self):
+        """Test serialization with raw results."""
+        stats = EvaluationStats(big_blind=2.0)
+        stats.add_results_batch(0, [1.0, 2.0, 3.0])
+        
+        result = stats.to_dict(include_raw_results=True)
+        
+        assert 'raw_results' in result
+        assert '0' in result['raw_results']
+        assert result['raw_results']['0'] == [1.0, 2.0, 3.0]
+    
+    def test_format_summary(self):
+        """Test summary formatting."""
+        np.random.seed(42)
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_results_batch(0, np.random.normal(5.0, 10.0, 100).tolist())
+        
+        summary = stats.format_summary()
+        
+        assert 'Player 0' in summary
+        assert 'Hands played' in summary
+        assert 'bb/100' in summary
+        assert 'CI' in summary
+    
+    def test_get_player_ids(self):
+        """Test getting player IDs."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_result(0, 1.0)
+        stats.add_result(2, 2.0)
+        stats.add_result(5, 3.0)
+        
+        player_ids = stats.get_player_ids()
+        
+        assert set(player_ids) == {0, 2, 5}
+    
+    def test_clear(self):
+        """Test clearing results."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_result(0, 1.0)
+        stats.add_result(1, 2.0)
+        
+        assert len(stats.player_results) == 2
+        
+        stats.clear()
+        
+        assert len(stats.player_results) == 0
+    
+    def test_single_hand_no_ci(self):
+        """Test that single hand produces valid metrics without meaningful CI."""
+        stats = EvaluationStats(big_blind=2.0)
+        
+        stats.add_result(0, 10.0)
+        
+        metrics = stats.compute_metrics(player_id=0)
+        m = metrics[0]
+        
+        assert m['n_hands'] == 1
+        assert m['mean_payoff'] == 10.0
+        assert m['bb_per_100'] == 500.0  # 10 / 2 * 100
+        assert m['margin'] == 0.0
+        assert m['margin_bb100'] == 0.0
+
+
+class TestExportResults:
+    """Tests for export_evaluation_results function."""
+    
+    def test_export_basic(self):
+        """Test basic export functionality."""
+        np.random.seed(42)
+        stats = EvaluationStats(big_blind=2.0)
+        stats.add_results_batch(0, np.random.normal(5.0, 10.0, 100).tolist())
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {'num_hands': 100, 'seed': 42}
+            
+            filepath = export_evaluation_results(
+                stats,
+                output_dir=tmpdir,
+                config=config
+            )
+            
+            # Check file exists
+            assert Path(filepath).exists()
+            
+            # Check file is valid JSON
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            
+            # Verify structure
+            assert 'metadata' in data
+            assert 'config' in data
+            assert 'statistics' in data
+            
+            assert data['config']['num_hands'] == 100
+            assert data['config']['seed'] == 42
+    
+    def test_export_filename_format(self):
+        """Test export filename format."""
+        stats = EvaluationStats(big_blind=2.0)
+        stats.add_result(0, 10.0)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = export_evaluation_results(
+                stats,
+                output_dir=tmpdir,
+                prefix="TEST_RESULTS"
+            )
+            
+            filename = Path(filepath).name
+            
+            # Should have format: PREFIX_YYYY-MM-DD_HH-MM-SS_hash.json
+            assert filename.startswith("TEST_RESULTS_")
+            assert filename.endswith(".json")
+    
+    def test_export_with_metadata(self):
+        """Test export includes proper metadata."""
+        stats = EvaluationStats(big_blind=2.0)
+        stats.add_result(0, 10.0)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = export_evaluation_results(
+                stats,
+                output_dir=tmpdir,
+                config={'test': 'value'}
+            )
+            
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            
+            # Check metadata
+            assert 'timestamp' in data['metadata']
+            assert 'config_hash' in data['metadata']
+            assert 'version' in data['metadata']
+            assert data['metadata']['version'] == '1.0'
 
 
 if __name__ == "__main__":

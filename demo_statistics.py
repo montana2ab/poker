@@ -192,7 +192,7 @@ def demo_full_evaluation():
     print("-"*70)
     
     for baseline_name, metrics in results.items():
-        if baseline_name == 'aivat_stats':
+        if baseline_name in ['aivat_stats', 'bb100_stats', 'export_path']:
             continue
         
         ci = metrics['confidence_interval']
