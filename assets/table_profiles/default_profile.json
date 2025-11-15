@@ -5,8 +5,7 @@
   "reference_image": "assets/ref/table_ref.png",
   "descriptors": "assets/ref/table_ref_orb.npz",
   "hero_position": 0,
-  "card_regions": [
-    {
+  "card_regions": [ {
       "x": 350,
       "y": 350,
       "width": 300,
