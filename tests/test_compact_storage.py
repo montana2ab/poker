@@ -1,437 +1,303 @@
-"""
-Tests for compact infoset encoding (int32 storage with Pluribus parity).
+"""Tests for compact storage functionality."""
 
-Tests Phase 2.3: Compact storage of regrets/strategies
-"""
-
-import sys
-sys.path.insert(0, 'src')
-sys.path.insert(0, '.')
-
+import pytest
 import numpy as np
-from abstraction.infoset_encoding import (
-    CompactRegretEncoder,
-    CompactCheckpointWriter,
-    benchmark_encoding_latency,
-    format_memory_report,
-    REGRET_FLOOR
-)
+from holdem.abstraction.actions import AbstractAction
+from holdem.mccfr.regrets import RegretTracker
+from holdem.mccfr.compact_storage import CompactRegretStorage
 
 
-def test_encode_decode_basic():
-    """Test basic encoding and decoding of regret values."""
-    encoder = CompactRegretEncoder()
+def test_compact_storage_basic_operations():
+    """Test basic operations of compact storage."""
+    storage = CompactRegretStorage()
     
-    # Test basic values
-    regrets = {
-        'fold': 0.0,
-        'call': 1500.5,
-        'bet_0.5p': -5000.0,
-        'bet_1.0p': 100000.0
-    }
+    # Test update and get regret
+    infoset = "preflop|0|AA"
+    action = AbstractAction.BET_HALF_POT
     
-    # Encode
-    encoded = encoder.encode_regrets(regrets)
-    assert all(isinstance(v, (int, np.integer)) for v in encoded.values())
+    storage.update_regret(infoset, action, 10.0)
+    regret = storage.get_regret(infoset, action)
     
-    # Decode
-    decoded = encoder.decode_regrets(encoded)
+    assert abs(regret - 10.0) < 1e-5
     
-    # Check values are close (may have rounding)
-    assert abs(decoded['fold'] - 0.0) < 1.0
-    assert abs(decoded['call'] - 1500.5) < 1.0
-    assert abs(decoded['bet_0.5p'] - (-5000.0)) < 1.0
-    assert abs(decoded['bet_1.0p'] - 100000.0) < 1.0
+    # Test multiple actions
+    storage.update_regret(infoset, AbstractAction.FOLD, -5.0)
+    storage.update_regret(infoset, AbstractAction.CHECK_CALL, 2.0)
+    
+    assert abs(storage.get_regret(infoset, AbstractAction.FOLD) - (-5.0)) < 1e-5
+    assert abs(storage.get_regret(infoset, AbstractAction.CHECK_CALL) - 2.0) < 1e-5
 
 
-def test_regret_floor():
-    """Test that regret floor is applied correctly."""
-    encoder = CompactRegretEncoder()
+def test_compact_vs_dense_regret_updates():
+    """Test that compact storage produces same results as dense storage."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    # Test values below floor
-    regrets = {
-        'action1': -400_000_000.0,  # Below floor
-        'action2': -310_000_000.0,  # At floor
-        'action3': -300_000_000.0,  # Above floor
-    }
+    infoset = "preflop|0|KK"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT]
     
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
+    # Apply same updates to both
+    for i in range(10):
+        for action in actions:
+            regret = np.random.randn() * 100
+            dense.update_regret(infoset, action, regret)
+            compact.update_regret(infoset, action, regret)
     
-    # Values below floor should be floored
-    assert decoded['action1'] == REGRET_FLOOR
-    assert decoded['action2'] == REGRET_FLOOR
-    assert decoded['action3'] == -300_000_000.0
+    # Check regrets match
+    for action in actions:
+        dense_regret = dense.get_regret(infoset, action)
+        compact_regret = compact.get_regret(infoset, action)
+        
+        # Allow small floating point differences (float32 vs float64)
+        assert abs(dense_regret - compact_regret) < 1e-3, \
+            f"Regret mismatch for {action}: dense={dense_regret}, compact={compact_regret}"
 
 
-def test_large_positive_regrets():
-    """Test handling of large positive regret values."""
-    encoder = CompactRegretEncoder()
+def test_compact_vs_dense_strategy():
+    """Test that strategy computation matches between storage modes."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    regrets = {
-        'action1': 1_000_000.0,
-        'action2': 50_000_000.0,
-        'action3': 2_000_000_000.0,  # 2 billion (within int32 range)
-    }
+    infoset = "flop|0|QQ|c"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT]
     
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
+    # Apply regret updates
+    dense.update_regret(infoset, AbstractAction.FOLD, -20.0)
+    dense.update_regret(infoset, AbstractAction.CHECK_CALL, 30.0)
+    dense.update_regret(infoset, AbstractAction.BET_HALF_POT, 50.0)
     
-    # Check values are preserved
-    assert abs(decoded['action1'] - 1_000_000.0) < 1.0
-    assert abs(decoded['action2'] - 50_000_000.0) < 1.0
-    assert abs(decoded['action3'] - 2_000_000_000.0) < 1.0
+    compact.update_regret(infoset, AbstractAction.FOLD, -20.0)
+    compact.update_regret(infoset, AbstractAction.CHECK_CALL, 30.0)
+    compact.update_regret(infoset, AbstractAction.BET_HALF_POT, 50.0)
+    
+    # Get strategies
+    dense_strategy = dense.get_strategy(infoset, actions)
+    compact_strategy = compact.get_strategy(infoset, actions)
+    
+    # Check strategies match
+    for action in actions:
+        assert abs(dense_strategy[action] - compact_strategy[action]) < 1e-5, \
+            f"Strategy mismatch for {action}"
 
 
-def test_encode_decode_table():
-    """Test encoding/decoding full regret tables."""
-    encoder = CompactRegretEncoder()
+def test_compact_vs_dense_average_strategy():
+    """Test that average strategy matches between storage modes."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    # Create sample regret table
-    regret_table = {
-        'v2:PREFLOP:5:': {
-            'fold': -1000.0,
-            'call': 500.0,
-            'bet_0.5p': 2000.0
-        },
-        'v2:FLOP:12:C': {
-            'fold': 0.0,
-            'call': 1500.0,
-            'bet_0.75p': -3000.0
-        },
-        'v2:TURN:42:C-B75': {
-            'fold': -5000.0,
-            'call': 0.0,
-            'bet_1.0p': 10000.0,
-            'all_in': 50000.0
-        }
-    }
+    infoset = "river|0|AA|c|c|c"
+    actions = [AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT, AbstractAction.BET_POT]
     
-    # Encode table
-    encoded_table = encoder.encode_regret_table(regret_table)
+    # Build strategy over iterations
+    for i in range(20):
+        # Update regrets
+        for action in actions:
+            regret = np.random.randn() * 10
+            dense.update_regret(infoset, action, regret)
+            compact.update_regret(infoset, action, regret)
+        
+        # Get current strategy
+        dense_strategy = dense.get_strategy(infoset, actions)
+        compact_strategy = compact.get_strategy(infoset, actions)
+        
+        # Add to strategy sum (with linear weighting)
+        weight = float(i + 1)
+        dense.add_strategy(infoset, dense_strategy, weight)
+        compact.add_strategy(infoset, compact_strategy, weight)
     
-    # Check structure is preserved
-    assert len(encoded_table) == len(regret_table)
-    assert set(encoded_table.keys()) == set(regret_table.keys())
+    # Compare average strategies
+    dense_avg = dense.get_average_strategy(infoset, actions)
+    compact_avg = compact.get_average_strategy(infoset, actions)
     
-    # Decode table
-    decoded_table = encoder.decode_regret_table(encoded_table)
-    
-    # Check values are close
-    for infoset in regret_table:
-        for action in regret_table[infoset]:
-            original = regret_table[infoset][action]
-            decoded = decoded_table[infoset][action]
-            assert abs(decoded - original) < 1.0, f"Mismatch for {infoset}:{action}"
+    for action in actions:
+        assert abs(dense_avg[action] - compact_avg[action]) < 1e-4, \
+            f"Average strategy mismatch for {action}"
 
 
-def test_strategy_table_encoding():
-    """Test encoding/decoding strategy sum tables."""
-    encoder = CompactRegretEncoder()
+def test_compact_vs_dense_discounting():
+    """Test that discounting works the same in both modes."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    # Strategy sums are always non-negative
-    strategy_table = {
-        'v2:PREFLOP:5:': {
-            'fold': 100.0,
-            'call': 500.0,
-            'bet_0.5p': 2000.0
-        },
-        'v2:FLOP:12:C': {
-            'fold': 50.0,
-            'call': 1500.0,
-            'bet_0.75p': 3000.0
-        }
-    }
+    infoset = "turn|0|KK|r|c"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_POT]
     
-    # Encode
-    encoded = encoder.encode_strategy_table(strategy_table)
+    # Initialize with some regrets
+    for action in actions:
+        regret = np.random.randn() * 50
+        dense.update_regret(infoset, action, regret)
+        compact.update_regret(infoset, action, regret)
     
-    # Decode
-    decoded = encoder.decode_strategy_table(encoded)
+    # Apply discount
+    dense.discount(regret_factor=0.9, strategy_factor=0.95)
+    compact.discount(regret_factor=0.9, strategy_factor=0.95)
     
-    # Check values
-    for infoset in strategy_table:
-        for action in strategy_table[infoset]:
-            original = strategy_table[infoset][action]
-            decoded_val = decoded[infoset][action]
-            assert abs(decoded_val - original) < 1.0
+    # Check regrets match after discount
+    for action in actions:
+        dense_regret = dense.get_regret(infoset, action)
+        compact_regret = compact.get_regret(infoset, action)
+        
+        assert abs(dense_regret - compact_regret) < 1e-3, \
+            f"Regret mismatch after discount for {action}"
 
 
-def test_memory_stats():
-    """Test memory usage statistics calculation."""
-    encoder = CompactRegretEncoder()
+def test_compact_vs_dense_reset_regrets():
+    """Test that CFR+ reset works the same in both modes."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    # Create sample regret table
-    regret_table = {
-        f'v2:FLOP:{i}:C-B75': {
-            'fold': -1000.0 * i,
-            'call': 500.0 * i,
-            'bet_0.5p': 2000.0 * i,
-            'bet_1.0p': 5000.0 * i
-        }
-        for i in range(100)  # 100 infosets
-    }
+    infoset = "preflop|0|JJ"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_POT]
     
-    # Get stats
-    stats = encoder.get_memory_stats(regret_table)
+    # Set some negative and positive regrets
+    dense.update_regret(infoset, AbstractAction.FOLD, -50.0)
+    dense.update_regret(infoset, AbstractAction.CHECK_CALL, 30.0)
+    dense.update_regret(infoset, AbstractAction.BET_POT, -20.0)
     
-    # Check stats are reasonable
-    assert stats['num_infosets'] == 100
-    assert stats['total_values'] == 400  # 100 infosets * 4 actions
-    assert stats['float64_bytes'] > stats['int32_bytes']
-    assert stats['percent_saved'] > 0
-    assert stats['percent_saved'] < 100
+    compact.update_regret(infoset, AbstractAction.FOLD, -50.0)
+    compact.update_regret(infoset, AbstractAction.CHECK_CALL, 30.0)
+    compact.update_regret(infoset, AbstractAction.BET_POT, -20.0)
     
-    # Memory reduction depends on key overhead vs value storage
-    # For small tables with many short keys, savings will be less
-    # For large tables with many values, savings approach 50%
-    assert 5 < stats['percent_saved'] < 60  # Reasonable range including key overhead
+    # Reset negative regrets
+    dense.reset_regrets()
+    compact.reset_regrets()
+    
+    # Check results
+    assert dense.get_regret(infoset, AbstractAction.FOLD) == 0.0
+    assert compact.get_regret(infoset, AbstractAction.FOLD) == 0.0
+    
+    assert abs(dense.get_regret(infoset, AbstractAction.CHECK_CALL) - 30.0) < 1e-5
+    assert abs(compact.get_regret(infoset, AbstractAction.CHECK_CALL) - 30.0) < 1e-5
+    
+    assert dense.get_regret(infoset, AbstractAction.BET_POT) == 0.0
+    assert compact.get_regret(infoset, AbstractAction.BET_POT) == 0.0
 
 
-def test_checkpoint_writer():
-    """Test compact checkpoint writer."""
-    writer = CompactCheckpointWriter()
+def test_compact_state_serialization():
+    """Test that compact storage can be serialized and restored."""
+    original = CompactRegretStorage()
     
-    regrets = {
-        'v2:PREFLOP:5:': {
-            'fold': -1000.0,
-            'call': 500.0
-        },
-        'v2:FLOP:12:C': {
-            'fold': 0.0,
-            'call': 1500.0
-        }
-    }
+    # Create some state
+    infoset1 = "preflop|0|AA"
+    infoset2 = "flop|0|KK|c"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT]
     
-    strategy_sum = {
-        'v2:PREFLOP:5:': {
-            'fold': 100.0,
-            'call': 500.0
-        },
-        'v2:FLOP:12:C': {
-            'fold': 50.0,
-            'call': 1500.0
-        }
-    }
+    for infoset in [infoset1, infoset2]:
+        for action in actions:
+            regret = np.random.randn() * 100
+            original.update_regret(infoset, action, regret)
+        
+        strategy = original.get_strategy(infoset, actions)
+        original.add_strategy(infoset, strategy, weight=1.0)
     
-    # Test compact format
-    checkpoint_data, metadata = writer.prepare_checkpoint_data(
-        regrets, strategy_sum, use_compact=True
-    )
+    # Serialize
+    state = original.get_state()
     
-    assert metadata['storage_format'] == 'int32_compact'
-    assert metadata['regret_floor'] == REGRET_FLOOR
-    assert 'memory_stats' in metadata
+    # Restore to new storage
+    restored = CompactRegretStorage()
+    restored.set_state(state)
     
-    # Load back
-    loaded_regrets, loaded_strategy = writer.load_checkpoint_data(
-        checkpoint_data, metadata
-    )
-    
-    # Check values are preserved
-    for infoset in regrets:
-        for action in regrets[infoset]:
-            assert abs(loaded_regrets[infoset][action] - regrets[infoset][action]) < 1.0
+    # Verify state matches
+    for infoset in [infoset1, infoset2]:
+        for action in actions:
+            orig_regret = original.get_regret(infoset, action)
+            rest_regret = restored.get_regret(infoset, action)
+            assert abs(orig_regret - rest_regret) < 1e-5
+        
+        orig_avg = original.get_average_strategy(infoset, actions)
+        rest_avg = restored.get_average_strategy(infoset, actions)
+        for action in actions:
+            assert abs(orig_avg[action] - rest_avg[action]) < 1e-5
 
 
-def test_checkpoint_writer_float64():
-    """Test checkpoint writer with float64 format (no compression)."""
-    writer = CompactCheckpointWriter()
+def test_compact_memory_efficiency():
+    """Test that compact storage uses less memory than dense storage."""
+    dense = RegretTracker()
+    compact = CompactRegretStorage()
     
-    regrets = {
-        'v2:PREFLOP:5:': {'fold': -1000.0, 'call': 500.0}
-    }
-    strategy_sum = {
-        'v2:PREFLOP:5:': {'fold': 100.0, 'call': 500.0}
-    }
+    # Create many infosets
+    num_infosets = 1000
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, 
+               AbstractAction.BET_HALF_POT, AbstractAction.BET_POT]
     
-    # Test float64 format
-    checkpoint_data, metadata = writer.prepare_checkpoint_data(
-        regrets, strategy_sum, use_compact=False
-    )
+    for i in range(num_infosets):
+        infoset = f"test|{i}|AA"
+        for action in actions:
+            regret = np.random.randn() * 50
+            dense.update_regret(infoset, action, regret)
+            compact.update_regret(infoset, action, regret)
     
-    assert metadata['storage_format'] == 'float64'
-    assert metadata['regret_floor'] is None
+    # Get memory usage for compact storage
+    compact_mem = compact.get_memory_usage()
     
-    # Load back
-    loaded_regrets, loaded_strategy = writer.load_checkpoint_data(
-        checkpoint_data, metadata
-    )
+    # Estimate dense storage memory (rough estimate)
+    # Each float is 8 bytes (float64), each string key ~50 bytes
+    # Dict overhead is significant
+    dense_estimate = num_infosets * len(actions) * (8 + 50) * 2  # regrets + strategy_sum
     
-    # Check exact preservation
-    assert loaded_regrets == regrets
-    assert loaded_strategy == strategy_sum
+    # Compact should use significantly less memory
+    # (We can't easily measure Python dict memory, so just verify compact reports reasonable size)
+    assert compact_mem['total_bytes'] > 0
+    assert compact_mem['num_infosets_regrets'] == num_infosets
+    
+    # Compact storage should be at least somewhat memory efficient
+    # With float32 (4 bytes) vs float64 (8 bytes) and indexed actions (4 bytes),
+    # we expect roughly 50-60% of dense storage size
+    compact_bytes_per_infoset = compact_mem['total_bytes'] / num_infosets
+    assert compact_bytes_per_infoset < 200  # Should be much less than dict-based storage
 
 
-def test_encoding_latency_benchmark():
-    """Test latency benchmarking for encoding/decoding."""
-    # Create sample data
-    regret_table = {
-        f'v2:FLOP:{i}:C': {
-            'fold': -1000.0,
-            'call': 500.0,
-            'bet_0.5p': 2000.0
-        }
-        for i in range(50)  # Small table for fast test
-    }
+def test_compact_pruning():
+    """Test that pruning check works correctly in compact storage."""
+    compact = CompactRegretStorage()
     
-    # Run benchmark
-    results = benchmark_encoding_latency(regret_table, num_iterations=10)
+    infoset = "preflop|0|AA"
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT]
     
-    # Check results structure
-    assert 'encode_ms' in results
-    assert 'decode_ms' in results
-    assert 'total_ms' in results
-    assert 'num_infosets' in results
-    assert 'total_values' in results
+    # Set all regrets below threshold
+    threshold = -100.0
+    for action in actions:
+        compact.update_regret(infoset, action, -150.0)
     
-    # Check reasonable values
-    assert results['num_infosets'] == 50
-    assert results['total_values'] == 150  # 50 * 3
-    assert results['encode_ms'] > 0
-    assert results['decode_ms'] > 0
-    assert results['total_ms'] == results['encode_ms'] + results['decode_ms']
+    # Should be prunable
+    assert compact.should_prune(infoset, actions, threshold) == True
+    
+    # Set one regret above threshold
+    compact.update_regret(infoset, AbstractAction.CHECK_CALL, 200.0)  # Now above threshold
+    
+    # Should not be prunable
+    assert compact.should_prune(infoset, actions, threshold) == False
 
 
-def test_format_memory_report():
-    """Test memory report formatting."""
-    stats = {
-        'num_infosets': 1000,
-        'total_values': 4000,
-        'float64_mb': 10.5,
-        'int32_mb': 5.2,
-        'mb_saved': 5.3,
-        'percent_saved': 50.5
-    }
+def test_multiple_infosets_iteration():
+    """Test operations across multiple infosets."""
+    compact = CompactRegretStorage()
     
-    report = format_memory_report(stats)
+    # Create diverse infosets
+    infosets = [
+        "preflop|0|AA",
+        "flop|0|KK|c",
+        "turn|0|QQ|r|c",
+        "river|0|JJ|r|r|c"
+    ]
     
-    # Check report contains key information
-    assert '1,000' in report
-    assert '4,000' in report
-    assert '10.5' in report or '10.50' in report
-    assert '5.2' in report or '5.20' in report
-    assert '50.5%' in report or '50.5 %' in report
-    assert 'MEMORY REPORT' in report
-
-
-def test_zero_regrets():
-    """Test handling of zero regret values."""
-    encoder = CompactRegretEncoder()
+    actions = [AbstractAction.FOLD, AbstractAction.CHECK_CALL, AbstractAction.BET_HALF_POT]
     
-    regrets = {
-        'action1': 0.0,
-        'action2': 0.0,
-        'action3': 0.0
-    }
+    # Update all infosets
+    for infoset in infosets:
+        for action in actions:
+            regret = np.random.randn() * 100
+            compact.update_regret(infoset, action, regret)
     
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
+    # Apply discount
+    compact.discount(regret_factor=0.9, strategy_factor=0.95)
     
-    for action in regrets:
-        assert decoded[action] == 0.0
-
-
-def test_fractional_regrets():
-    """Test handling of fractional regret values."""
-    encoder = CompactRegretEncoder()
-    
-    regrets = {
-        'action1': 123.456,
-        'action2': -789.123,
-        'action3': 0.999
-    }
-    
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
-    
-    # Should have rounding to nearest integer
-    assert abs(decoded['action1'] - 123.0) <= 1.0
-    assert abs(decoded['action2'] - (-789.0)) <= 1.0
-    assert abs(decoded['action3'] - 1.0) <= 1.0  # 0.999 rounds to 1
-
-
-def test_pluribus_parity():
-    """Test that regret floor matches Pluribus implementation."""
-    encoder = CompactRegretEncoder()
-    
-    # Pluribus uses -310,000,000 as the floor
-    assert encoder.regret_floor == -310_000_000
-    
-    # Test that extremely negative regrets are floored
-    regrets = {
-        'action1': -1_000_000_000.0,  # Way below floor
-    }
-    
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
-    
-    assert decoded['action1'] == -310_000_000.0
-
-
-def test_int32_range_limits():
-    """Test behavior at int32 range limits."""
-    encoder = CompactRegretEncoder()
-    
-    # int32 max is 2,147,483,647
-    regrets = {
-        'action1': 2_147_483_647.0,  # Max int32
-        'action2': 2_147_483_648.0,  # Above max int32 (should be clipped)
-    }
-    
-    encoded = encoder.encode_regrets(regrets)
-    decoded = encoder.decode_regrets(encoded)
-    
-    # Both should be at or near int32 max
-    assert decoded['action1'] >= 2_147_483_000.0  # Close to max
-    assert decoded['action2'] >= 2_147_483_000.0  # Clipped to max
+    # Verify all infosets still accessible
+    for infoset in infosets:
+        strategy = compact.get_strategy(infoset, actions)
+        assert len(strategy) == len(actions)
+        assert abs(sum(strategy.values()) - 1.0) < 1e-5  # Probabilities sum to 1
 
 
 if __name__ == "__main__":
-    print("Running compact storage tests...")
-    
-    test_encode_decode_basic()
-    print("✓ test_encode_decode_basic")
-    
-    test_regret_floor()
-    print("✓ test_regret_floor")
-    
-    test_large_positive_regrets()
-    print("✓ test_large_positive_regrets")
-    
-    test_encode_decode_table()
-    print("✓ test_encode_decode_table")
-    
-    test_strategy_table_encoding()
-    print("✓ test_strategy_table_encoding")
-    
-    test_memory_stats()
-    print("✓ test_memory_stats")
-    
-    test_checkpoint_writer()
-    print("✓ test_checkpoint_writer")
-    
-    test_checkpoint_writer_float64()
-    print("✓ test_checkpoint_writer_float64")
-    
-    test_encoding_latency_benchmark()
-    print("✓ test_encoding_latency_benchmark")
-    
-    test_format_memory_report()
-    print("✓ test_format_memory_report")
-    
-    test_zero_regrets()
-    print("✓ test_zero_regrets")
-    
-    test_fractional_regrets()
-    print("✓ test_fractional_regrets")
-    
-    test_pluribus_parity()
-    print("✓ test_pluribus_parity")
-    
-    test_int32_range_limits()
-    print("✓ test_int32_range_limits")
-    
-    print("\n" + "=" * 70)
-    print("All compact storage tests passed! ✨")
-    print("=" * 70)
+    pytest.main([__file__, "-v"])

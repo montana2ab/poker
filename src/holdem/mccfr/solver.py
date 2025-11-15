@@ -8,6 +8,8 @@ from holdem.abstraction.bucketing import HandBucketing
 from holdem.abstraction.state_encode import INFOSET_VERSION
 from holdem.mccfr.mccfr_os import OutcomeSampler
 from holdem.mccfr.policy_store import PolicyStore
+from holdem.mccfr.regrets import RegretTracker
+from holdem.mccfr.compact_storage import CompactRegretStorage
 from holdem.utils.logging import get_logger
 from holdem.utils.timers import Timer
 
@@ -66,6 +68,16 @@ class MCCFRSolver:
         # to avoid mutating it here. The bucketing object should be initialized
         # with the correct equity_samples value based on use case (training vs runtime)
         
+        # Create regret tracker based on storage mode
+        if config.storage_mode == "compact":
+            logger.info("Using compact storage mode (memory-efficient)")
+            regret_tracker = CompactRegretStorage()
+        elif config.storage_mode == "dense":
+            logger.info("Using dense storage mode (standard)")
+            regret_tracker = RegretTracker()
+        else:
+            raise ValueError(f"Invalid storage_mode: {config.storage_mode}. Must be 'dense' or 'compact'")
+        
         self.sampler = OutcomeSampler(
             bucketing=bucketing,
             num_players=self.num_players,
@@ -73,7 +85,8 @@ class MCCFRSolver:
             use_linear_weighting=config.use_linear_weighting,
             enable_pruning=config.enable_pruning,
             pruning_threshold=config.pruning_threshold,
-            pruning_probability=config.pruning_probability
+            pruning_probability=config.pruning_probability,
+            regret_tracker=regret_tracker  # Pass the storage backend
         )
         self.iteration = 0
         self.writer: Optional[SummaryWriter] = None
