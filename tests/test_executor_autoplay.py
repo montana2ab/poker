@@ -34,7 +34,8 @@ def autoplay_config():
         dry_run=False,
         confirm_every_action=False,  # Auto-play mode
         min_action_delay_ms=100,
-        i_understand_the_tos=True
+        i_understand_the_tos=True,
+        safe_click_enabled=False  # Disable for legacy tests
     )
 
 
@@ -45,7 +46,8 @@ def manual_config():
         dry_run=False,
         confirm_every_action=True,  # Manual mode
         min_action_delay_ms=100,
-        i_understand_the_tos=True
+        i_understand_the_tos=True,
+        safe_click_enabled=False  # Disable for legacy tests
     )
 
 
@@ -69,10 +71,14 @@ def mock_state():
 class TestAutoPlayMode:
     """Test auto-play mode functionality."""
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_autoplay_no_confirmation_simple_action(self, mock_pyautogui, mock_profile, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_autoplay_no_confirmation_simple_action(self, mock_get_pyautogui, mock_profile, autoplay_config, mock_state):
         """Test that auto-play mode doesn't ask for confirmation on simple actions."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         
         # Create a concrete action
         action = Action(action_type=ActionType.CHECK)
@@ -88,10 +94,14 @@ class TestAutoPlayMode:
         assert call_args[0] == 240  # x = 200 + 80/2
         assert call_args[1] == 320  # y = 300 + 40/2
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_autoplay_fold_action(self, mock_pyautogui, mock_profile, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_autoplay_fold_action(self, mock_get_pyautogui, mock_profile, autoplay_config, mock_state):
         """Test fold action in auto-play mode."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.FOLD)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -102,10 +112,14 @@ class TestAutoPlayMode:
         assert call_args[0] == 140  # x = 100 + 80/2
         assert call_args[1] == 320  # y = 300 + 40/2
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_autoplay_call_action(self, mock_pyautogui, mock_profile, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_autoplay_call_action(self, mock_get_pyautogui, mock_profile, autoplay_config, mock_state):
         """Test call action in auto-play mode."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.CALL, amount=20.0)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -113,11 +127,15 @@ class TestAutoPlayMode:
         assert result is True
         mock_pyautogui.click.assert_called_once()
     
-    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor._get_pyautogui')
     @patch('holdem.control.executor.time.sleep')
-    def test_autoplay_bet_with_input_box(self, mock_sleep, mock_pyautogui, mock_profile, autoplay_config, mock_state):
+    def test_autoplay_bet_with_input_box(self, mock_sleep, mock_get_pyautogui, mock_profile, autoplay_config, mock_state):
         """Test bet action uses input box when available."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET, amount=50.0)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -134,8 +152,8 @@ class TestAutoPlayMode:
         expected_interval = executor.type_interval
         mock_pyautogui.typewrite.assert_called_once_with('50', interval=expected_interval)
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_autoplay_bet_without_input_box(self, mock_pyautogui, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_autoplay_bet_without_input_box(self, mock_get_pyautogui, autoplay_config, mock_state):
         """Test bet action without input box falls back to default."""
         # Profile without bet_input_box
         profile = Mock(spec=TableProfile)
@@ -144,6 +162,10 @@ class TestAutoPlayMode:
         }
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET, amount=50.0)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -154,9 +176,9 @@ class TestAutoPlayMode:
         # Should not try to type
         mock_pyautogui.typewrite.assert_not_called()
     
-    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor._get_pyautogui')
     @patch('holdem.control.executor.time.sleep')
-    def test_autoplay_bet_half_pot_action(self, mock_sleep, mock_pyautogui, autoplay_config, mock_state):
+    def test_autoplay_bet_half_pot_action(self, mock_sleep, mock_get_pyautogui, autoplay_config, mock_state):
         """Test BET_HALF_POT action uses quick bet buttons."""
         # Profile with quick bet regions
         profile = Mock(spec=TableProfile)
@@ -166,6 +188,10 @@ class TestAutoPlayMode:
         }
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET_HALF_POT)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -182,9 +208,9 @@ class TestAutoPlayMode:
         assert second_call[0] == 378  # x = 328 + 100/2
         assert second_call[1] == 347  # y = 327 + 40/2
     
-    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor._get_pyautogui')
     @patch('holdem.control.executor.time.sleep')
-    def test_autoplay_bet_pot_action(self, mock_sleep, mock_pyautogui, autoplay_config, mock_state):
+    def test_autoplay_bet_pot_action(self, mock_sleep, mock_get_pyautogui, autoplay_config, mock_state):
         """Test BET_POT action uses quick bet buttons."""
         # Profile with quick bet regions
         profile = Mock(spec=TableProfile)
@@ -194,6 +220,10 @@ class TestAutoPlayMode:
         }
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET_POT)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -210,8 +240,8 @@ class TestAutoPlayMode:
         assert second_call[0] == 378  # x = 328 + 100/2
         assert second_call[1] == 347  # y = 327 + 40/2
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_bet_half_pot_missing_sizing_button(self, mock_pyautogui, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_bet_half_pot_missing_sizing_button(self, mock_get_pyautogui, autoplay_config, mock_state):
         """Test BET_HALF_POT with missing sizing button region."""
         # Profile without half_pot_button_region
         profile = Mock(spec=TableProfile)
@@ -220,6 +250,10 @@ class TestAutoPlayMode:
         }
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET_HALF_POT)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -228,8 +262,8 @@ class TestAutoPlayMode:
         # Should not click anything if sizing button is missing
         mock_pyautogui.click.assert_not_called()
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_bet_pot_missing_confirm_button(self, mock_pyautogui, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_bet_pot_missing_confirm_button(self, mock_get_pyautogui, autoplay_config, mock_state):
         """Test BET_POT with missing confirm button region."""
         # Profile without bet_confirm_button_region
         profile = Mock(spec=TableProfile)
@@ -238,6 +272,10 @@ class TestAutoPlayMode:
         }
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.BET_POT)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -247,12 +285,16 @@ class TestAutoPlayMode:
         mock_pyautogui.click.assert_not_called()
     
     @patch('holdem.control.executor.input')
-    @patch('holdem.control.executor.pyautogui')
-    def test_manual_mode_requires_confirmation(self, mock_pyautogui, mock_input, mock_profile, manual_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_manual_mode_requires_confirmation(self, mock_get_pyautogui, mock_input, mock_profile, manual_config, mock_state):
         """Test manual mode asks for confirmation."""
         mock_input.return_value = 'y'
         
         executor = ActionExecutor(manual_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.CHECK)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -264,12 +306,16 @@ class TestAutoPlayMode:
         mock_pyautogui.click.assert_called_once()
     
     @patch('holdem.control.executor.input')
-    @patch('holdem.control.executor.pyautogui')
-    def test_manual_mode_can_cancel(self, mock_pyautogui, mock_input, mock_profile, manual_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_manual_mode_can_cancel(self, mock_get_pyautogui, mock_input, mock_profile, manual_config, mock_state):
         """Test manual mode can cancel action."""
         mock_input.return_value = 'n'
         
         executor = ActionExecutor(manual_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.CHECK)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -280,10 +326,14 @@ class TestAutoPlayMode:
         # Should NOT have clicked after cancellation
         mock_pyautogui.click.assert_not_called()
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_abstract_action_execution_autoplay(self, mock_pyautogui, mock_profile, autoplay_config):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_abstract_action_execution_autoplay(self, mock_get_pyautogui, mock_profile, autoplay_config):
         """Test abstract action execution in auto-play mode."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = AbstractAction.CHECK_CALL
         
         result = executor.execute_action(action)
@@ -301,7 +351,10 @@ class TestAutoPlayMode:
         executor = ActionExecutor(config, mock_profile)
         action = AbstractAction.CHECK_CALL
         
-        with patch('holdem.control.executor.pyautogui') as mock_pyautogui:
+        with patch('holdem.control.executor._get_pyautogui') as mock_get_pyautogui:
+            mock_pyautogui = Mock()
+            mock_get_pyautogui.return_value = mock_pyautogui
+            
             result = executor.execute_action(action)
             
             assert result is True
@@ -326,10 +379,14 @@ class TestExecutorSafety:
         
         assert result is False
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_stopped_executor_no_action(self, mock_pyautogui, mock_profile, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_stopped_executor_no_action(self, mock_get_pyautogui, mock_profile, autoplay_config, mock_state):
         """Test stopped executor doesn't execute actions."""
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         executor.stop()
         
         action = Action(action_type=ActionType.CHECK)
@@ -338,14 +395,18 @@ class TestExecutorSafety:
         assert result is False
         mock_pyautogui.click.assert_not_called()
     
-    @patch('holdem.control.executor.pyautogui')
-    def test_missing_button_region(self, mock_pyautogui, autoplay_config, mock_state):
+    @patch('holdem.control.executor._get_pyautogui')
+    def test_missing_button_region(self, mock_get_pyautogui, autoplay_config, mock_state):
         """Test handling of missing button region."""
         # Profile without the required button
         profile = Mock(spec=TableProfile)
         profile.button_regions = {}
         
         executor = ActionExecutor(autoplay_config, profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         action = Action(action_type=ActionType.CHECK)
         
         result = executor._execute_concrete_action(action, mock_state)
@@ -376,13 +437,17 @@ class TestPlatformSpecificBehavior:
         assert hasattr(executor, 'is_apple_silicon')
     
     @patch('holdem.control.executor._is_macos')
-    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor._get_pyautogui')
     @patch('holdem.control.executor.time.sleep')
-    def test_mac_uses_command_key(self, mock_sleep, mock_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
+    def test_mac_uses_command_key(self, mock_sleep, mock_get_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
         """Test that macOS uses command key instead of ctrl."""
         mock_is_macos.return_value = True
         
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         
         # Manually set is_mac to True for this test
         executor.is_mac = True
@@ -394,13 +459,17 @@ class TestPlatformSpecificBehavior:
         mock_pyautogui.hotkey.assert_called_with('command', 'a')
     
     @patch('holdem.control.executor._is_macos')
-    @patch('holdem.control.executor.pyautogui')
+    @patch('holdem.control.executor._get_pyautogui')
     @patch('holdem.control.executor.time.sleep')
-    def test_linux_uses_ctrl_key(self, mock_sleep, mock_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
+    def test_linux_uses_ctrl_key(self, mock_sleep, mock_get_pyautogui, mock_is_macos, mock_profile, autoplay_config, mock_state):
         """Test that Linux/Windows uses ctrl key."""
         mock_is_macos.return_value = False
         
         executor = ActionExecutor(autoplay_config, mock_profile)
+        
+        # Setup mock pyautogui
+        mock_pyautogui = Mock()
+        mock_get_pyautogui.return_value = mock_pyautogui
         
         # Manually set is_mac to False for this test
         executor.is_mac = False
