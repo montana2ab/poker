@@ -12,7 +12,7 @@ from holdem.vision.parse_state import StateParser
 from holdem.vision.cards import CardRecognizer
 from holdem.vision.vision_performance_config import VisionPerformanceConfig
 from holdem.vision.button_detector import ButtonDetector, detect_button_by_color
-from holdem.types import TableState, ActionType, Street
+from holdem.types import TableState, ActionType, Street, Card
 from holdem.utils.logging import get_logger
 
 logger = get_logger("vision.chat_enabled_parser")
@@ -24,6 +24,138 @@ try:
 except ImportError:
     _TIMING_AVAILABLE = False
     get_profiler = None
+
+
+def apply_fused_events_to_state(state: TableState, fused_events: List[FusedEvent], logger_instance=None):
+    """Apply fused events (vision + chat) to the current hand state.
+    
+    This function updates the state based on reliable events from multiple sources:
+    - Updates street (PREFLOP/FLOP/TURN/RIVER/SHOWDOWN) from board_update events
+    - Updates pot from pot_update events
+    - Updates player actions and states from player_action events
+    - Prioritizes chat over vision when confidence >= 0.75
+    
+    This is a lightweight function that only performs simple logic (no OCR).
+    
+    Args:
+        state: Current TableState to update
+        fused_events: List of fused events to apply
+        logger_instance: Optional logger instance for logging
+        
+    Returns:
+        None (modifies state in-place)
+    """
+    if not fused_events:
+        return
+    
+    log = logger_instance or logger
+    
+    # Process each event
+    for event in fused_events:
+        # 1. Handle board_update / street_update events
+        if event.event_type in ["board_update", "street_update"]:
+            if event.street:
+                # Check if event has chat source with good confidence
+                has_chat = EventSource.CHAT_OCR in event.sources or EventSource.CHAT in event.sources
+                
+                # Apply street update if:
+                # - Event has chat source with confidence >= 0.75 (prioritize chat)
+                # - OR event has high confidence (>= 0.85) from any source
+                should_apply = (has_chat and event.confidence >= 0.75) or (event.confidence >= 0.85)
+                
+                if should_apply:
+                    old_street = state.street
+                    new_street_str = event.street.upper()
+                    
+                    # Map string to Street enum
+                    street_mapping = {
+                        "PREFLOP": Street.PREFLOP,
+                        "FLOP": Street.FLOP,
+                        "TURN": Street.TURN,
+                        "RIVER": Street.RIVER,
+                        "SHOWDOWN": Street.RIVER  # Treat showdown as river for street tracking
+                    }
+                    
+                    new_street = street_mapping.get(new_street_str, state.street)
+                    
+                    # Only update if street is progressing (never go backwards)
+                    street_order = {Street.PREFLOP: 0, Street.FLOP: 1, Street.TURN: 2, Street.RIVER: 3}
+                    current_order = street_order.get(old_street, 0)
+                    new_order = street_order.get(new_street, 0)
+                    
+                    if new_order > current_order:
+                        state.street = new_street
+                        sources_str = ", ".join(s.value for s in event.sources)
+                        log.info(
+                            f"[STREET UPDATE] Street updated from chat: {old_street.name} -> {new_street.name} "
+                            f"(sources={sources_str}, confidence={event.confidence:.2f})"
+                        )
+                        
+                        # Mark that board came from chat if applicable
+                        if has_chat:
+                            # Add a flag to state to track board source (optional, for debugging)
+                            state.__dict__['board_from_chat'] = True
+                    elif new_order == current_order:
+                        log.debug(
+                            f"[STREET UPDATE] Street already at {new_street.name}, skipping update "
+                            f"(confidence={event.confidence:.2f})"
+                        )
+                    else:
+                        log.warning(
+                            f"[STREET UPDATE] Ignoring backwards street transition: "
+                            f"{old_street.name} -> {new_street.name}"
+                        )
+                
+                # Note: Board card updates are handled by _update_board_cache_from_event()
+                # which is called separately after this function
+        
+        # 2. Handle pot_update events
+        elif event.event_type == "pot_update":
+            if event.pot_amount is not None and event.confidence >= 0.7:
+                has_chat = EventSource.CHAT_OCR in event.sources or EventSource.CHAT in event.sources
+                
+                # Prioritize chat pot updates
+                if has_chat or event.confidence >= 0.85:
+                    old_pot = state.pot
+                    state.pot = event.pot_amount
+                    sources_str = ", ".join(s.value for s in event.sources)
+                    log.info(
+                        f"[POT UPDATE] Pot updated: {old_pot:.2f} -> {state.pot:.2f} "
+                        f"(sources={sources_str}, confidence={event.confidence:.2f})"
+                    )
+        
+        # 3. Handle player_action events
+        elif event.event_type == "action":
+            if event.player and event.action and event.confidence >= 0.7:
+                # Find player in state
+                player_state = None
+                for p in state.players:
+                    if p.name == event.player:
+                        player_state = p
+                        break
+                
+                if player_state:
+                    # Update player's last action
+                    old_action = player_state.last_action
+                    player_state.last_action = event.action
+                    
+                    # Update bet amount if provided
+                    if event.amount is not None:
+                        player_state.bet_this_round = event.amount
+                    
+                    # Update folded status
+                    if event.action == ActionType.FOLD:
+                        player_state.folded = True
+                    
+                    # Update all-in status
+                    if event.action == ActionType.ALLIN:
+                        player_state.all_in = True
+                    
+                    sources_str = ", ".join(s.value for s in event.sources)
+                    log.debug(
+                        f"[PLAYER ACTION] {event.player}: {event.action.value} "
+                        f"(amount={event.amount}, sources={sources_str}, confidence={event.confidence:.2f})"
+                    )
 
 
 class ChatEnabledStateParser:
@@ -194,6 +326,10 @@ class ChatEnabledStateParser:
         
         # Filter for reliable events only
         reliable_events = self.event_fuser.get_reliable_events(fused_events)
+        
+        # Apply fused events to state (updates street, pot, player actions)
+        if reliable_events:
+            apply_fused_events_to_state(current_state, reliable_events, logger_instance=logger)
         
         if reliable_events:
             logger.info(f"Fused {len(fused_events)} events, {len(reliable_events)} reliable")
